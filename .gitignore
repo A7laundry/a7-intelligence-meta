@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.pyo
+.env
+venv/
+.venv/
+optimization_log_*.json
