@@ -1,6 +1,9 @@
 """
 A7 Lavanderia - Facebook Ads Automation
 Configurações e credenciais
+
+INSTRUÇÕES: Copie este arquivo para config.py e preencha com suas credenciais reais.
+    cp config.example.py config.py
 """
 
 # ==============================================================
