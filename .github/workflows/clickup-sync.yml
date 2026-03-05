@@ -1,0 +1,158 @@
+name: ClickUp Sync
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, closed]
+    branches: [main]
+
+jobs:
+  sync-on-push:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    env:
+      CLICKUP_API_KEY: ${{ secrets.CLICKUP_API_KEY }}
+      CLICKUP_TASK_ID: ${{ secrets.CLICKUP_PARENT_TASK_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Sync com ClickUp
+        shell: bash
+        run: |
+          SHA_SHORT=$(git rev-parse --short HEAD)
+          MESSAGE=$(git log -1 --pretty=%s)
+          AUTHOR=$(git log -1 --pretty=%an)
+          FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null | wc -l | tr -d ' ')
+          NOW=$(date -u '+%d/%m/%Y %H:%M UTC')
+          REPO="${{ github.repository }}"
+          FULL_SHA="${{ github.sha }}"
+
+          # Detectar task IDs [T-001] no commit message
+          TASK_IDS=$(echo "$MESSAGE" | grep -oE '\[T-[0-9]+\]' | tr -d '[]' | tr '\n' ' ' || true)
+
+          # Montar comentário
+          TEXT="Deploy em producao\n\n"
+          TEXT+="Commit: ${SHA_SHORT} - ${MESSAGE}\n"
+          TEXT+="Autor: ${AUTHOR}\n"
+          TEXT+="Arquivos alterados: ${FILES}\n"
+          TEXT+="Data: ${NOW}\n"
+          TEXT+="URL: https://github.com/${REPO}/commit/${FULL_SHA}"
+
+          if [ -n "$TASK_IDS" ]; then
+            TEXT+="\n\nTasks referenciadas: ${TASK_IDS}"
+          fi
+
+          # Enviar para ClickUp
+          PAYLOAD=$(python3 -c "import json; print(json.dumps({'comment_text': '''$(echo -e "$TEXT")'''}))")
+
+          curl -sf -X POST \
+            "https://api.clickup.com/api/v2/task/${CLICKUP_TASK_ID}/comment" \
+            -H "Authorization: ${CLICKUP_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" > /dev/null
+
+          echo "✅ Comentário adicionado no ClickUp"
+
+  sync-on-pr-open:
+    if: github.event_name == 'pull_request' && github.event.action == 'opened'
+    runs-on: ubuntu-latest
+    env:
+      CLICKUP_API_KEY: ${{ secrets.CLICKUP_API_KEY }}
+      CLICKUP_TASK_ID: ${{ secrets.CLICKUP_PARENT_TASK_ID }}
+    steps:
+      - name: Registrar PR no ClickUp
+        shell: bash
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_HEAD: ${{ github.head_ref }}
+          PR_BASE: ${{ github.base_ref }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          TEXT="Pull Request aberto\n\n"
+          TEXT+="PR: #${PR_NUMBER} - ${PR_TITLE}\n"
+          TEXT+="Autor: ${PR_AUTHOR}\n"
+          TEXT+="Branch: ${PR_HEAD} -> ${PR_BASE}\n"
+          TEXT+="URL: ${PR_URL}"
+
+          PAYLOAD=$(python3 -c "import json; print(json.dumps({'comment_text': '''$(echo -e "$TEXT")'''}))")
+
+          curl -sf -X POST \
+            "https://api.clickup.com/api/v2/task/${CLICKUP_TASK_ID}/comment" \
+            -H "Authorization: ${CLICKUP_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" > /dev/null
+
+          echo "✅ PR registrado no ClickUp"
+
+  sync-on-pr-merged:
+    if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    env:
+      CLICKUP_API_KEY: ${{ secrets.CLICKUP_API_KEY }}
+      CLICKUP_TASK_ID: ${{ secrets.CLICKUP_PARENT_TASK_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Registrar merge no ClickUp
+        shell: bash
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_MERGED_BY: ${{ github.event.pull_request.merged_by.login }}
+          PR_COMMITS: ${{ github.event.pull_request.commits }}
+          PR_ADDITIONS: ${{ github.event.pull_request.additions }}
+          PR_DELETIONS: ${{ github.event.pull_request.deletions }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_BASE: ${{ github.base_ref }}
+        run: |
+          TEXT="Pull Request mergeado\n\n"
+          TEXT+="PR: #${PR_NUMBER} - ${PR_TITLE}\n"
+          TEXT+="Mergeado por: ${PR_MERGED_BY}\n"
+          TEXT+="Commits: ${PR_COMMITS}\n"
+          TEXT+="Alteracoes: +${PR_ADDITIONS} / -${PR_DELETIONS}\n"
+          TEXT+="URL: ${PR_URL}"
+
+          PAYLOAD=$(python3 -c "import json; print(json.dumps({'comment_text': '''$(echo -e "$TEXT")'''}))")
+
+          curl -sf -X POST \
+            "https://api.clickup.com/api/v2/task/${CLICKUP_TASK_ID}/comment" \
+            -H "Authorization: ${CLICKUP_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" > /dev/null
+
+          echo "✅ Merge registrado no ClickUp"
+
+          # Buscar task IDs [T-001] nos commits do PR
+          COMMITS=$(git log --pretty=%s origin/${PR_BASE}..HEAD 2>/dev/null || echo "")
+          TASK_IDS=$(echo "$COMMITS" | grep -oE '\[T-[0-9]+\]' | tr -d '[]' | sort -u || true)
+
+          if [ -z "$TASK_IDS" ]; then
+            echo "Nenhuma task referenciada nos commits"
+            exit 0
+          fi
+
+          echo "Tasks encontradas: $TASK_IDS"
+
+          SUBTASKS_JSON=$(curl -sf \
+            "https://api.clickup.com/api/v2/task/${CLICKUP_TASK_ID}/?include_subtasks=true" \
+            -H "Authorization: ${CLICKUP_API_KEY}")
+
+          for TASK_REF in $TASK_IDS; do
+            SUBTASK_ID=$(echo "$SUBTASKS_JSON" | python3 -c "import json,sys;d=json.load(sys.stdin);[print(s['id']) for s in d.get('subtasks',[]) if '${TASK_REF}' in s['name']][:1]" 2>/dev/null || true)
+
+            if [ -n "$SUBTASK_ID" ]; then
+              curl -sf -X POST \
+                "https://api.clickup.com/api/v2/task/${SUBTASK_ID}/comment" \
+                -H "Authorization: ${CLICKUP_API_KEY}" \
+                -H "Content-Type: application/json" \
+                -d "{\"comment_text\":\"${TASK_REF} implementada via PR #${PR_NUMBER}\"}" > /dev/null
+              echo "  -> Subtarefa $SUBTASK_ID atualizada"
+            fi
+          done
