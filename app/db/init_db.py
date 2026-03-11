@@ -1,4 +1,4 @@
-"""Database initialization and connection management."""
+"""Database initialization, migration, and connection management."""
 
 import os
 import sqlite3
@@ -22,11 +22,191 @@ def get_connection():
     return conn
 
 
+def _table_exists(conn, name):
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)
+    ).fetchone()
+    return row is not None
+
+
+def _column_exists(conn, table, column):
+    cols = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    return any(c["name"] == column for c in cols)
+
+
+def _run_migrations(conn):
+    """Apply incremental migrations to existing databases."""
+
+    # Migration 1: Add ad_accounts table and account_id columns
+    if not _table_exists(conn, "ad_accounts"):
+        conn.execute("""
+            CREATE TABLE ad_accounts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                platform TEXT NOT NULL DEFAULT 'meta',
+                account_name TEXT NOT NULL,
+                external_account_id TEXT NOT NULL,
+                status TEXT DEFAULT 'active',
+                is_default INTEGER DEFAULT 0,
+                created_at TEXT DEFAULT (datetime('now')),
+                UNIQUE(platform, external_account_id)
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_ad_accounts_platform ON ad_accounts(platform)")
+        conn.commit()
+
+    # Migration 2: Seed default accounts if empty
+    count = conn.execute("SELECT COUNT(*) FROM ad_accounts").fetchone()[0]
+    if count == 0:
+        _seed_default_accounts(conn)
+
+    # Migration 3: Add account_id to tables that don't have it yet
+    tables_to_migrate = [
+        "daily_snapshots", "campaign_snapshots", "creatives",
+        "ai_coach_insights", "alerts", "automation_actions",
+        "automation_logs", "creative_daily_metrics",
+    ]
+    for table in tables_to_migrate:
+        if _table_exists(conn, table) and not _column_exists(conn, table, "account_id"):
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN account_id INTEGER DEFAULT 1")
+    conn.commit()
+
+    # Migration 4: Recreate daily_snapshots with new UNIQUE(account_id, date, platform)
+    #   only if old constraint UNIQUE(date, platform) without account_id is still in place
+    _migrate_snapshots_table(conn, "daily_snapshots",
+        """CREATE TABLE daily_snapshots_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            account_id INTEGER DEFAULT 1,
+            date TEXT NOT NULL,
+            platform TEXT NOT NULL,
+            spend REAL DEFAULT 0,
+            impressions INTEGER DEFAULT 0,
+            clicks INTEGER DEFAULT 0,
+            ctr REAL DEFAULT 0,
+            cpc REAL DEFAULT 0,
+            conversions INTEGER DEFAULT 0,
+            cpa REAL DEFAULT 0,
+            roas REAL DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now')),
+            UNIQUE(account_id, date, platform)
+        )""",
+        "INSERT INTO daily_snapshots_new SELECT id, COALESCE(account_id,1), date, platform, spend, impressions, clicks, ctr, cpc, conversions, cpa, roas, created_at FROM daily_snapshots"
+    )
+
+    _migrate_snapshots_table(conn, "campaign_snapshots",
+        """CREATE TABLE campaign_snapshots_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            account_id INTEGER DEFAULT 1,
+            date TEXT NOT NULL,
+            platform TEXT NOT NULL,
+            campaign_id TEXT NOT NULL,
+            campaign_name TEXT NOT NULL,
+            status TEXT DEFAULT 'UNKNOWN',
+            spend REAL DEFAULT 0,
+            impressions INTEGER DEFAULT 0,
+            clicks INTEGER DEFAULT 0,
+            ctr REAL DEFAULT 0,
+            conversions INTEGER DEFAULT 0,
+            cpa REAL DEFAULT 0,
+            roas REAL DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now')),
+            UNIQUE(account_id, date, platform, campaign_id)
+        )""",
+        "INSERT INTO campaign_snapshots_new SELECT id, COALESCE(account_id,1), date, platform, campaign_id, campaign_name, status, spend, impressions, clicks, ctr, conversions, cpa, roas, created_at FROM campaign_snapshots"
+    )
+
+    _migrate_snapshots_table(conn, "creatives",
+        """CREATE TABLE creatives_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            account_id INTEGER DEFAULT 1,
+            platform TEXT NOT NULL DEFAULT 'meta',
+            campaign_id TEXT,
+            campaign_name TEXT,
+            adset_id TEXT,
+            adset_name TEXT,
+            ad_id TEXT NOT NULL,
+            creative_name TEXT,
+            creative_type TEXT DEFAULT 'image',
+            thumbnail_url TEXT,
+            body_text TEXT,
+            headline TEXT,
+            call_to_action TEXT,
+            status TEXT DEFAULT 'ACTIVE',
+            last_seen_at TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now')),
+            UNIQUE(account_id, platform, ad_id)
+        )""",
+        "INSERT INTO creatives_new SELECT id, COALESCE(account_id,1), platform, campaign_id, campaign_name, adset_id, adset_name, ad_id, creative_name, creative_type, thumbnail_url, body_text, headline, call_to_action, status, last_seen_at, created_at, updated_at FROM creatives"
+    )
+
+
+def _migrate_snapshots_table(conn, table_name, create_sql, copy_sql):
+    """Recreate a table with updated UNIQUE constraint, preserving data."""
+    new_name = table_name + "_new"
+    # Skip if migration already done (new table doesn't exist as tmp)
+    if _table_exists(conn, new_name):
+        conn.execute(f"DROP TABLE {new_name}")
+        conn.commit()
+    # Check if old table uses old unique constraint by inspecting sql
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (table_name,)
+    ).fetchone()
+    if row is None:
+        return
+    old_sql = row[0] or ""
+    # If new constraint already in place, skip
+    if "account_id, date, platform" in old_sql or "account_id, platform, ad_id" in old_sql:
+        return
+    try:
+        conn.execute(create_sql)
+        conn.execute(copy_sql)
+        conn.execute(f"DROP TABLE {table_name}")
+        conn.execute(f"ALTER TABLE {new_name} RENAME TO {table_name}")
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        print(f"⚠️  Migration skipped for {table_name}: {e}")
+
+
+def _seed_default_accounts(conn):
+    """Seed the two default A7 ad accounts."""
+    accounts = [
+        ("meta", "A7 Laundry Orlando", "act_650201661142284", "active", 1),
+        ("meta", "A7 Lavanderia SP", "act_1376004546770063", "active", 0),
+    ]
+    conn.executemany(
+        "INSERT OR IGNORE INTO ad_accounts (platform, account_name, external_account_id, status, is_default) VALUES (?,?,?,?,?)",
+        accounts,
+    )
+    conn.commit()
+
+
 def init_db():
-    """Initialize the database with the schema."""
+    """Initialize the database and run migrations."""
     conn = get_connection()
+    # Execute schema statements individually — skip ones that fail on existing tables
+    # (e.g. indexes referencing account_id columns not yet added by migration)
     with open(SCHEMA_PATH, "r") as f:
-        conn.executescript(f.read())
+        sql = f.read()
+    for stmt in sql.split(";"):
+        stmt = stmt.strip()
+        if stmt:
+            try:
+                conn.execute(stmt)
+            except Exception:
+                pass  # gracefully skip — migration will add missing columns next
+    conn.commit()
+    # Now run migrations to add missing columns and re-try any skipped indexes
+    _run_migrations(conn)
+    # Re-run schema to pick up any indexes that were skipped before migration
+    for stmt in sql.split(";"):
+        stmt = stmt.strip()
+        if stmt and stmt.upper().startswith("CREATE INDEX"):
+            try:
+                conn.execute(stmt)
+            except Exception:
+                pass
+    conn.commit()
     conn.close()
     print(f"✅ Database initialized at {DB_PATH}")
 

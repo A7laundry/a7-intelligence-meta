@@ -8,6 +8,80 @@
   let currentRange = document.querySelector('.range-btn.active')?.getAttribute('data-range') || '7d';
   let trendChart = null;
 
+  /* ─── Account Context ─── */
+  let currentAccountId = null;
+
+  function getAccountIdFromUrl() {
+    return new URLSearchParams(window.location.search).get('account_id');
+  }
+
+  function setAccountIdInUrl(id) {
+    const params = new URLSearchParams(window.location.search);
+    params.set('account_id', id);
+    window.history.replaceState({}, '', '?' + params.toString());
+  }
+
+  function acctParam() {
+    return currentAccountId ? '&account_id=' + currentAccountId : '';
+  }
+
+  async function initAccountSelector() {
+    try {
+      const accounts = await fetchApi('/accounts');
+      if (!accounts || accounts.length <= 1) return; // hide if only one account
+      const select = $('#accountSelect');
+      const wrap = $('#accountSelectorWrap');
+      if (!select || !wrap) return;
+      select.innerHTML = '';
+      accounts.forEach(acc => {
+        const opt = document.createElement('option');
+        opt.value = acc.id;
+        opt.textContent = acc.account_name;
+        select.appendChild(opt);
+      });
+      // Restore from URL or localStorage
+      const fromUrl = getAccountIdFromUrl();
+      const fromStorage = localStorage.getItem('a7_account_id');
+      const initial = fromUrl || fromStorage || (accounts[0] && accounts[0].id);
+      if (initial) {
+        select.value = initial;
+        currentAccountId = parseInt(initial, 10);
+      }
+      wrap.style.display = 'flex';
+      // Update badge for selected account platform
+      const selected = accounts.find(a => a.id == currentAccountId);
+      if (selected) {
+        const badge = $('#accountPlatformBadge');
+        if (badge) badge.textContent = selected.platform === 'google' ? 'Google' : 'Meta';
+      }
+      // Listen for changes
+      select.addEventListener('change', function () {
+        currentAccountId = parseInt(this.value, 10);
+        localStorage.setItem('a7_account_id', currentAccountId);
+        setAccountIdInUrl(currentAccountId);
+        const acc = accounts.find(a => a.id == currentAccountId);
+        if (acc) {
+          const badge = $('#accountPlatformBadge');
+          if (badge) badge.textContent = acc.platform === 'google' ? 'Google' : 'Meta';
+        }
+        load(currentRange);
+        loadAllSections();
+      });
+    } catch (e) {
+      // silently skip if accounts endpoint unavailable
+    }
+  }
+
+  function loadAllSections() {
+    loadGrowthScore();
+    loadBudget();
+    loadAlerts();
+    loadCoach();
+    loadAutomation();
+    loadAutoLogs();
+    loadCreatives();
+  }
+
   const $ = (sel) => document.querySelector(sel);
   const $$ = (sel) => document.querySelectorAll(sel);
 
@@ -303,7 +377,7 @@
     $('#sectionsContainer').style.display = 'none';
 
     try {
-      const data = await fetchApi('/dashboard/' + range);
+      const data = await fetchApi('/dashboard/' + range + (currentAccountId ? '?account_id=' + currentAccountId : ''));
       render(data);
     } catch (e) {
       $('#loadingState').innerHTML = 'Error loading data. Check if the server is running.';
@@ -353,7 +427,7 @@
   /* ─── Growth Score Strip ─── */
   async function loadGrowthScore() {
     try {
-      var data = await fetchApi('/growth-score?days=7');
+      var data = await fetchApi('/growth-score?days=7' + acctParam());
       var strip = document.getElementById('growthStrip');
       if (!strip) return;
       strip.style.display = '';
@@ -374,7 +448,7 @@
 
       // Critical alerts count
       var alertData = null;
-      try { alertData = await fetchApi('/alerts?severity=critical&limit=100'); } catch(e) {}
+      try { alertData = await fetchApi('/alerts?severity=critical&limit=100' + acctParam()); } catch(e) {}
       var critCount = alertData ? (alertData.alerts || []).length : 0;
       if (critCount > 0) {
         html += '<span class="growth-signal critical">' + critCount + ' Critical Alert' + (critCount > 1 ? 's' : '') + '</span>';
@@ -405,7 +479,7 @@
     empty.style.display = 'none';
 
     try {
-      var data = await fetchApi('/budget/summary?days=7');
+      var data = await fetchApi('/budget/summary?days=7' + acctParam());
       loading.style.display = 'none';
 
       if (data.error || data.total_spend === 0) {
@@ -515,7 +589,7 @@
     if (!list) return;
 
     try {
-      var data = await fetchApi('/alerts?limit=20');
+      var data = await fetchApi('/alerts?limit=20' + acctParam());
       var alerts = data.alerts || [];
       if (alerts.length === 0) {
         list.innerHTML = '';
@@ -583,9 +657,9 @@
 
     try {
       const [briefing, recsData, healthData] = await Promise.all([
-        fetchApi('/ai-coach/briefing?days=7'),
-        fetchApi('/ai-coach/recommendations?days=7'),
-        fetchApi('/ai-coach/health?days=7'),
+        fetchApi('/ai-coach/briefing?days=7' + acctParam()),
+        fetchApi('/ai-coach/recommendations?days=7' + acctParam()),
+        fetchApi('/ai-coach/health?days=7' + acctParam()),
       ]);
 
       loading.style.display = 'none';
@@ -721,7 +795,7 @@
     empty.style.display = 'none';
 
     try {
-      var data = await fetchApi('/analytics/forecast?horizon=7');
+      var data = await fetchApi('/analytics/forecast?horizon=7' + acctParam());
       loading.style.display = 'none';
 
       var forecasts = data.forecasts || {};
@@ -795,7 +869,7 @@
     empty.style.display = 'none';
 
     try {
-      var data = await fetchApi('/reports/latest?days=7');
+      var data = await fetchApi('/reports/latest?days=7' + acctParam());
       loading.style.display = 'none';
 
       if (!data.sections) {
@@ -898,10 +972,10 @@
 
     try {
       var [summaryData, effData, oppsData, shareData] = await Promise.all([
-        fetchApi('/platforms/summary?days=7'),
-        fetchApi('/platforms/efficiency?days=7'),
-        fetchApi('/platforms/opportunities?days=7'),
-        fetchApi('/platforms/spend-share?days=7'),
+        fetchApi('/platforms/summary?days=7' + acctParam()),
+        fetchApi('/platforms/efficiency?days=7' + acctParam()),
+        fetchApi('/platforms/opportunities?days=7' + acctParam()),
+        fetchApi('/platforms/spend-share?days=7' + acctParam()),
       ]);
 
       loading.style.display = 'none';
@@ -1059,7 +1133,7 @@
     empty.style.display = 'none';
 
     try {
-      var data = await fetchApi('/automation/actions');
+      var data = await fetchApi('/automation/actions' + (currentAccountId ? '?account_id=' + currentAccountId : ''));
       loading.style.display = 'none';
 
       var actions = data.actions || [];
@@ -1142,7 +1216,7 @@
     var el = document.getElementById('automationList');
     if (!el) return;
     try {
-      var data = await fetchApi('/automation/logs?limit=30');
+      var data = await fetchApi('/automation/logs?limit=30' + acctParam());
       var logs = data.logs || [];
       if (logs.length === 0) {
         el.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:20px;font-size:13px">No logs yet.</div>';
@@ -1207,7 +1281,7 @@
     if (!confirm('Execute all approved automation actions?')) return;
     try {
       // Execute each approved action
-      var pending = await fetchApi('/automation/actions?status=approved');
+      var pending = await fetchApi('/automation/actions?status=approved' + acctParam());
       var actions = pending.actions || [];
       var executed = 0;
       for (var i = 0; i < actions.length; i++) {
@@ -1223,8 +1297,8 @@
   async function loadCreatives() {
     try {
       const [summaryData, creativesData] = await Promise.all([
-        fetchApi('/creatives/summary?days=7'),
-        fetchApi('/creatives?days=7'),
+        fetchApi('/creatives/summary?days=7' + acctParam()),
+        fetchApi('/creatives?days=7' + acctParam()),
       ]);
 
       renderCreativeSummary(summaryData);
@@ -1298,6 +1372,7 @@
 
   /* ─── Init ─── */
   loadPlatformStatus();
+  initAccountSelector();
   load(currentRange);
   loadGrowthScore();
   loadCoach();

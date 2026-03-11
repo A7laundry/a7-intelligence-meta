@@ -44,7 +44,7 @@ class AlertsService:
     # ALERT GENERATION
     # ══════════════════════════════════════════════════════════
 
-    def generate_all_alerts(self, days=7):
+    def generate_all_alerts(self, days=7, account_id=1):
         """Run all alert checks and return new alerts."""
         alerts = []
         alerts.extend(self._check_waste_alerts(days))
@@ -52,6 +52,10 @@ class AlertsService:
         alerts.extend(self._check_budget_spike_alerts(days))
         alerts.extend(self._check_creative_fatigue_alerts(days))
         alerts.extend(self._check_efficiency_decline_alerts(days))
+
+        # Tag all alerts with account_id
+        for a in alerts:
+            a["account_id"] = account_id
 
         # Deduplicate, persist, and optionally deliver
         new_alerts = []
@@ -66,7 +70,7 @@ class AlertsService:
         new_alerts.sort(key=lambda a: self.SEVERITY_ORDER.get(a.get("severity", "info"), 4))
         return new_alerts
 
-    def get_active_alerts(self, limit=50, severity=None):
+    def get_active_alerts(self, limit=50, severity=None, account_id=None):
         """Get recent alerts from database."""
         conn = get_connection()
         try:
@@ -75,6 +79,9 @@ class AlertsService:
             if severity:
                 query += " AND severity = ?"
                 params.append(severity)
+            if account_id is not None:
+                query += " AND account_id = ?"
+                params.append(account_id)
             query += " ORDER BY created_at DESC LIMIT ?"
             params.append(limit)
             rows = conn.execute(query, params).fetchall()
@@ -84,15 +91,20 @@ class AlertsService:
         finally:
             conn.close()
 
-    def get_alert_history(self, days=7, limit=100):
+    def get_alert_history(self, days=7, limit=100, account_id=None):
         """Get alert history for a period."""
         conn = get_connection()
         try:
-            since = (datetime.utcnow() - __import__("datetime").timedelta(days=days)).strftime("%Y-%m-%d")
-            rows = conn.execute(
-                "SELECT * FROM alerts WHERE created_at >= ? ORDER BY created_at DESC LIMIT ?",
-                (since, limit)
-            ).fetchall()
+            from datetime import timedelta
+            since = (datetime.utcnow() - timedelta(days=days)).strftime("%Y-%m-%d")
+            query = "SELECT * FROM alerts WHERE created_at >= ?"
+            params = [since]
+            if account_id is not None:
+                query += " AND account_id = ?"
+                params.append(account_id)
+            query += " ORDER BY created_at DESC LIMIT ?"
+            params.append(limit)
+            rows = conn.execute(query, params).fetchall()
             return [self._row_to_dict(r) for r in rows]
         except Exception:
             return []
@@ -254,10 +266,11 @@ class AlertsService:
         try:
             cursor = conn.execute(
                 """INSERT INTO alerts
-                   (alert_type, severity, entity_type, entity_name, title, message,
+                   (account_id, alert_type, severity, entity_type, entity_name, title, message,
                     payload_json, platform)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (alert["alert_type"], alert["severity"],
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (alert.get("account_id", 1),
+                 alert["alert_type"], alert["severity"],
                  alert.get("entity_type", ""), alert.get("entity_name", ""),
                  alert["title"], alert["message"],
                  json.dumps(alert.get("payload", {})),

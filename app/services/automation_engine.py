@@ -92,7 +92,7 @@ class AutomationEngine:
 
         return proposals
 
-    def generate_and_queue(self, days=7, platform=None):
+    def generate_and_queue(self, days=7, platform=None, account_id=1):
         """Generate proposals, validate through guardrails, and persist to queue."""
         proposals = self.generate_action_proposals(days, platform)
 
@@ -100,6 +100,7 @@ class AutomationEngine:
         blocked = []
 
         for p in proposals:
+            p["account_id"] = account_id
             validation = self.validate_action(p)
             if validation["allowed"]:
                 p["status"] = "proposed"
@@ -343,7 +344,7 @@ class AutomationEngine:
     # QUEUE & PERSISTENCE
     # ══════════════════════════════════════════════════════════
 
-    def get_actions(self, status=None, platform=None, limit=50):
+    def get_actions(self, status=None, platform=None, limit=50, account_id=None):
         """Get actions from the queue, optionally filtered."""
         conn = get_connection()
         try:
@@ -356,6 +357,9 @@ class AutomationEngine:
             if platform:
                 conditions.append("platform = ?")
                 params.append(platform)
+            if account_id is not None:
+                conditions.append("account_id = ?")
+                params.append(account_id)
             if conditions:
                 query += " WHERE " + " AND ".join(conditions)
             query += " ORDER BY created_at DESC LIMIT ?"
@@ -367,17 +371,23 @@ class AutomationEngine:
         finally:
             conn.close()
 
-    def get_pending_actions(self):
+    def get_pending_actions(self, account_id=None):
         """Get actions pending approval (proposed status)."""
-        return self.get_actions(status="proposed")
+        return self.get_actions(status="proposed", account_id=account_id)
 
-    def get_action_summary(self):
+    def get_action_summary(self, account_id=None):
         """Get action counts by status."""
         conn = get_connection()
         try:
-            rows = conn.execute(
-                "SELECT status, COUNT(*) as count FROM automation_actions GROUP BY status"
-            ).fetchall()
+            if account_id is not None:
+                rows = conn.execute(
+                    "SELECT status, COUNT(*) as count FROM automation_actions WHERE account_id = ? GROUP BY status",
+                    (account_id,)
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT status, COUNT(*) as count FROM automation_actions GROUP BY status"
+                ).fetchall()
             summary = {r["status"]: r["count"] for r in rows}
             summary["total"] = sum(summary.values())
             return summary
@@ -386,7 +396,7 @@ class AutomationEngine:
         finally:
             conn.close()
 
-    def get_logs(self, action_id=None, limit=50):
+    def get_logs(self, action_id=None, limit=50, account_id=None):
         """Get automation execution logs."""
         conn = get_connection()
         try:
@@ -394,6 +404,11 @@ class AutomationEngine:
                 rows = conn.execute(
                     "SELECT * FROM automation_logs WHERE action_id = ? ORDER BY created_at DESC LIMIT ?",
                     (action_id, limit)
+                ).fetchall()
+            elif account_id is not None:
+                rows = conn.execute(
+                    "SELECT * FROM automation_logs WHERE account_id = ? ORDER BY created_at DESC LIMIT ?",
+                    (account_id, limit)
                 ).fetchall()
             else:
                 rows = conn.execute(
@@ -412,10 +427,11 @@ class AutomationEngine:
         try:
             cursor = conn.execute(
                 """INSERT INTO automation_actions
-                   (action_type, platform, entity_type, entity_id, entity_name,
+                   (account_id, action_type, platform, entity_type, entity_id, entity_name,
                     reason, confidence, suggested_change_pct, status, execution_mode)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (action.get("action_type", ""),
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (action.get("account_id", 1),
+                 action.get("action_type", ""),
                  action.get("platform", "meta"),
                  action.get("entity_type", "campaign"),
                  action.get("entity_id", ""),

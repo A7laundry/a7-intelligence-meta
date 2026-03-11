@@ -200,7 +200,7 @@ class CreativeService:
         finally:
             conn.close()
 
-    def get_creatives(self, days=7, status=None, campaign_id=None, fatigue_only=False):
+    def get_creatives(self, days=7, status=None, campaign_id=None, fatigue_only=False, account_id=None):
         """Get creatives with aggregated metrics and scores."""
         conn = get_connection()
         try:
@@ -224,6 +224,9 @@ class CreativeService:
             """
             params = [since]
 
+            if account_id is not None:
+                query += " AND c.account_id = ?"
+                params.append(account_id)
             if status:
                 query += " AND c.status = ?"
                 params.append(status)
@@ -369,19 +372,19 @@ class CreativeService:
             if should_close:
                 conn.close()
 
-    def get_top_creatives(self, days=7, limit=5):
+    def get_top_creatives(self, days=7, limit=5, account_id=None):
         """Get top performing creatives by score."""
-        all_creatives = self.get_creatives(days=days)
+        all_creatives = self.get_creatives(days=days, account_id=account_id)
         sorted_creatives = sorted(all_creatives, key=lambda c: c["score"], reverse=True)
         return sorted_creatives[:limit]
 
-    def get_fatigued_creatives(self, days=7):
+    def get_fatigued_creatives(self, days=7, account_id=None):
         """Get creatives with fatigue signals."""
-        return self.get_creatives(days=days, fatigue_only=True)
+        return self.get_creatives(days=days, fatigue_only=True, account_id=account_id)
 
-    def get_summary(self, days=7):
+    def get_summary(self, days=7, account_id=None):
         """Get creative intelligence summary."""
-        all_creatives = self.get_creatives(days=days)
+        all_creatives = self.get_creatives(days=days, account_id=account_id)
         if not all_creatives:
             return {
                 "total_creatives": 0,

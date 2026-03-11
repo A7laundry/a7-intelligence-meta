@@ -4,6 +4,7 @@ from flask import Blueprint, jsonify, request
 
 from app.services.budget_intelligence_service import BudgetIntelligenceService
 from app.services.alerts_service import AlertsService
+from app.services.account_service import AccountService
 
 budget_bp = Blueprint("budget", __name__)
 
@@ -32,9 +33,10 @@ def budget_summary():
     """Get budget allocation summary with efficiency score."""
     days = request.args.get("days", 7, type=int)
     platform = request.args.get("platform")
+    account_id = AccountService.resolve_account_id(request.args.get("account_id"))
     try:
-        allocation = _get_bi().analyze_budget_allocation(days, platform)
-        efficiency = _get_bi().compute_efficiency_score(days, platform)
+        allocation = _get_bi().analyze_budget_allocation(days, platform, account_id=account_id)
+        efficiency = _get_bi().compute_efficiency_score(days, platform, account_id=account_id)
         allocation["efficiency_score"] = efficiency["score"]
         allocation["efficiency_components"] = efficiency["components"]
     except Exception as e:
@@ -47,8 +49,9 @@ def budget_opportunities():
     """Get scaling opportunities."""
     days = request.args.get("days", 7, type=int)
     platform = request.args.get("platform")
+    account_id = AccountService.resolve_account_id(request.args.get("account_id"))
     try:
-        opps = _get_bi().detect_scaling_opportunities(days, platform)
+        opps = _get_bi().detect_scaling_opportunities(days, platform, account_id=account_id)
     except Exception:
         opps = []
     return jsonify({"opportunities": opps, "count": len(opps)})
@@ -59,8 +62,9 @@ def budget_waste():
     """Get waste campaigns."""
     days = request.args.get("days", 7, type=int)
     platform = request.args.get("platform")
+    account_id = AccountService.resolve_account_id(request.args.get("account_id"))
     try:
-        waste = _get_bi().detect_budget_waste(days, platform)
+        waste = _get_bi().detect_budget_waste(days, platform, account_id=account_id)
     except Exception:
         waste = {"waste_spend": 0, "campaigns": []}
     return jsonify(waste)
@@ -71,8 +75,9 @@ def budget_pacing():
     """Get budget pacing analysis."""
     days = request.args.get("days", 1, type=int)
     platform = request.args.get("platform")
+    account_id = AccountService.resolve_account_id(request.args.get("account_id"))
     try:
-        pacing = _get_bi().monitor_budget_pacing(days, platform)
+        pacing = _get_bi().monitor_budget_pacing(days, platform, account_id=account_id)
     except Exception:
         pacing = {"campaigns": []}
     return jsonify(pacing)
@@ -82,8 +87,9 @@ def budget_pacing():
 def budget_anomalies():
     """Get spend anomalies."""
     days = request.args.get("days", 7, type=int)
+    account_id = AccountService.resolve_account_id(request.args.get("account_id"))
     try:
-        result = _get_bi().detect_spend_anomalies(days)
+        result = _get_bi().detect_spend_anomalies(days, account_id=account_id)
     except Exception:
         result = {"anomalies": []}
     return jsonify(result)
@@ -96,8 +102,9 @@ def list_alerts():
     """Get active alerts."""
     severity = request.args.get("severity")
     limit = request.args.get("limit", 50, type=int)
+    account_id = AccountService.resolve_account_id(request.args.get("account_id"))
     try:
-        alerts = _get_alerts().get_active_alerts(limit=limit, severity=severity)
+        alerts = _get_alerts().get_active_alerts(limit=limit, severity=severity, account_id=account_id)
     except Exception:
         alerts = []
     return jsonify({"alerts": alerts, "count": len(alerts)})
@@ -107,8 +114,9 @@ def list_alerts():
 def alert_history():
     """Get alert history."""
     days = request.args.get("days", 7, type=int)
+    account_id = AccountService.resolve_account_id(request.args.get("account_id"))
     try:
-        alerts = _get_alerts().get_alert_history(days=days)
+        alerts = _get_alerts().get_alert_history(days=days, account_id=account_id)
     except Exception:
         alerts = []
     return jsonify({"alerts": alerts, "count": len(alerts)})
@@ -118,8 +126,9 @@ def alert_history():
 def refresh_alerts():
     """Recompute and persist alerts."""
     days = request.args.get("days", 7, type=int)
+    account_id = AccountService.resolve_account_id(request.args.get("account_id"))
     try:
-        new_alerts = _get_alerts().generate_all_alerts(days=days)
+        new_alerts = _get_alerts().generate_all_alerts(days=days, account_id=account_id)
         return jsonify({"status": "ok", "new_alerts": len(new_alerts), "alerts": new_alerts})
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 500

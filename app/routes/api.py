@@ -5,6 +5,7 @@ from flask import Blueprint, jsonify, request
 from app.services.dashboard_service import DashboardService
 from app.services.metrics_service import MetricsService
 from app.services.snapshot_service import SnapshotService
+from app.services.account_service import AccountService
 
 api_bp = Blueprint("api", __name__)
 
@@ -33,14 +34,16 @@ def dashboard_data(range_key):
     """Get dashboard data for a specific range."""
     if range_key not in ("today", "7d", "30d"):
         return jsonify({"error": "Invalid range. Use: today, 7d, 30d"}), 400
-    data = _get_dashboard().get_dashboard_data(range_key)
+    account_id = AccountService.resolve_account_id(request.args.get("account_id"))
+    data = _get_dashboard().get_dashboard_data(range_key, account_id=account_id)
     return jsonify(data)
 
 
 @api_bp.route("/dashboard/refresh", methods=["POST"])
 def refresh_data():
     """Fetch fresh data from APIs and store snapshots."""
-    data = _get_dashboard().fetch_and_store("today")
+    account_id = AccountService.resolve_account_id(request.args.get("account_id"))
+    data = _get_dashboard().fetch_and_store("today", account_id=account_id)
     return jsonify({"status": "ok", "data": data})
 
 
@@ -124,7 +127,8 @@ def daily_history():
     """Get daily snapshots from database."""
     days = request.args.get("days", 30, type=int)
     platform = request.args.get("platform")
-    snapshots = SnapshotService.get_daily_snapshots(platform=platform, days=days)
+    account_id = AccountService.resolve_account_id(request.args.get("account_id"))
+    snapshots = SnapshotService.get_daily_snapshots(platform=platform, days=days, account_id=account_id)
     return jsonify({"snapshots": snapshots})
 
 

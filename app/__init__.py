@@ -49,6 +49,9 @@ def create_app():
     from app.routes.automation import automation_bp
     app.register_blueprint(automation_bp, url_prefix="/api")
 
+    from app.routes.accounts import accounts_bp
+    app.register_blueprint(accounts_bp, url_prefix="/api")
+
     # Template context processor
     @app.context_processor
     def inject_globals():

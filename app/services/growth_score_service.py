@@ -29,13 +29,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 class GrowthScoreService:
     """Computes unified growth score from all intelligence modules."""
 
-    def build_growth_score(self, days=7, platform=None):
+    def build_growth_score(self, days=7, platform=None, account_id=None):
         """Compute the unified growth score."""
         # Gather component scores
-        account_health = self._get_account_health(days, platform)
-        budget_efficiency = self._get_budget_efficiency(days, platform)
-        creative_health = self._get_creative_health(days)
-        trend_momentum = self._get_trend_momentum(days)
+        account_health = self._get_account_health(days, platform, account_id=account_id)
+        budget_efficiency = self._get_budget_efficiency(days, platform, account_id=account_id)
+        creative_health = self._get_creative_health(days, account_id=account_id)
+        trend_momentum = self._get_trend_momentum(days, account_id=account_id)
         channel_balance = self._get_channel_balance(days)
         alert_cleanliness = self._get_alert_cleanliness()
 
@@ -97,32 +97,32 @@ class GrowthScoreService:
             "generated_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
 
-    def _get_account_health(self, days, platform):
+    def _get_account_health(self, days, platform, account_id=None):
         """Get account health from AI Coach."""
         try:
             from app.services.ai_coach_service import AICoachService
             coach = AICoachService()
-            health = coach.build_account_health_snapshot(days, platform)
+            health = coach.build_account_health_snapshot(days, platform, account_id=account_id)
             return {"score": health.get("score", 50), "detail": f"Health: {health.get('label', 'unknown')}"}
         except Exception:
             return {"score": 50, "detail": "No health data"}
 
-    def _get_budget_efficiency(self, days, platform):
+    def _get_budget_efficiency(self, days, platform, account_id=None):
         """Get budget efficiency score."""
         try:
             from app.services.budget_intelligence_service import BudgetIntelligenceService
             bi = BudgetIntelligenceService()
-            eff = bi.compute_efficiency_score(days, platform)
+            eff = bi.compute_efficiency_score(days, platform, account_id=account_id)
             return {"score": eff.get("score", 50), "detail": f"Efficiency: {eff.get('score', 0)}/100"}
         except Exception:
             return {"score": 50, "detail": "No budget data"}
 
-    def _get_creative_health(self, days):
+    def _get_creative_health(self, days, account_id=None):
         """Compute creative health score."""
         try:
             from app.services.creative_service import CreativeService
             cs = CreativeService()
-            creatives = cs.get_creatives(days=days)
+            creatives = cs.get_creatives(days=days, account_id=account_id)
             if not creatives:
                 return {"score": 50, "detail": "No creative data"}
 
@@ -138,11 +138,11 @@ class GrowthScoreService:
         except Exception:
             return {"score": 50, "detail": "No creative data"}
 
-    def _get_trend_momentum(self, days):
+    def _get_trend_momentum(self, days, account_id=None):
         """Compute trend momentum from period comparison."""
         try:
             from app.services.snapshot_service import SnapshotService
-            comparison = SnapshotService.get_period_comparison(days)
+            comparison = SnapshotService.get_period_comparison(days, account_id=account_id)
             changes = comparison.get("changes", {})
 
             conv_change = changes.get("conversions", 0)

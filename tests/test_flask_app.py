@@ -214,7 +214,7 @@ class TestBudgetLogic:
             "campaigns": {"meta": campaigns, "google": []},
             "comparison": {"changes": {}},
         }
-        bi._get_dashboard_data = lambda days: dashboard
+        bi._get_dashboard_data = lambda days, account_id=None: dashboard
 
         result = bi.analyze_budget_allocation(days=7)
         assert result["efficient_spend"] == 100
@@ -234,7 +234,7 @@ class TestBudgetLogic:
             "campaigns": {"meta": campaigns, "google": []},
             "comparison": {"changes": {}},
         }
-        bi._get_dashboard_data = lambda days: dashboard
+        bi._get_dashboard_data = lambda days, account_id=None: dashboard
 
         opps = bi.detect_scaling_opportunities(days=7)
         assert len(opps) >= 1
@@ -252,7 +252,7 @@ class TestBudgetLogic:
             "campaigns": {"meta": campaigns, "google": []},
             "comparison": {"changes": {}},
         }
-        bi._get_dashboard_data = lambda days: dashboard
+        bi._get_dashboard_data = lambda days, account_id=None: dashboard
 
         waste = bi.detect_budget_waste(days=7)
         assert waste["waste_spend"] == 50
@@ -269,7 +269,7 @@ class TestBudgetLogic:
             "campaigns": {"meta": campaigns, "google": []},
             "comparison": {"changes": {}},
         }
-        bi._get_dashboard_data = lambda days: dashboard
+        bi._get_dashboard_data = lambda days, account_id=None: dashboard
 
         score = bi.compute_efficiency_score(days=7)
         assert 0 <= score["score"] <= 100
@@ -481,8 +481,8 @@ class TestAICoachLogic:
         }
         # Monkey-patch to test rule
         original = coach._get_dashboard_data
-        coach._get_dashboard_data = lambda days: dashboard
-        coach._get_creatives = lambda days: []
+        coach._get_dashboard_data = lambda days, account_id=None: dashboard
+        coach._get_creatives = lambda days, account_id=None: []
 
         recs = coach.generate_recommendations(days=7)
         coach._get_dashboard_data = original
@@ -504,8 +504,8 @@ class TestAICoachLogic:
             "comparison": {"changes": {}},
         }
         original = coach._get_dashboard_data
-        coach._get_dashboard_data = lambda days: dashboard
-        coach._get_creatives = lambda days: []
+        coach._get_dashboard_data = lambda days, account_id=None: dashboard
+        coach._get_creatives = lambda days, account_id=None: []
 
         recs = coach.generate_recommendations(days=7)
         coach._get_dashboard_data = original
@@ -610,7 +610,7 @@ class TestCrossPlatformLogic:
         from app.services.cross_platform_service import CrossPlatformService
         cp = CrossPlatformService()
         # Monkey-patch dashboard data
-        cp._get_dashboard_data = lambda days: {
+        cp._get_dashboard_data = lambda days, account_id=None: {
             "summary": {
                 "meta": {"spend": 500, "impressions": 10000, "clicks": 200, "ctr": 2.0, "conversions": 10, "cpa": 50},
                 "google": {"spend": 300, "impressions": 8000, "clicks": 150, "ctr": 1.88, "conversions": 8, "cpa": 37.5},
@@ -629,7 +629,7 @@ class TestCrossPlatformLogic:
     def test_channel_efficiency_comparison(self):
         from app.services.cross_platform_service import CrossPlatformService
         cp = CrossPlatformService()
-        cp._get_dashboard_data = lambda days: {
+        cp._get_dashboard_data = lambda days, account_id=None: {
             "summary": {
                 "meta": {"spend": 500, "impressions": 10000, "clicks": 200, "ctr": 2.0, "conversions": 10, "cpa": 50},
                 "google": {"spend": 300, "impressions": 8000, "clicks": 150, "ctr": 1.88, "conversions": 12, "cpa": 25},
@@ -645,7 +645,7 @@ class TestCrossPlatformLogic:
     def test_detect_cpa_opportunity(self):
         from app.services.cross_platform_service import CrossPlatformService
         cp = CrossPlatformService()
-        cp._get_dashboard_data = lambda days: {
+        cp._get_dashboard_data = lambda days, account_id=None: {
             "summary": {
                 "meta": {"spend": 500, "impressions": 10000, "clicks": 200, "ctr": 2.0, "conversions": 5, "cpa": 100},
                 "google": {"spend": 300, "impressions": 8000, "clicks": 150, "ctr": 1.88, "conversions": 12, "cpa": 25},
@@ -663,7 +663,7 @@ class TestCrossPlatformLogic:
     def test_detect_concentration_risk(self):
         from app.services.cross_platform_service import CrossPlatformService
         cp = CrossPlatformService()
-        cp._get_dashboard_data = lambda days: {
+        cp._get_dashboard_data = lambda days, account_id=None: {
             "summary": {
                 "meta": {"spend": 950, "impressions": 10000, "clicks": 200, "ctr": 2.0, "conversions": 10, "cpa": 95},
                 "google": {"spend": 50, "impressions": 1000, "clicks": 20, "ctr": 2.0, "conversions": 2, "cpa": 25},
@@ -680,7 +680,7 @@ class TestCrossPlatformLogic:
     def test_spend_share_chart_data(self):
         from app.services.cross_platform_service import CrossPlatformService
         cp = CrossPlatformService()
-        cp._get_dashboard_data = lambda days: {
+        cp._get_dashboard_data = lambda days, account_id=None: {
             "summary": {
                 "meta": {"spend": 600, "impressions": 0, "clicks": 0, "ctr": 0, "conversions": 0, "cpa": 0},
                 "google": {"spend": 400, "impressions": 0, "clicks": 0, "ctr": 0, "conversions": 0, "cpa": 0},
@@ -697,7 +697,7 @@ class TestCrossPlatformLogic:
     def test_cross_platform_budget_evaluation(self):
         from app.services.cross_platform_service import CrossPlatformService
         cp = CrossPlatformService()
-        cp._get_dashboard_data = lambda days: {
+        cp._get_dashboard_data = lambda days, account_id=None: {
             "summary": {
                 "meta": {"spend": 500, "impressions": 10000, "clicks": 200, "ctr": 2.0, "conversions": 5, "cpa": 100},
                 "google": {"spend": 300, "impressions": 8000, "clicks": 150, "ctr": 1.88, "conversions": 12, "cpa": 25},
@@ -748,8 +748,8 @@ class TestAICoachCrossChannelRecs:
             "campaigns": {"meta": campaigns, "google": []},
             "comparison": {"changes": {}},
         }
-        coach._get_dashboard_data = lambda days: dashboard
-        coach._get_creatives = lambda days: []
+        coach._get_dashboard_data = lambda days, account_id=None: dashboard
+        coach._get_creatives = lambda days, account_id=None: []
 
         # Should not fail even without cross-platform data
         recs = coach.generate_recommendations(days=7)
@@ -762,7 +762,7 @@ class TestNormalizedMetrics:
     def test_platform_summary_has_normalized_fields(self):
         from app.services.cross_platform_service import CrossPlatformService
         cp = CrossPlatformService()
-        cp._get_dashboard_data = lambda days: {
+        cp._get_dashboard_data = lambda days, account_id=None: {
             "summary": {
                 "meta": {"spend": 100, "impressions": 5000, "clicks": 100, "ctr": 2.0, "conversions": 5, "cpa": 20},
                 "google": {"spend": 80, "impressions": 4000, "clicks": 80, "ctr": 2.0, "conversions": 4, "cpa": 20},

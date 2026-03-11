@@ -19,6 +19,11 @@
         <div class="header-subtitle">v{{ version }}</div>
       </div>
     </div>
+    <!-- Account Selector -->
+    <div class="account-selector" id="accountSelectorWrap" style="display:none">
+      <span class="account-platform-badge" id="accountPlatformBadge">Meta</span>
+      <select class="account-select" id="accountSelect" title="Switch account"></select>
+    </div>
   </div>
   <div class="header-right">
     {% block header_actions %}{% endblock %}

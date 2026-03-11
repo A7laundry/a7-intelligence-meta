@@ -1,4 +1,4 @@
-"""Dashboard Service — Builds dashboard data from DB + live API."""
+"""Dashboard Service — Builds dashboard data from DB + live API with multi-account support."""
 
 import sys
 import os
@@ -8,6 +8,7 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from app.services.snapshot_service import SnapshotService
+from app.services.account_service import AccountService
 
 
 RANGES = {
@@ -47,53 +48,79 @@ class DashboardService:
         except Exception:
             pass
 
-    def fetch_and_store(self, range_key: str = "today") -> dict:
+    def _get_meta_client_for_account(self, account_id: int):
+        """Return a Meta client configured for the given account_id."""
+        if not self.meta_available:
+            return None
+        try:
+            external_id = AccountService.get_external_account_id(account_id)
+            if not external_id:
+                return self.meta_client
+            from meta_client import MetaAdsClient
+            from config_default import META_CONFIG
+            import copy
+            cfg = copy.deepcopy(META_CONFIG)
+            cfg["ad_account_id"] = external_id
+            client = MetaAdsClient.__new__(MetaAdsClient)
+            client.__init__()
+            # Override the ad_account_id on the client if it exposes it
+            if hasattr(client, "ad_account_id"):
+                client.ad_account_id = external_id
+            return client
+        except Exception:
+            return self.meta_client
+
+    def fetch_and_store(self, range_key: str = "today", account_id: int = None) -> dict:
         """Fetch live data, store snapshots, return dashboard payload."""
+        if account_id is None:
+            account_id = AccountService.resolve_account_id(None)
         cfg = RANGES.get(range_key, RANGES["7d"])
         today = datetime.utcnow().strftime("%Y-%m-%d")
 
-        meta_data = self._fetch_meta(cfg["meta_preset"])
+        meta_data = self._fetch_meta(cfg["meta_preset"], account_id=account_id)
         google_data = self._fetch_google(cfg["google_range"])
 
         # Store snapshots (only for today's actual data)
         if meta_data and range_key == "today":
-            SnapshotService.save_daily_snapshot(today, "meta", meta_data["summary"])
+            SnapshotService.save_daily_snapshot(today, "meta", meta_data["summary"], account_id=account_id)
             for c in meta_data.get("campaigns", []):
-                SnapshotService.save_campaign_snapshot(today, "meta", c)
+                SnapshotService.save_campaign_snapshot(today, "meta", c, account_id=account_id)
 
         if google_data and range_key == "today":
-            SnapshotService.save_daily_snapshot(today, "google", google_data["summary"])
+            SnapshotService.save_daily_snapshot(today, "google", google_data["summary"], account_id=account_id)
             for c in google_data.get("campaigns", []):
-                SnapshotService.save_campaign_snapshot(today, "google", c)
+                SnapshotService.save_campaign_snapshot(today, "google", c, account_id=account_id)
 
-        return self._build_payload(meta_data, google_data, range_key, cfg)
+        return self._build_payload(meta_data, google_data, range_key, cfg, account_id=account_id)
 
-    def get_dashboard_data(self, range_key: str = "7d") -> dict:
+    def get_dashboard_data(self, range_key: str = "7d", account_id: int = None) -> dict:
         """Get dashboard data — tries live first, falls back to DB."""
+        if account_id is None:
+            account_id = AccountService.resolve_account_id(None)
         cfg = RANGES.get(range_key, RANGES["7d"])
 
-        meta_data = self._fetch_meta(cfg["meta_preset"])
+        meta_data = self._fetch_meta(cfg["meta_preset"], account_id=account_id)
         google_data = self._fetch_google(cfg["google_range"])
 
         if meta_data is None and google_data is None:
             # Try database
-            db_data = self._build_from_db(range_key, cfg["days"])
+            db_data = self._build_from_db(range_key, cfg["days"], account_id=account_id)
             if db_data:
                 return db_data
             # Fall back to demo
             from dashboard_fetcher import DashboardFetcher
             return DashboardFetcher.generate_demo_data(range_key)
 
-        return self._build_payload(meta_data, google_data, range_key, cfg)
+        return self._build_payload(meta_data, google_data, range_key, cfg, account_id=account_id)
 
-    def _fetch_meta(self, date_preset: str):
+    def _fetch_meta(self, date_preset: str, account_id: int = None):
         """Fetch Meta data using existing dashboard_fetcher logic."""
         if not self.meta_available:
             return None
         try:
             from dashboard_fetcher import DashboardFetcher
             fetcher = DashboardFetcher.__new__(DashboardFetcher)
-            fetcher.meta_client = self.meta_client
+            fetcher.meta_client = self._get_meta_client_for_account(account_id) if account_id else self.meta_client
             fetcher.meta_available = True
             fetcher.google_client = None
             fetcher.google_available = False
@@ -116,7 +143,7 @@ class DashboardService:
         except Exception:
             return None
 
-    def _build_payload(self, meta_data, google_data, range_key, cfg):
+    def _build_payload(self, meta_data, google_data, range_key, cfg, account_id=None):
         """Build the unified dashboard payload."""
         empty = {"spend": 0, "impressions": 0, "clicks": 0, "ctr": 0,
                  "cpc": 0, "conversions": 0, "cpa": 0, "roas": 0}
@@ -139,13 +166,14 @@ class DashboardService:
             "roas": 0,
         }
 
-        # Period comparison from DB
-        comparison = SnapshotService.get_period_comparison(cfg["days"])
+        # Period comparison from DB (account-scoped)
+        comparison = SnapshotService.get_period_comparison(cfg["days"], account_id=account_id)
 
         return {
             "generated_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
             "date_range": range_key,
             "demo": False,
+            "account_id": account_id,
             "partial": (meta_data is None) or (google_data is None),
             "summary": {
                 "meta": meta_summary,
@@ -200,9 +228,9 @@ class DashboardService:
             for d in all_dates
         ]
 
-    def _build_from_db(self, range_key, days):
-        """Build dashboard data from database snapshots."""
-        snapshots = SnapshotService.get_daily_snapshots(days=days)
+    def _build_from_db(self, range_key, days, account_id=None):
+        """Build dashboard data from database snapshots (account-scoped)."""
+        snapshots = SnapshotService.get_daily_snapshots(days=days, account_id=account_id)
         if not snapshots:
             return None
 
@@ -231,12 +259,13 @@ class DashboardService:
         meta_summary = aggregate(meta_rows)
         google_summary = aggregate(google_rows)
         total_summary = aggregate(meta_rows + google_rows)
-        campaigns = SnapshotService.get_all_campaigns_latest()
+        campaigns = SnapshotService.get_all_campaigns_latest(account_id=account_id)
 
         return {
             "generated_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
             "date_range": range_key,
             "demo": False,
+            "account_id": account_id,
             "partial": False,
             "source": "database",
             "summary": {"meta": meta_summary, "google": google_summary, "total": total_summary},
@@ -254,5 +283,7 @@ class DashboardService:
                 }
                 for s in snapshots
             ],
-            "comparison": SnapshotService.get_period_comparison(RANGES.get(range_key, {}).get("days", 7)),
+            "comparison": SnapshotService.get_period_comparison(
+                RANGES.get(range_key, {}).get("days", 7), account_id=account_id
+            ),
         }

@@ -46,9 +46,9 @@ class BudgetIntelligenceService:
     # PUBLIC API
     # ══════════════════════════════════════════════════════════
 
-    def analyze_budget_allocation(self, days=7, platform=None):
+    def analyze_budget_allocation(self, days=7, platform=None, account_id=None):
         """Classify spend across campaigns as efficient, waste, or neutral."""
-        dashboard = self._get_dashboard_data(days)
+        dashboard = self._get_dashboard_data(days, account_id=account_id)
         campaigns = self._get_campaigns(dashboard, platform)
 
         total_spend = sum(c.get("spend", 0) for c in campaigns)
@@ -128,9 +128,9 @@ class BudgetIntelligenceService:
             "generated_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
 
-    def detect_scaling_opportunities(self, days=7, platform=None):
+    def detect_scaling_opportunities(self, days=7, platform=None, account_id=None):
         """Identify campaigns suitable for budget increase."""
-        dashboard = self._get_dashboard_data(days)
+        dashboard = self._get_dashboard_data(days, account_id=account_id)
         campaigns = self._get_campaigns(dashboard, platform)
 
         total_spend = sum(c.get("spend", 0) for c in campaigns)
@@ -182,9 +182,9 @@ class BudgetIntelligenceService:
         opportunities.sort(key=lambda x: x["metrics"]["cpa"])
         return opportunities
 
-    def detect_budget_waste(self, days=7, platform=None):
+    def detect_budget_waste(self, days=7, platform=None, account_id=None):
         """Detect campaigns wasting budget."""
-        allocation = self.analyze_budget_allocation(days, platform)
+        allocation = self.analyze_budget_allocation(days, platform, account_id=account_id)
         return {
             "waste_spend": allocation["waste_spend"],
             "waste_pct": allocation["ratios"]["waste_pct"],
@@ -192,30 +192,33 @@ class BudgetIntelligenceService:
             "total_spend": allocation["total_spend"],
         }
 
-    def detect_spend_anomalies(self, days=7):
+    def detect_spend_anomalies(self, days=7, account_id=None):
         """Detect abnormal spend patterns using historical data."""
         conn = get_connection()
         try:
             since = (datetime.utcnow() - timedelta(days=days)).strftime("%Y-%m-%d")
             long_since = (datetime.utcnow() - timedelta(days=days * 3)).strftime("%Y-%m-%d")
 
+            acct_filter = " AND account_id = ?" if account_id is not None else ""
+            acct_params = [account_id] if account_id is not None else []
+
             # Current period daily data
             current = conn.execute(
-                """SELECT date, SUM(spend) as spend, SUM(conversions) as conv,
+                f"""SELECT date, SUM(spend) as spend, SUM(conversions) as conv,
                           SUM(clicks) as clicks
-                   FROM daily_snapshots WHERE date >= ? GROUP BY date ORDER BY date""",
-                (since,)
+                   FROM daily_snapshots WHERE date >= ?{acct_filter} GROUP BY date ORDER BY date""",
+                [since] + acct_params
             ).fetchall()
 
             # Historical average (3x period for baseline)
             baseline = conn.execute(
-                """SELECT AVG(daily_spend) as avg_spend, AVG(daily_conv) as avg_conv
+                f"""SELECT AVG(daily_spend) as avg_spend, AVG(daily_conv) as avg_conv
                    FROM (
                      SELECT date, SUM(spend) as daily_spend, SUM(conversions) as daily_conv
-                     FROM daily_snapshots WHERE date >= ? AND date < ?
+                     FROM daily_snapshots WHERE date >= ? AND date < ?{acct_filter}
                      GROUP BY date
                    )""",
-                (long_since, since)
+                [long_since, since] + acct_params
             ).fetchone()
 
             avg_spend = (baseline["avg_spend"] or 0) if baseline else 0
@@ -253,9 +256,9 @@ class BudgetIntelligenceService:
         finally:
             conn.close()
 
-    def monitor_budget_pacing(self, days=1, platform=None):
+    def monitor_budget_pacing(self, days=1, platform=None, account_id=None):
         """Compare expected vs actual spend for pacing analysis."""
-        dashboard = self._get_dashboard_data(days)
+        dashboard = self._get_dashboard_data(days, account_id=account_id)
         campaigns = self._get_campaigns(dashboard, platform)
 
         results = []
@@ -298,7 +301,7 @@ class BudgetIntelligenceService:
 
         return {"campaigns": results, "period_days": days}
 
-    def compute_efficiency_score(self, days=7, platform=None):
+    def compute_efficiency_score(self, days=7, platform=None, account_id=None):
         """
         Budget Efficiency Score (0-100).
 
@@ -308,8 +311,8 @@ class BudgetIntelligenceService:
         - Waste ratio inverse (20%): lower waste = higher score
         - Pacing stability (15%): campaigns on track vs off track
         """
-        allocation = self.analyze_budget_allocation(days, platform)
-        pacing = self.monitor_budget_pacing(days=1, platform=platform)
+        allocation = self.analyze_budget_allocation(days, platform, account_id=account_id)
+        pacing = self.monitor_budget_pacing(days=1, platform=platform, account_id=account_id)
 
         # Component 1: Efficient spend ratio (0-100, weight 40%)
         eff_pct = allocation["ratios"]["efficient_pct"]
@@ -380,12 +383,12 @@ class BudgetIntelligenceService:
     # HELPERS
     # ══════════════════════════════════════════════════════════
 
-    def _get_dashboard_data(self, days):
+    def _get_dashboard_data(self, days, account_id=None):
         if not self.dashboard_service:
             return {"summary": {"total": {}}, "campaigns": {"meta": [], "google": []}, "comparison": {}}
         range_key = "today" if days <= 1 else ("7d" if days <= 7 else "30d")
         try:
-            return self.dashboard_service.get_dashboard_data(range_key)
+            return self.dashboard_service.get_dashboard_data(range_key, account_id=account_id)
         except Exception:
             return {"summary": {"total": {}}, "campaigns": {"meta": [], "google": []}, "comparison": {}}
 

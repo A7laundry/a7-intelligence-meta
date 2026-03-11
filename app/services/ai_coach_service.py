@@ -50,11 +50,11 @@ class AICoachService:
     # PUBLIC API
     # ══════════════════════════════════════════════════════════
 
-    def generate_daily_briefing(self, days=7, platform=None):
+    def generate_daily_briefing(self, days=7, platform=None, account_id=None):
         """Generate a structured daily briefing with headline, bullets, and highlights."""
-        dashboard = self._get_dashboard_data(days)
+        dashboard = self._get_dashboard_data(days, account_id=account_id)
         campaigns = self._get_all_campaigns(dashboard)
-        creatives = self._get_creatives(days)
+        creatives = self._get_creatives(days, account_id=account_id)
         comparison = dashboard.get("comparison", {})
         changes = comparison.get("changes", {})
 
@@ -75,12 +75,12 @@ class AICoachService:
         top_creative = self._find_top_creative(creatives)
 
         # Find top opportunity and risk
-        recommendations = self.generate_recommendations(days, platform)
+        recommendations = self.generate_recommendations(days, platform, account_id=account_id)
         top_opportunity = next((r for r in recommendations if r["severity"] == "success"), None)
         top_risk = next((r for r in recommendations if r["severity"] in ("critical", "warning")), None)
 
         # Health
-        health = self.build_account_health_snapshot(days, platform)
+        health = self.build_account_health_snapshot(days, platform, account_id=account_id)
 
         return {
             "headline": headline,
@@ -102,13 +102,13 @@ class AICoachService:
             "generated_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
 
-    def generate_recommendations(self, days=7, platform=None):
+    def generate_recommendations(self, days=7, platform=None, account_id=None):
         """Generate prioritized recommendation cards from rule-based analysis."""
         recommendations = []
         seen_keys = set()  # deduplication
 
         # Analyze campaigns
-        campaign_recs = self.analyze_campaigns(days, platform)
+        campaign_recs = self.analyze_campaigns(days, platform, account_id=account_id)
         for r in campaign_recs:
             key = f"{r['type']}:{r.get('entity_name', '')}"
             if key not in seen_keys:
@@ -116,7 +116,7 @@ class AICoachService:
                 recommendations.append(r)
 
         # Analyze creatives
-        creative_recs = self.analyze_creatives(days, platform)
+        creative_recs = self.analyze_creatives(days, platform, account_id=account_id)
         for r in creative_recs:
             key = f"{r['type']}:{r.get('entity_name', '')}"
             if key not in seen_keys:
@@ -150,9 +150,9 @@ class AICoachService:
 
         return recommendations
 
-    def analyze_campaigns(self, days=7, platform=None):
+    def analyze_campaigns(self, days=7, platform=None, account_id=None):
         """Detect campaign-level patterns and generate recommendations."""
-        dashboard = self._get_dashboard_data(days)
+        dashboard = self._get_dashboard_data(days, account_id=account_id)
         campaigns = self._get_all_campaigns(dashboard, platform)
         if not campaigns:
             return []
@@ -254,9 +254,9 @@ class AICoachService:
 
         return recs
 
-    def analyze_creatives(self, days=7, platform=None):
+    def analyze_creatives(self, days=7, platform=None, account_id=None):
         """Analyze creative performance and generate recommendations."""
-        creatives = self._get_creatives(days)
+        creatives = self._get_creatives(days, account_id=account_id)
         if not creatives:
             return []
 
@@ -334,7 +334,7 @@ class AICoachService:
 
         return recs
 
-    def build_account_health_snapshot(self, days=7, platform=None):
+    def build_account_health_snapshot(self, days=7, platform=None, account_id=None):
         """
         Build account-level health assessment.
 
@@ -351,9 +351,9 @@ class AICoachService:
         - at_risk: score >= 25
         - weak: score < 25
         """
-        dashboard = self._get_dashboard_data(days)
+        dashboard = self._get_dashboard_data(days, account_id=account_id)
         campaigns = self._get_all_campaigns(dashboard, platform)
-        creatives = self._get_creatives(days)
+        creatives = self._get_creatives(days, account_id=account_id)
         comparison = dashboard.get("comparison", {})
         changes = comparison.get("changes", {})
         summary = dashboard.get("summary", {}).get("total", {})
@@ -463,7 +463,7 @@ class AICoachService:
     # PERSISTENCE (optional, lightweight)
     # ══════════════════════════════════════════════════════════
 
-    def save_insight(self, insight):
+    def save_insight(self, insight, account_id=None):
         """Persist an insight to the database for history/alerting."""
         import json
         conn = get_connection()
@@ -502,14 +502,14 @@ class AICoachService:
     # PRIVATE HELPERS
     # ══════════════════════════════════════════════════════════
 
-    def _get_dashboard_data(self, days):
+    def _get_dashboard_data(self, days, account_id=None):
         """Get dashboard data for the given period."""
         if not self.dashboard_service:
             return {"summary": {"total": {}, "meta": {}, "google": {}},
                     "campaigns": {"meta": [], "google": []}, "comparison": {}}
         range_key = "today" if days <= 1 else ("7d" if days <= 7 else "30d")
         try:
-            return self.dashboard_service.get_dashboard_data(range_key)
+            return self.dashboard_service.get_dashboard_data(range_key, account_id=account_id)
         except Exception:
             return {"summary": {"total": {}, "meta": {}, "google": {}},
                     "campaigns": {"meta": [], "google": []}, "comparison": {}}
@@ -524,12 +524,12 @@ class AICoachService:
             result.extend(campaigns.get("google", []))
         return result
 
-    def _get_creatives(self, days):
+    def _get_creatives(self, days, account_id=None):
         """Get creative data from creative service."""
         if not self.creative_service:
             return []
         try:
-            return self.creative_service.get_creatives(days=days)
+            return self.creative_service.get_creatives(days=days, account_id=account_id)
         except Exception:
             return []
 
