@@ -1183,6 +1183,10 @@
       loadAutoLogs();
       return;
     }
+    if (tab === 'runs') {
+      loadAutoRuns();
+      return;
+    }
 
     var filtered = actions.filter(function(a) { return a.status === tab; });
     if (filtered.length === 0) {
@@ -1240,6 +1244,44 @@
       el.innerHTML = html;
     } catch (e) {
       el.innerHTML = '<div style="color:var(--text-muted);padding:12px">Error loading logs.</div>';
+    }
+  }
+
+  async function loadAutoRuns() {
+    var el = document.getElementById('automationList');
+    if (!el) return;
+    try {
+      var data = await fetchApi('/automation/runs?limit=20' + acctParam());
+      var runs = data.runs || [];
+      if (runs.length === 0) {
+        el.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:20px;font-size:13px">No automation runs yet. Use <strong>Generate</strong> + <strong>Run</strong> to create a run.</div>';
+        return;
+      }
+      var html = '<div class="auto-runs-list">';
+      runs.forEach(function(r) {
+        var started = r.started_at ? new Date(r.started_at).toLocaleString('en-US', {
+          month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true
+        }) : '';
+        var duration = '';
+        if (r.started_at && r.finished_at) {
+          var ms = new Date(r.finished_at) - new Date(r.started_at);
+          duration = ms >= 1000 ? (ms / 1000).toFixed(1) + 's' : ms + 'ms';
+        }
+        html += '<div class="auto-run-row">' +
+          '<span class="run-status ' + (r.status || 'running') + '">' + (r.status || 'running') + '</span>' +
+          '<span class="run-time">' + started + '</span>' +
+          '<div class="run-stats">' +
+            '<span>' + (r.proposals_generated || 0) + ' proposed</span>' +
+            '<span>' + (r.actions_executed || 0) + ' executed</span>' +
+            (r.actions_failed ? '<span class="run-failed">' + r.actions_failed + ' failed</span>' : '') +
+          '</div>' +
+          (duration ? '<span class="run-duration">' + duration + '</span>' : '') +
+        '</div>';
+      });
+      html += '</div>';
+      el.innerHTML = html;
+    } catch (e) {
+      el.innerHTML = '<div style="color:var(--text-muted);padding:12px">Error loading run history.</div>';
     }
   }
 

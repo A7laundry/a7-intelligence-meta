@@ -459,6 +459,26 @@ class AutomationEngine:
         finally:
             conn.close()
 
+    def get_runs(self, account_id=None, limit=20):
+        """Get automation run history records."""
+        conn = get_connection()
+        try:
+            if account_id is not None:
+                rows = conn.execute(
+                    "SELECT * FROM automation_runs WHERE account_id = ? ORDER BY started_at DESC LIMIT ?",
+                    (account_id, limit)
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM automation_runs ORDER BY started_at DESC LIMIT ?",
+                    (limit,)
+                ).fetchall()
+            return [dict(r) for r in rows]
+        except Exception:
+            return []
+        finally:
+            conn.close()
+
     def _persist_action(self, action):
         """Insert action into the queue and return its ID."""
         conn = get_connection()

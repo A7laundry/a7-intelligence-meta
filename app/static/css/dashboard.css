@@ -852,3 +852,33 @@ tr:last-child td{border-bottom:none}
 .account-status-dot.fresh  { background: var(--green); }
 .account-status-dot.stale  { background: #f59e0b; }
 .account-status-dot.empty  { background: var(--red); }
+
+/* ── Automation Run History ───────────────────────── */
+.auto-runs-list { display: flex; flex-direction: column; }
+.auto-run-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.auto-run-row:last-child { border-bottom: none; }
+.run-status {
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  min-width: 62px;
+  text-align: center;
+  background: var(--surface);
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.run-status.success { background: rgba(16,185,129,.15); color: #10b981; }
+.run-status.failed  { background: rgba(239,68,68,.15);  color: #ef4444; }
+.run-status.running { background: rgba(251,191,36,.15); color: #f59e0b; }
+.run-time   { color: var(--text-muted); white-space: nowrap; flex-shrink: 0; }
+.run-stats  { display: flex; gap: 10px; flex: 1; color: var(--text-secondary); flex-wrap: wrap; }
+.run-failed { color: #ef4444; }
+.run-duration { color: var(--text-muted); font-size: 11px; white-space: nowrap; margin-left: auto; }

@@ -240,3 +240,19 @@ CREATE TABLE IF NOT EXISTS automation_logs (
 CREATE INDEX IF NOT EXISTS idx_automation_logs_action ON automation_logs(action_id);
 CREATE INDEX IF NOT EXISTS idx_automation_logs_created ON automation_logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_automation_logs_account ON automation_logs(account_id);
+
+-- Automation run history (one record per run_account_automation call)
+CREATE TABLE IF NOT EXISTS automation_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id INTEGER DEFAULT 1,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    proposals_generated INTEGER DEFAULT 0,
+    actions_executed INTEGER DEFAULT 0,
+    actions_failed INTEGER DEFAULT 0,
+    status TEXT DEFAULT 'running' CHECK(status IN ('running', 'success', 'failed')),
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_automation_runs_account ON automation_runs(account_id);
+CREATE INDEX IF NOT EXISTS idx_automation_runs_started ON automation_runs(started_at);

@@ -94,6 +94,18 @@ def execute_action(action_id):
 
 # ── Logs ─────────────────────────────────────────────────────
 
+@automation_bp.route("/automation/runs")
+def automation_runs_history():
+    """Get automation run history."""
+    account_id = AccountService.resolve_account_id(request.args.get("account_id"))
+    limit = request.args.get("limit", 20, type=int)
+    try:
+        runs = _get_engine().get_runs(account_id=account_id, limit=limit)
+    except Exception as e:
+        return jsonify({"runs": [], "error": str(e)})
+    return jsonify({"runs": runs, "count": len(runs)})
+
+
 @automation_bp.route("/automation/logs")
 def automation_logs():
     """Get automation execution logs."""

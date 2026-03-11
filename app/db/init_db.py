@@ -114,6 +114,25 @@ def _run_migrations(conn):
         "INSERT INTO campaign_snapshots_new SELECT id, COALESCE(account_id,1), date, platform, campaign_id, campaign_name, status, spend, impressions, clicks, ctr, conversions, cpa, roas, created_at FROM campaign_snapshots"
     )
 
+    # Migration 5: Add automation_runs table
+    if not _table_exists(conn, "automation_runs"):
+        conn.execute("""
+            CREATE TABLE automation_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id INTEGER DEFAULT 1,
+                started_at TEXT NOT NULL,
+                finished_at TEXT,
+                proposals_generated INTEGER DEFAULT 0,
+                actions_executed INTEGER DEFAULT 0,
+                actions_failed INTEGER DEFAULT 0,
+                status TEXT DEFAULT 'running' CHECK(status IN ('running', 'success', 'failed')),
+                created_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_automation_runs_account ON automation_runs(account_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_automation_runs_started ON automation_runs(started_at)")
+        conn.commit()
+
     _migrate_snapshots_table(conn, "creatives",
         """CREATE TABLE creatives_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

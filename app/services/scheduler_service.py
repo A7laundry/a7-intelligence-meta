@@ -186,9 +186,11 @@ class SchedulerService:
 
         Proposals are tagged with account_id at generation time.
         Execution is scoped strictly to that account — no cross-account leakage.
+        Creates an automation_runs record before execution and finalizes it on completion.
         """
         started = datetime.utcnow()
         results = {}
+        run_id = self._create_run(account_id, started)
         try:
             init_db()
             from app.services.automation_engine import AutomationEngine
@@ -198,23 +200,68 @@ class SchedulerService:
             queued = engine.generate_and_queue(days=7, account_id=account_id)
             results["queued"] = queued.get("queued_count", 0)
             results["blocked"] = queued.get("blocked_count", 0)
+            proposals_generated = queued.get("total_proposals", 0)
 
             # Execute only approved actions belonging to this account
             executed = engine.execute_approved_actions_for_account(account_id)
-            results["executed"] = executed.get("executed_count", 0)
+            actions_executed = executed.get("executed_count", 0)
+            actions_failed = sum(
+                1 for r in executed.get("results", []) if not r.get("success")
+            )
+            results["executed"] = actions_executed
+            results["failed"] = actions_failed
+
+            self._finalize_run(run_id, proposals_generated, actions_executed, actions_failed, "success")
 
             msg = (
                 f"Account {account_id} automation: "
-                f"{results['queued']} queued, {results['executed']} executed"
+                f"{results['queued']} queued, {actions_executed} executed"
             )
             self._log_operation("automation", "success", msg,
                                 {"account_id": account_id, **results}, started)
-            return {"status": "success", "message": msg, "account_id": account_id, **results}
+            return {"status": "success", "message": msg, "account_id": account_id,
+                    "run_id": run_id, **results}
         except Exception as e:
+            self._finalize_run(run_id, 0, 0, 0, "failed")
             msg = f"Account {account_id} automation failed: {str(e)}"
             self._log_operation("automation", "failed", msg,
                                 {"account_id": account_id, "error": str(e)}, started)
-            return {"status": "failed", "message": msg, "account_id": account_id}
+            return {"status": "failed", "message": msg, "account_id": account_id, "run_id": run_id}
+
+    def _create_run(self, account_id, started_at):
+        """Insert a new automation run record with status='running'. Returns run id."""
+        conn = get_connection()
+        try:
+            cursor = conn.execute(
+                "INSERT INTO automation_runs (account_id, started_at, status) VALUES (?, ?, 'running')",
+                (account_id, started_at.strftime("%Y-%m-%dT%H:%M:%SZ"))
+            )
+            conn.commit()
+            return cursor.lastrowid
+        except Exception:
+            return None
+        finally:
+            conn.close()
+
+    def _finalize_run(self, run_id, proposals_generated, actions_executed, actions_failed, status):
+        """Update automation run record on completion."""
+        if run_id is None:
+            return
+        conn = get_connection()
+        try:
+            conn.execute(
+                """UPDATE automation_runs
+                   SET finished_at = ?, proposals_generated = ?, actions_executed = ?,
+                       actions_failed = ?, status = ?
+                   WHERE id = ?""",
+                (datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                 proposals_generated, actions_executed, actions_failed, status, run_id)
+            )
+            conn.commit()
+        except Exception:
+            pass
+        finally:
+            conn.close()
 
     def run_all_accounts_automation(self):
         """Run automation for every active ad account sequentially.
