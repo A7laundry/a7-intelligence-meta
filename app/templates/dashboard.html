@@ -54,7 +54,26 @@
           </table>
         </div>
       </div>
-    </div>
+      <!-- Account Health Table -->
+      <div class="account-health-wrap" id="accountHealthWrap" style="display:none">
+        <div class="account-health-header">Account Health Overview</div>
+        <div class="table-wrap">
+          <table id="accountHealthTable">
+            <thead>
+              <tr>
+                <th>Account</th>
+                <th>Growth Score</th>
+                <th>Active Alerts</th>
+                <th>Spend (7d)</th>
+                <th>Conversions (7d)</th>
+                <th>Actions Today</th>
+              </tr>
+            </thead>
+            <tbody id="accountHealthBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div><!-- /crossAccountContent -->
     <div id="crossAccountEmpty" style="display:none;text-align:center;color:var(--text-muted);padding:24px">
       Connect multiple accounts to see cross-account overview.
     </div>

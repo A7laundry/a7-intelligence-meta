@@ -1447,8 +1447,37 @@
       renderCAInsights(data.insights || {});
       renderCAChart(data.spend_share || {});
       renderCATable(accounts);
+      loadAccountHealth();
     } catch (e) {
       if (section) section.style.display = 'none';
+    }
+  }
+
+  async function loadAccountHealth() {
+    var wrap = document.getElementById('accountHealthWrap');
+    var tbody = document.getElementById('accountHealthBody');
+    if (!wrap || !tbody) return;
+    try {
+      var data = await fetchApi('/accounts/health');
+      var accounts = data.accounts || [];
+      if (accounts.length === 0) return;
+      var html = '';
+      accounts.forEach(function(a) {
+        var scoreClass = a.growth_score >= 70 ? 'good' : a.growth_score >= 40 ? 'mid' : 'bad';
+        var alertClass = a.active_alerts > 0 ? 'has-alerts' : '';
+        html += '<tr>' +
+          '<td><span class="ca-account-name">' + a.account_name + '</span></td>' +
+          '<td><span class="health-score-badge ' + scoreClass + '">' + a.growth_score + ' <small>' + a.growth_label + '</small></span></td>' +
+          '<td class="' + alertClass + '">' + a.active_alerts + '</td>' +
+          '<td>' + fmtMoney(a.spend_last_7_days || 0) + '</td>' +
+          '<td>' + fmt(a.conversions_last_7_days || 0) + '</td>' +
+          '<td>' + (a.automation_actions_today || 0) + '</td>' +
+        '</tr>';
+      });
+      tbody.innerHTML = html;
+      wrap.style.display = '';
+    } catch (e) {
+      // silently skip if health endpoint unavailable
     }
   }
 

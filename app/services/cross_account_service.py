@@ -194,6 +194,47 @@ class CrossAccountService:
 
         return insights
 
+    def build_health_overview(self):
+        """Return per-account health snapshot for the health overview table."""
+        accounts = AccountService.get_all()
+        if not accounts:
+            return {"accounts": [], "generated_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")}
+
+        rows = []
+        for acc in accounts:
+            metrics = self._get_account_metrics(acc["id"], days=7)
+            rows.append({
+                "id": acc["id"],
+                "account_name": acc["account_name"],
+                "platform": acc["platform"],
+                "growth_score": self._get_growth_score(acc["id"], days=7)["score"],
+                "growth_label": self._get_growth_score(acc["id"], days=7)["label"],
+                "active_alerts": self._get_alerts_count(acc["id"]),
+                "spend_last_7_days": metrics["spend"],
+                "conversions_last_7_days": metrics["conversions"],
+                "automation_actions_today": self._get_automation_today(acc["id"]),
+            })
+
+        return {
+            "accounts": rows,
+            "generated_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+
+    def _get_automation_today(self, account_id):
+        """Count automation actions created today for account."""
+        conn = get_connection()
+        try:
+            today = datetime.utcnow().strftime("%Y-%m-%d")
+            row = conn.execute(
+                "SELECT COUNT(*) FROM automation_actions WHERE account_id = ? AND created_at >= ?",
+                (account_id, today),
+            ).fetchone()
+            return row[0] if row else 0
+        except Exception:
+            return 0
+        finally:
+            conn.close()
+
     def get_account_status(self, account_id):
         """Return sync status for a single account (for header status pill)."""
         conn = get_connection()

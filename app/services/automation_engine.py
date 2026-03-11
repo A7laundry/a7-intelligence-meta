@@ -110,6 +110,7 @@ class AutomationEngine:
                 queued.append(p)
                 self._log_action(action_id, p, "proposed",
                                  f"Action queued: {p['action_type']} on {p['entity_name']}")
+                self._notify("action_proposed", p)
             else:
                 p["status"] = "blocked"
                 p["blocked_reason"] = validation["reason"]
@@ -156,6 +157,7 @@ class AutomationEngine:
 
         self._log_action(action_id, dict(action), "approved",
                          f"Action approved: {action['action_type']} on {action['entity_name']}")
+        self._notify("action_approved", dict(action))
 
         return {"success": True, "action_id": action_id, "status": "approved"}
 
@@ -221,6 +223,7 @@ class AutomationEngine:
             self._log_action(action_id, action, "simulated",
                              f"[DRY RUN] Simulated {action['action_type']} on {action['entity_name']}",
                              elapsed)
+            self._notify("action_executed", action)
             return {
                 "success": True, "action_id": action_id, "status": "executed",
                 "mode": "dry_run", "message": f"Simulated {action['action_type']} on {action['entity_name']}"
@@ -235,6 +238,7 @@ class AutomationEngine:
             self._log_action(action_id, action, "executed",
                              f"Executed {action['action_type']} on {action['entity_name']}: {result.get('message', 'OK')}",
                              elapsed)
+            self._notify("action_executed", action)
             return {
                 "success": True, "action_id": action_id, "status": "executed",
                 "mode": "live", "message": result.get("message", "Executed successfully")
@@ -244,6 +248,7 @@ class AutomationEngine:
             self._update_action_status(action_id, "failed")
             self._log_action(action_id, action, "failed",
                              f"Execution failed: {str(e)}", elapsed)
+            self._notify("action_failed", action)
             return {"success": False, "action_id": action_id, "status": "failed", "error": str(e)}
 
     def execute_approved_actions(self):
@@ -575,6 +580,23 @@ class AutomationEngine:
                 conn.close()
         except Exception:
             return False
+
+    def _notify(self, event, action):
+        """Fire notification for automation event (non-blocking, errors swallowed)."""
+        try:
+            from app.services.notification_service import get_notification_service
+            ns = get_notification_service()
+            ns.send(event, {
+                "action_id": action.get("id"),
+                "action_type": action.get("action_type"),
+                "entity_name": action.get("entity_name"),
+                "platform": action.get("platform"),
+                "account_id": action.get("account_id"),
+                "confidence": action.get("confidence"),
+                "reason": action.get("reason"),
+            })
+        except Exception:
+            pass
 
     # ══════════════════════════════════════════════════════════
     # PROPOSAL SOURCES

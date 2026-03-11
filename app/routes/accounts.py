@@ -45,6 +45,16 @@ def accounts_overview():
     return jsonify(data)
 
 
+@accounts_bp.route("/accounts/health")
+def accounts_health():
+    """Return per-account health snapshot for all accounts."""
+    try:
+        data = _get_overview_service().build_health_overview()
+    except Exception as e:
+        data = {"accounts": [], "error": str(e)}
+    return jsonify(data)
+
+
 @accounts_bp.route("/accounts/<int:account_id>/status")
 def account_status(account_id):
     """Return sync status for a single account."""
