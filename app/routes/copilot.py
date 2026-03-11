@@ -120,13 +120,17 @@ def propose():
 
 @copilot_bp.route("/copilot/suggestions")
 def suggestions():
-    """Return example questions grouped by response type."""
+    """Return example questions for suggestion chips.
+
+    Includes the 4 primary navigation chips followed by deeper diagnostic questions.
+    """
     return jsonify([
+        "Investigate campaign performance",
+        "Show budget opportunities",
+        "Compare accounts",
+        "Show automation activity",
         "Why did CPA increase in the last 7 days?",
         "Which campaigns should be scaled today?",
-        "Where should budget be moved right now?",
         "What are the biggest risks in my account?",
         "Which creatives are showing fatigue?",
-        "How did performance change vs. last week?",
-        "Which account has the highest growth potential?",
     ])

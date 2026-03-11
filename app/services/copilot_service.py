@@ -53,27 +53,40 @@ Classify your response as one of:
 - comparison  → compares periods, campaigns, or platforms (vs/change/trend questions)
 - opportunity → finds growth and optimization opportunities (scale/grow/budget questions)
 
-For suggested_actions, set actionable=true ONLY when BOTH conditions hold:
+For recommended_actions, set actionable=true ONLY when BOTH conditions hold:
 1. action_type is exactly one of: pause_campaign, increase_budget, decrease_budget, refresh_creative, rotate_creative
 2. entity_name is explicitly named in the context data (not a generic description)
 
 For key_findings, include ref_type/ref_id/ref_name when a finding refers to a specific entity from context.
 Supported ref_type values: campaign, alert, creative, account, metric
 
+For sources, include an object per data source used. Use campaign_id, alert_id, automation_run_id, account_id when available.
+
+Confidence rules:
+- high: consistent metrics from multiple sources + clear anomaly or trend
+- medium: moderate signal strength — some metrics present but incomplete
+- low: limited data, conflicting signals, or no live account data
+
 Respond with valid JSON only — no markdown fences, no extra text:
 {
   "response_type": "diagnosis|risk|comparison|opportunity",
+  "summary": "1-2 sentence executive summary of the answer.",
   "answer": "2-4 sentence answer. Use **bold** for key numbers and metric names.",
   "key_findings": [
     {"text": "finding text", "ref_type": "campaign|alert|creative|account|metric|null", "ref_id": "entity id from context or null", "ref_name": "exact name from context or null"}
   ],
-  "suggested_actions": [
+  "recommended_actions": [
     {"text": "what to do", "actionable": true, "action_type": "pause_campaign|increase_budget|decrease_budget|refresh_creative|rotate_creative|null", "entity_name": "exact name from context or null", "entity_type": "campaign|creative|null", "platform": "meta|google", "confidence_for_action": "high|medium|low", "reason": "one-line rationale"}
   ],
   "follow_up_questions": ["natural follow-up 1", "natural follow-up 2", "natural follow-up 3"],
   "confidence": "high|medium|low",
-  "confidence_reason": "brief explanation, e.g. 'high — 7 days of campaign data with clear CPA trend'",
-  "sources": ["daily_snapshots", "alerts", "campaign_snapshots", "budget_intelligence", "growth_score"]
+  "confidence_reason": "e.g. 'high — consistent metrics + clear CPA anomaly across 7 days'",
+  "sources": [
+    {"type": "daily_snapshots"},
+    {"type": "campaign", "id": "campaign_id from context", "name": "campaign name"},
+    {"type": "alert", "id": "alert_id from context", "name": "alert title"},
+    {"type": "account", "id": "account_id", "name": "account name"}
+  ]
 }"""
 
     def __init__(self):
@@ -118,39 +131,35 @@ Respond with valid JSON only — no markdown fences, no extra text:
             "growth_score": ctx.get("growth_score", 0),
         }
         parsed["generated_at"] = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+        # Ensure summary always present (fallback already set in _parse_response)
+        if not parsed.get("summary"):
+            parsed["summary"] = parsed.get("answer", "")[:120]
         return parsed
 
     def create_proposal(self, action_type, entity_name, entity_type="campaign",
                         account_id=None, reason="Copilot suggestion",
                         confidence="medium", platform="meta"):
-        """Convert a Copilot suggested action into an Automation Engine proposal.
+        """Convert a Copilot recommended action into an Automation Engine proposal.
 
-        Routes through AutomationEngine.queue_proposal() which runs full guardrail
-        validation. Does NOT execute — creates 'proposed' status for human review.
+        Routes through AutomationEngine.generate_action_proposal() which runs full
+        guardrail validation. Does NOT execute — creates 'proposed' status for human
+        review in the Automation Center.
 
         Returns:
             {"success": True, "action_id": int}  or
             {"success": False, "reason": str, "action_id": None}
         """
-        if action_type not in _VALID_ACTION_TYPES:
-            return {"success": False,
-                    "reason": f"action_type '{action_type}' is not supported",
-                    "action_id": None}
-
         from app.services.automation_engine import AutomationEngine
         engine = AutomationEngine()
-        proposal = {
-            "action_type": action_type,
-            "platform": platform or "meta",
-            "entity_type": entity_type or "campaign",
-            "entity_id": "",
-            "entity_name": entity_name,
-            "reason": f"[Copilot] {reason}",
-            "confidence": confidence or "medium",
-            "suggested_change_pct": _DEFAULT_CHANGE_PCT.get(action_type, 0),
-            "account_id": account_id or 1,
-        }
-        return engine.queue_proposal(proposal)
+        return engine.generate_action_proposal(
+            action_type=action_type,
+            entity_name=entity_name,
+            entity_type=entity_type or "campaign",
+            account_id=account_id or 1,
+            reason=reason,
+            confidence=confidence or "medium",
+            platform=platform or "meta",
+        )
 
     # ══════════════════════════════════════════════════════════
     # CONTEXT GATHERING
@@ -605,23 +614,37 @@ Respond with valid JSON only — no markdown fences, no extra text:
             (1 if ctx.get("budget_efficiency_score", 0) > 0 else 0)
         )
         if data_points >= 3:
-            confidence, conf_reason = "high", "sufficient live data across spend, campaigns, and growth metrics"
+            confidence = "high"
+            conf_reason = "high — consistent metrics + clear anomaly across spend, campaigns, and growth score"
         elif data_points >= 1:
-            confidence, conf_reason = "medium", "partial data — some metrics missing or zero"
+            confidence = "medium"
+            conf_reason = "medium — moderate signal strength; some metrics missing or zero"
         else:
-            confidence, conf_reason = "low", "no live data available — running in demo mode"
+            confidence = "low"
+            conf_reason = "low — limited data or conflicting signals; running in demo mode"
+
+        # Build structured sources list
+        sources = [{"type": "daily_snapshots"}, {"type": "budget_intelligence"},
+                   {"type": "growth_score"}]
+        if ctx.get("alerts"):
+            for a in ctx["alerts"][:3]:
+                sources.append({"type": "alert", "id": str(a.get("id", "")),
+                                 "name": a.get("title", "")})
+        for c in ctx.get("meta_campaigns", [])[:2]:
+            sources.append({"type": "campaign", "id": str(c.get("campaign_id", "")),
+                             "name": c.get("name", "")})
 
         return {
             "text": json.dumps({
                 "response_type": rtype,
+                "summary": answer.split(".")[0] + "." if "." in answer else answer[:120],
                 "answer": answer,
                 "key_findings": findings,
-                "suggested_actions": actions,
+                "recommended_actions": actions,
                 "follow_up_questions": follow_ups,
                 "confidence": confidence,
                 "confidence_reason": conf_reason,
-                "sources": ["daily_snapshots", "alerts", "campaign_snapshots",
-                             "budget_intelligence", "growth_score"],
+                "sources": sources,
             }),
             "provider": "rule_based",
         }
@@ -633,8 +656,11 @@ Respond with valid JSON only — no markdown fences, no extra text:
     def _parse_response(self, raw):
         """Extract structured fields; handle malformed output gracefully.
 
-        Normalises key_findings and suggested_actions to object arrays
-        regardless of whether the LLM returned strings or objects.
+        Normalises:
+          - key_findings: strings → objects
+          - recommended_actions / suggested_actions: both fields populated (alias)
+          - summary: falls back to first sentence of answer
+          - sources: strings → objects with {type} key
         """
         provider = (raw or {}).get("provider", "unknown")
         text = (raw or {}).get("text", "")
@@ -651,12 +677,14 @@ Respond with valid JSON only — no markdown fences, no extra text:
         except Exception:
             parsed = {
                 "response_type": "analysis",
+                "summary": "Unable to generate a response.",
                 "answer": text or "Unable to generate a response. Check LLM configuration.",
                 "key_findings": [],
+                "recommended_actions": [],
                 "suggested_actions": [],
                 "follow_up_questions": [],
                 "confidence": "low",
-                "confidence_reason": "LLM response could not be parsed",
+                "confidence_reason": "low — limited data or conflicting signals; LLM response could not be parsed",
                 "sources": [],
             }
 
@@ -666,22 +694,39 @@ Respond with valid JSON only — no markdown fences, no extra text:
             for f in parsed.get("key_findings", [])
         ]
 
-        # Normalise suggested_actions: strings → objects
-        parsed["suggested_actions"] = [
+        # Merge recommended_actions and suggested_actions — LLM may use either name
+        raw_actions = parsed.get("recommended_actions") or parsed.get("suggested_actions") or []
+        normalised_actions = [
             a if isinstance(a, dict) else {
                 "text": a, "actionable": False, "action_type": None,
                 "entity_name": None, "entity_type": None, "platform": "meta",
                 "confidence_for_action": "medium", "reason": "",
             }
-            for a in parsed.get("suggested_actions", [])
+            for a in raw_actions
         ]
 
         # Safety guard: actionable=true only for valid action_types with entity_name
-        for action in parsed["suggested_actions"]:
+        for action in normalised_actions:
             if action.get("actionable"):
                 if (action.get("action_type") not in _VALID_ACTION_TYPES
                         or not action.get("entity_name")):
                     action["actionable"] = False
+
+        # Both field names are populated for forward + backward compatibility
+        parsed["recommended_actions"] = normalised_actions
+        parsed["suggested_actions"] = normalised_actions
+
+        # summary: use explicit field or derive from first sentence of answer
+        answer = parsed.get("answer", "")
+        if not parsed.get("summary"):
+            first_sentence = answer.split(".")[0].strip()
+            parsed["summary"] = (first_sentence + ".") if first_sentence else answer[:120]
+
+        # Normalise sources: strings → {"type": str}
+        parsed["sources"] = [
+            s if isinstance(s, dict) else {"type": s}
+            for s in parsed.get("sources", [])
+        ]
 
         parsed["provider"] = provider
         return parsed

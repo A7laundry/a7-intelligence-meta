@@ -1623,7 +1623,7 @@
   (function initCopilot() {
     // Session history: last N Q&As sent as context to improve follow-ups
     var sessionHistory = [];
-    var MAX_HISTORY = 6; // keep in memory; send last 2 to API
+    var MAX_HISTORY = 5; // keep last 5 Q&As in memory; send last 3 to API
 
     // ── Suggestion chips ──────────────────────────────────────
     fetchApi('/copilot/suggestions').then(function(qs) {
@@ -1742,8 +1742,9 @@
       var body = {
         question: question,
         period: period,
-        session_context: sessionHistory.slice(-2).map(function(h) {
-          return { question: h.question, response_type: h.response_type, answer: h.answer };
+        session_context: sessionHistory.slice(-3).map(function(h) {
+          return { question: h.question, response_type: h.response_type,
+                   answer: h.answer, summary: h.summary || '' };
         }),
       };
       if (currentAccountId) body.account_id = currentAccountId;
@@ -1755,10 +1756,11 @@
         var result = await postApi('/copilot/ask', body);
         _updateCopilotEntry(entryId, question, result);
 
-        // Update session history
+        // Update session history (last 5 stored; last 3 sent as context)
         sessionHistory.push({
           question: question,
           response_type: result.response_type || 'analysis',
+          summary: (result.summary || '').substring(0, 150),
           answer: (result.answer || '').substring(0, 200),
         });
         if (sessionHistory.length > MAX_HISTORY) sessionHistory.shift();
@@ -1771,9 +1773,13 @@
       } catch (e) {
         _updateCopilotEntry(entryId, question, {
           response_type: 'analysis',
+          summary: 'Error: ' + e.message,
           answer: 'Error: ' + e.message,
-          key_findings: [], suggested_actions: [], follow_up_questions: [],
-          confidence: 'low', confidence_reason: 'Request failed', sources: [],
+          key_findings: [], recommended_actions: [], suggested_actions: [],
+          follow_up_questions: [],
+          confidence: 'low',
+          confidence_reason: 'low — limited data or conflicting signals; request failed',
+          sources: [],
         });
       } finally {
         if (btn) { btn.disabled = false; btn.textContent = 'Ask'; }
@@ -1821,10 +1827,10 @@
         html += '</ul></div>';
       }
 
-      // Suggested actions with optional propose button
-      var actions = result.suggested_actions || [];
+      // Recommended actions (recommended_actions is canonical; suggested_actions is alias)
+      var actions = result.recommended_actions || result.suggested_actions || [];
       if (actions.length) {
-        html += '<div class="cop-actions"><strong>Suggested actions</strong><ul>';
+        html += '<div class="cop-actions"><strong>Recommended actions</strong><ul>';
         actions.forEach(function(a) { html += '<li>' + _renderAction(a) + '</li>'; });
         html += '</ul></div>';
       }
@@ -1846,7 +1852,11 @@
         (confReason ? ' title="' + _esc(confReason) + '"' : '') + '>' +
         _esc(confidence) + ' confidence' + (confReason ? ' ℹ' : '') + '</span>';
       if (result.sources && result.sources.length) {
-        html += '<span class="cop-sources">Sources: ' + _esc(result.sources.join(', ')) + '</span>';
+        var srcText = result.sources.map(function(s) {
+          if (typeof s === 'string') return s;
+          return s.name ? (s.type + ':' + s.name) : s.type;
+        }).join(', ');
+        html += '<span class="cop-sources">Sources: ' + _esc(srcText) + '</span>';
       }
       html += '</div>';
 

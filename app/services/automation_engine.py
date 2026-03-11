@@ -464,6 +464,58 @@ class AutomationEngine:
         finally:
             conn.close()
 
+    # Default budget change percentages per action type
+    _CHANGE_PCT_DEFAULTS = {
+        "increase_budget": 20,
+        "decrease_budget": -20,
+        "pause_campaign": -100,
+        "refresh_creative": 0,
+        "rotate_creative": 0,
+    }
+
+    def generate_action_proposal(self, action_type, entity_name, entity_type="campaign",
+                                  account_id=1, reason="Copilot suggestion",
+                                  confidence="medium", platform="meta"):
+        """Generate and queue a single action proposal from the Copilot.
+
+        Creates a proposal dict, runs full guardrail validation via queue_proposal(),
+        and persists it with status='proposed' for human review.
+
+        Copilot NEVER executes actions directly — all execution goes through the
+        Automation Engine approval workflow.
+
+        Args:
+            action_type:  One of VALID_ACTION_TYPES.
+            entity_name:  Campaign or creative name from context.
+            entity_type:  'campaign' | 'creative'
+            account_id:   Account to scope the proposal to.
+            reason:       Rationale from the Copilot answer.
+            confidence:   'high' | 'medium' | 'low'
+            platform:     'meta' | 'google'
+
+        Returns:
+            {"success": True,  "action_id": int}
+            {"success": False, "reason": str, "action_id": None}
+        """
+        if action_type not in self.VALID_ACTION_TYPES:
+            return {
+                "success": False,
+                "reason": f"action_type '{action_type}' is not supported",
+                "action_id": None,
+            }
+        proposal = {
+            "action_type": action_type,
+            "platform": platform or "meta",
+            "entity_type": entity_type or "campaign",
+            "entity_id": "",
+            "entity_name": entity_name,
+            "reason": f"[Copilot] {reason}",
+            "confidence": confidence or "medium",
+            "suggested_change_pct": self._CHANGE_PCT_DEFAULTS.get(action_type, 0),
+            "account_id": account_id or 1,
+        }
+        return self.queue_proposal(proposal)
+
     def queue_proposal(self, proposal):
         """Validate and queue a single manually constructed proposal.
 

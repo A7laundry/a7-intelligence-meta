@@ -1387,3 +1387,127 @@ class TestAutomationExecutionLogs:
         engine = AutomationEngine()
         logs = engine.get_logs(limit=10)
         assert isinstance(logs, list)
+
+
+class TestCopilotService:
+    """Tests for the AI Marketing Copilot service layer."""
+
+    def test_response_structure_validation(self):
+        """ask() must return all required fields with correct types."""
+        from app.db.init_db import init_db
+        init_db()
+        from app.services.copilot_service import CopilotService
+        svc = CopilotService()
+        result = svc.ask("What is the account performance overview?")
+
+        # Required top-level fields
+        assert "response_type" in result
+        assert "summary" in result
+        assert "answer" in result
+        assert "key_findings" in result
+        assert "recommended_actions" in result
+        assert "suggested_actions" in result  # backward-compat alias
+        assert "follow_up_questions" in result
+        assert "confidence" in result
+        assert "confidence_reason" in result
+        assert "sources" in result
+        assert "generated_at" in result
+        assert "provider" in result
+        assert "context_summary" in result
+
+        # Types
+        assert isinstance(result["key_findings"], list)
+        assert isinstance(result["recommended_actions"], list)
+        assert isinstance(result["suggested_actions"], list)
+        assert isinstance(result["follow_up_questions"], list)
+        assert isinstance(result["sources"], list)
+        assert result["confidence"] in ("high", "medium", "low")
+        assert result["response_type"] in ("diagnosis", "risk", "comparison", "opportunity", "analysis")
+
+        # recommended_actions and suggested_actions must be identical
+        assert result["recommended_actions"] == result["suggested_actions"]
+
+        # summary must be a non-empty string
+        assert isinstance(result["summary"], str)
+        assert len(result["summary"]) > 0
+
+        # sources must be objects (not raw strings)
+        for src in result["sources"]:
+            assert isinstance(src, dict)
+            assert "type" in src
+
+    def test_account_scoped_context(self):
+        """ask() with account_id scopes context_summary correctly."""
+        from app.db.init_db import init_db
+        init_db()
+        from app.services.copilot_service import CopilotService
+        svc = CopilotService()
+        result = svc.ask("Show budget opportunities", account_id=1, period="7d")
+
+        assert result["context_summary"]["account_id"] == 1
+        assert result["context_summary"]["period"] == "7d"
+        assert "spend" in result["context_summary"]
+        assert "active_alerts" in result["context_summary"]
+        assert "growth_score" in result["context_summary"]
+
+        # Result without account_id must also work
+        result2 = svc.ask("Show budget opportunities", account_id=None)
+        assert result2["context_summary"]["account_id"] is None
+
+    def test_automation_proposal_generation(self):
+        """create_proposal() routes through AutomationEngine.generate_action_proposal()."""
+        from app.db.init_db import init_db
+        init_db()
+        from app.services.copilot_service import CopilotService
+        svc = CopilotService()
+
+        # Valid actionable proposal
+        result = svc.create_proposal(
+            action_type="pause_campaign",
+            entity_name="Test Waste Campaign",
+            entity_type="campaign",
+            account_id=1,
+            reason="Zero conversions detected by Copilot",
+            confidence="high",
+            platform="meta",
+        )
+        assert "success" in result
+        assert "action_id" in result
+        # Either queued or blocked by guardrail — both are valid outcomes
+        if result["success"]:
+            assert isinstance(result["action_id"], int)
+        else:
+            assert result["action_id"] is None
+            assert isinstance(result["reason"], str)
+
+        # Invalid action_type must return success=False immediately
+        bad = svc.create_proposal(
+            action_type="delete_everything",
+            entity_name="Some Campaign",
+        )
+        assert bad["success"] is False
+        assert bad["action_id"] is None
+
+    def test_confidence_explanation(self):
+        """confidence_reason must match the documented label format."""
+        from app.db.init_db import init_db
+        init_db()
+        from app.services.copilot_service import CopilotService
+        svc = CopilotService()
+
+        result = svc.ask("Investigate campaign performance")
+        confidence = result["confidence"]
+        conf_reason = result["confidence_reason"].lower()
+
+        # Reason must start with the confidence level name
+        assert conf_reason.startswith(confidence), (
+            f"confidence_reason '{conf_reason}' should start with '{confidence}'"
+        )
+
+        # Each level maps to a descriptive phrase
+        if confidence == "high":
+            assert "consistent" in conf_reason or "clear" in conf_reason
+        elif confidence == "medium":
+            assert "moderate" in conf_reason or "signal" in conf_reason or "partial" in conf_reason
+        else:
+            assert "limited" in conf_reason or "conflicting" in conf_reason or "demo" in conf_reason
