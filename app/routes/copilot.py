@@ -22,12 +22,15 @@ def ask():
     """Answer a natural language marketing question grounded in live data.
 
     Body (JSON):
-        question  (str, required)
-        period    (str, optional): today | 7d | 30d  (default: 7d)
-        account_id (int, optional)
+        question        (str,  required)
+        period          (str,  optional): today | 7d | 30d  — default 7d
+        account_id      (int,  optional)
+        session_context (list, optional): [{question, response_type, answer}, ...]
+                        Last 2 entries used for conversation continuity.
 
     Returns:
-        {answer, key_findings, suggested_actions, confidence, sources,
+        {response_type, answer, key_findings, suggested_actions,
+         follow_up_questions, confidence, confidence_reason, sources,
          context_summary, provider, generated_at}
     """
     body = request.get_json(silent=True) or {}
@@ -39,15 +42,24 @@ def ask():
     account_id = AccountService.resolve_account_id(
         body.get("account_id") or request.args.get("account_id")
     )
+    session_context = body.get("session_context") or []
 
     try:
-        result = _get_service().ask(question, account_id=account_id, period=period)
+        result = _get_service().ask(
+            question,
+            account_id=account_id,
+            period=period,
+            session_context=session_context,
+        )
     except Exception as e:
         return jsonify({
+            "response_type": "analysis",
             "answer": f"Copilot error: {str(e)}",
             "key_findings": [],
             "suggested_actions": [],
+            "follow_up_questions": [],
             "confidence": "low",
+            "confidence_reason": "Service error",
             "sources": [],
             "provider": "error",
         }), 500
@@ -55,9 +67,60 @@ def ask():
     return jsonify(result)
 
 
+@copilot_bp.route("/copilot/propose", methods=["POST"])
+def propose():
+    """Convert a Copilot suggested action into an Automation Engine proposal.
+
+    The proposal is queued with status='proposed' and must be reviewed and
+    approved in the Automation Center before any execution occurs.
+    All guardrails apply — proposals that violate rules are blocked.
+
+    Body (JSON):
+        action_type   (str, required): pause_campaign | increase_budget |
+                                       decrease_budget | refresh_creative | rotate_creative
+        entity_name   (str, required): campaign or creative name
+        entity_type   (str, optional): campaign | creative  — default campaign
+        account_id    (int, optional)
+        reason        (str, optional): rationale text from Copilot
+        confidence    (str, optional): high | medium | low  — default medium
+        platform      (str, optional): meta | google  — default meta
+
+    Returns:
+        {"success": true,  "action_id": int}  or
+        {"success": false, "reason": str, "action_id": null}
+    """
+    body = request.get_json(silent=True) or {}
+    action_type = (body.get("action_type") or "").strip()
+    entity_name = (body.get("entity_name") or "").strip()
+
+    if not action_type or not entity_name:
+        return jsonify({"success": False,
+                        "reason": "action_type and entity_name are required",
+                        "action_id": None}), 400
+
+    account_id = AccountService.resolve_account_id(
+        body.get("account_id") or request.args.get("account_id")
+    )
+
+    try:
+        result = _get_service().create_proposal(
+            action_type=action_type,
+            entity_name=entity_name,
+            entity_type=body.get("entity_type", "campaign"),
+            account_id=account_id,
+            reason=body.get("reason", "Copilot suggestion"),
+            confidence=body.get("confidence", "medium"),
+            platform=body.get("platform", "meta"),
+        )
+    except Exception as e:
+        return jsonify({"success": False, "reason": str(e), "action_id": None}), 500
+
+    return jsonify(result)
+
+
 @copilot_bp.route("/copilot/suggestions")
 def suggestions():
-    """Return example questions for the Copilot UI."""
+    """Return example questions grouped by response type."""
     return jsonify([
         "Why did CPA increase in the last 7 days?",
         "Which campaigns should be scaled today?",

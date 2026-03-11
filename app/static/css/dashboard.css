@@ -1009,3 +1009,106 @@ tr:last-child td{border-bottom:none}
 .cop-confidence.mid  { background: rgba(251,191,36,.15);  color: #f59e0b; }
 .cop-confidence.bad  { background: rgba(239,68,68,.15);   color: #ef4444; }
 .cop-sources { color: var(--text-muted); }
+
+/* Copilot — type badge */
+.cop-type-row { margin-bottom: 8px; }
+.cop-type-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-muted);
+}
+.cop-type-diagnosis  { background: rgba(99,102,241,.15);  color: #818cf8; }
+.cop-type-risk       { background: rgba(239,68,68,.15);   color: #f87171; }
+.cop-type-comparison { background: rgba(251,191,36,.15);  color: #fbbf24; }
+.cop-type-opportunity{ background: rgba(16,185,129,.15);  color: #34d399; }
+
+/* Copilot — inline reference badges */
+.cop-ref {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 5px;
+  margin-left: 4px;
+  cursor: pointer;
+  text-decoration: underline dotted;
+  background: rgba(99,102,241,.12);
+  color: #818cf8;
+  transition: background .15s;
+}
+.cop-ref:hover               { background: rgba(99,102,241,.25); }
+.cop-ref-campaign            { background: rgba(99,102,241,.12); color: #818cf8; }
+.cop-ref-campaign:hover      { background: rgba(99,102,241,.25); }
+.cop-ref-alert               { background: rgba(239,68,68,.12);  color: #f87171; }
+.cop-ref-alert:hover         { background: rgba(239,68,68,.22);  }
+.cop-ref-creative            { background: rgba(251,191,36,.12); color: #fbbf24; }
+.cop-ref-creative:hover      { background: rgba(251,191,36,.22); }
+.cop-ref-account             { background: rgba(16,185,129,.12); color: #34d399; }
+.cop-ref-account:hover       { background: rgba(16,185,129,.22); }
+.cop-ref-metric              { background: rgba(148,163,184,.12);color: #94a3b8; }
+.cop-ref-metric:hover        { background: rgba(148,163,184,.22);}
+
+/* Copilot — propose button */
+.cop-propose-btn {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid rgba(99,102,241,.4);
+  background: transparent;
+  color: #818cf8;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.cop-propose-btn:hover { background: rgba(99,102,241,.15); }
+.cop-proposed {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 6px;
+  background: rgba(16,185,129,.12);
+  color: #34d399;
+}
+.cop-blocked {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 6px;
+  background: rgba(239,68,68,.12);
+  color: #f87171;
+}
+
+/* Copilot — follow-up chips */
+.cop-followups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.cop-followup-chip {
+  padding: 4px 12px;
+  font-size: 11px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background .15s, border-color .15s;
+}
+.cop-followup-chip:hover {
+  background: rgba(99,102,241,.1);
+  border-color: rgba(99,102,241,.4);
+  color: #818cf8;
+}

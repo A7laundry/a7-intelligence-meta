@@ -1621,32 +1621,113 @@
 
   /* ─── AI Marketing Copilot ─── */
   (function initCopilot() {
-    var history = [];
+    // Session history: last N Q&As sent as context to improve follow-ups
+    var sessionHistory = [];
+    var MAX_HISTORY = 6; // keep in memory; send last 2 to API
 
-    // Load suggestion chips
+    // ── Suggestion chips ──────────────────────────────────────
     fetchApi('/copilot/suggestions').then(function(qs) {
       var el = document.getElementById('copilotSuggestions');
       if (!el || !Array.isArray(qs)) return;
-      el.innerHTML = qs.map(function(q) {
-        return '<button class="copilot-chip" onclick="copilotAskQuestion(' +
-          JSON.stringify(q) + ')">' + q + '</button>';
-      }).join('');
+      _renderChips(el, qs);
     }).catch(function() {});
+
+    function _renderChips(container, questions) {
+      container.innerHTML = questions.map(function(q) {
+        return '<button class="copilot-chip" data-question="' + _esc(q) + '">' + _esc(q) + '</button>';
+      }).join('');
+    }
+
+    // Delegated click on chips (initial suggestions + follow-up chips)
+    document.addEventListener('click', function(e) {
+      var chip = e.target.closest('.copilot-chip');
+      if (chip && chip.dataset.question) {
+        var inp = document.getElementById('copilotInput');
+        if (inp) inp.value = chip.dataset.question;
+        window.copilotAsk();
+      }
+    });
 
     // Enter key submits
     var input = document.getElementById('copilotInput');
     if (input) {
       input.addEventListener('keydown', function(e) {
-        if (e.key === 'Enter') copilotAsk();
+        if (e.key === 'Enter') window.copilotAsk();
       });
     }
 
-    window.copilotAskQuestion = function(q) {
-      var inp = document.getElementById('copilotInput');
-      if (inp) inp.value = q;
-      copilotAsk();
-    };
+    // ── Ref-click delegation (scroll to section) ─────────────
+    var histEl = document.getElementById('copilotHistory');
+    if (histEl) {
+      histEl.addEventListener('click', function(e) {
+        // Ref links
+        var ref = e.target.closest('.cop-ref');
+        if (ref) {
+          _handleRefClick(ref.dataset.refType, ref.dataset.refName);
+          return;
+        }
+        // Propose buttons
+        var propBtn = e.target.closest('.cop-propose-btn');
+        if (propBtn && !propBtn.disabled) {
+          _handlePropose(propBtn);
+        }
+      });
+    }
 
+    function _handleRefClick(refType, refName) {
+      var sectionMap = {
+        campaign: 'metaTable',
+        alert: 'alertsSection',
+        creative: 'creativeSection',
+        account: 'crossAccountSection',
+      };
+      var sectionId = sectionMap[refType] || null;
+      if (sectionId) {
+        var el = document.getElementById(sectionId);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }
+
+    async function _handlePropose(btn) {
+      var d = btn.dataset;
+      var confirmMsg = 'Create automation proposal?\n\n' +
+        'Action: ' + (d.actionType || '') + '\n' +
+        'Campaign: ' + (d.entityName || '') + '\n\n' +
+        'This will be queued for your review in the Automation Center.\n' +
+        'No execution happens until you approve it there.';
+      if (!confirm(confirmMsg)) return;
+
+      btn.disabled = true;
+      btn.textContent = '…';
+
+      var body = {
+        action_type: d.actionType,
+        entity_name: d.entityName,
+        entity_type: d.entityType || 'campaign',
+        platform: d.platform || 'meta',
+        reason: d.reason || '',
+        confidence: d.confidence || 'medium',
+      };
+      if (currentAccountId) body.account_id = currentAccountId;
+
+      try {
+        var result = await postApi('/copilot/propose', body);
+        if (result.success) {
+          btn.textContent = '✓ Queued #' + result.action_id;
+          btn.classList.add('cop-proposed');
+        } else {
+          btn.textContent = 'Blocked';
+          btn.title = result.reason || 'Guardrail blocked this action';
+          btn.classList.add('cop-blocked');
+          btn.disabled = false;
+        }
+      } catch (e) {
+        btn.textContent = 'Error';
+        btn.disabled = false;
+      }
+    }
+
+    // ── Public API ────────────────────────────────────────────
     window.copilotAsk = async function() {
       var inp = document.getElementById('copilotInput');
       var btn = document.getElementById('copilotSendBtn');
@@ -1658,85 +1739,162 @@
       if (btn) { btn.disabled = true; btn.textContent = '…'; }
 
       var period = currentRange === 'today' ? 'today' : (currentRange === '30d' ? '30d' : '7d');
-      var body = { question: question, period: period };
+      var body = {
+        question: question,
+        period: period,
+        session_context: sessionHistory.slice(-2).map(function(h) {
+          return { question: h.question, response_type: h.response_type, answer: h.answer };
+        }),
+      };
       if (currentAccountId) body.account_id = currentAccountId;
 
-      // Optimistic: add loading entry
       var entryId = 'cop-' + Date.now();
-      _appendCopilotEntry(entryId, question, null);
+      _appendCopilotEntry(entryId, question);
 
       try {
         var result = await postApi('/copilot/ask', body);
-        _updateCopilotEntry(entryId, result);
+        _updateCopilotEntry(entryId, question, result);
 
+        // Update session history
+        sessionHistory.push({
+          question: question,
+          response_type: result.response_type || 'analysis',
+          answer: (result.answer || '').substring(0, 200),
+        });
+        if (sessionHistory.length > MAX_HISTORY) sessionHistory.shift();
+
+        // Update provider badge
         var provEl = document.getElementById('copilotProvider');
         if (provEl && result.provider) {
-          provEl.textContent = 'via ' + result.provider.replace('_', ' ');
+          provEl.textContent = 'via ' + result.provider.replace(/_/g, ' ');
         }
       } catch (e) {
-        _updateCopilotEntry(entryId, {
+        _updateCopilotEntry(entryId, question, {
+          response_type: 'analysis',
           answer: 'Error: ' + e.message,
-          key_findings: [], suggested_actions: [], confidence: 'low'
+          key_findings: [], suggested_actions: [], follow_up_questions: [],
+          confidence: 'low', confidence_reason: 'Request failed', sources: [],
         });
       } finally {
         if (btn) { btn.disabled = false; btn.textContent = 'Ask'; }
       }
     };
 
-    function _appendCopilotEntry(id, question, result) {
-      var histEl = document.getElementById('copilotHistory');
-      if (!histEl) return;
+    // ── Rendering ─────────────────────────────────────────────
+    function _appendCopilotEntry(id, question) {
+      var el = document.getElementById('copilotHistory');
+      if (!el) return;
       var div = document.createElement('div');
-      div.className = 'copilot-entry';
+      div.className = 'copilot-entry cop-loading';
       div.id = id;
-      div.innerHTML = '<div class="cop-question">' + _esc(question) + '</div>' +
-        '<div class="cop-answer cop-loading">Thinking…</div>';
-      histEl.insertBefore(div, histEl.firstChild);
+      div.innerHTML =
+        '<div class="cop-question">' + _esc(question) + '</div>' +
+        '<div class="cop-answer">Analyzing data…</div>';
+      el.insertBefore(div, el.firstChild);
     }
 
-    function _updateCopilotEntry(id, result) {
+    function _updateCopilotEntry(id, question, result) {
       var div = document.getElementById(id);
       if (!div) return;
+      div.classList.remove('cop-loading');
+
+      var rtype = result.response_type || 'analysis';
       var confidence = result.confidence || 'medium';
       var confClass = confidence === 'high' ? 'good' : confidence === 'low' ? 'bad' : 'mid';
+      var confReason = result.confidence_reason || '';
 
-      var html = '<div class="cop-answer">' + _md(result.answer || '') + '</div>';
+      var html = '<div class="cop-question">' + _esc(question) + '</div>';
 
-      if ((result.key_findings || []).length) {
-        html += '<div class="cop-findings"><strong>Key findings:</strong><ul>' +
-          result.key_findings.map(function(f) { return '<li>' + _esc(f) + '</li>'; }).join('') +
-          '</ul></div>';
+      // Type badge row
+      html += '<div class="cop-type-row">' +
+        '<span class="cop-type-badge cop-type-' + _esc(rtype) + '">' + _esc(rtype) + '</span>' +
+        '</div>';
+
+      // Answer
+      html += '<div class="cop-answer">' + _md(result.answer || '') + '</div>';
+
+      // Key findings with clickable refs
+      var findings = result.key_findings || [];
+      if (findings.length) {
+        html += '<div class="cop-findings"><strong>Key findings</strong><ul>';
+        findings.forEach(function(f) { html += '<li>' + _renderFinding(f) + '</li>'; });
+        html += '</ul></div>';
       }
-      if ((result.suggested_actions || []).length) {
-        html += '<div class="cop-actions"><strong>Suggested actions:</strong><ul>' +
-          result.suggested_actions.map(function(a) { return '<li>' + _esc(a) + '</li>'; }).join('') +
-          '</ul></div>';
+
+      // Suggested actions with optional propose button
+      var actions = result.suggested_actions || [];
+      if (actions.length) {
+        html += '<div class="cop-actions"><strong>Suggested actions</strong><ul>';
+        actions.forEach(function(a) { html += '<li>' + _renderAction(a) + '</li>'; });
+        html += '</ul></div>';
       }
-      html += '<div class="cop-meta">' +
-        '<span class="cop-confidence ' + confClass + '">' + confidence + ' confidence</span>' +
-        (result.sources && result.sources.length
-          ? '<span class="cop-sources">Sources: ' + result.sources.join(', ') + '</span>'
-          : '') +
-      '</div>';
 
-      div.querySelector('.cop-answer').outerHTML = html;
+      // Follow-up chips
+      var followUps = (result.follow_up_questions || []).slice(0, 3);
+      if (followUps.length) {
+        html += '<div class="cop-followups">';
+        followUps.forEach(function(q) {
+          html += '<button class="copilot-chip cop-followup-chip" data-question="' + _esc(q) + '">' +
+            _esc(q) + '</button>';
+        });
+        html += '</div>';
+      }
 
-      // Remove old findings/actions if re-rendered
-      div.querySelectorAll('.cop-findings, .cop-actions, .cop-meta').forEach(function(el) {
-        if (el !== div.querySelector('.cop-meta')) {
-          // keep only latest injected block
-        }
-      });
-      // Actually replace entire inner content
-      div.innerHTML = '<div class="cop-question">' + div.querySelector('.cop-question').innerHTML + '</div>' + html;
+      // Meta row: confidence + sources
+      html += '<div class="cop-meta">';
+      html += '<span class="cop-confidence ' + confClass + '"' +
+        (confReason ? ' title="' + _esc(confReason) + '"' : '') + '>' +
+        _esc(confidence) + ' confidence' + (confReason ? ' ℹ' : '') + '</span>';
+      if (result.sources && result.sources.length) {
+        html += '<span class="cop-sources">Sources: ' + _esc(result.sources.join(', ')) + '</span>';
+      }
+      html += '</div>';
+
+      div.innerHTML = html;
+    }
+
+    function _renderFinding(f) {
+      if (typeof f === 'string') return _esc(f);
+      var text = _esc(f.text || '');
+      if (f.ref_name && f.ref_type && f.ref_type !== 'null') {
+        var badge =
+          '<span class="cop-ref cop-ref-' + _esc(f.ref_type) + '" ' +
+          'data-ref-type="' + _esc(f.ref_type) + '" ' +
+          'data-ref-id="' + _esc(f.ref_id || '') + '" ' +
+          'data-ref-name="' + _esc(f.ref_name) + '" ' +
+          'title="Click to navigate">' + _esc(f.ref_name) + '</span>';
+        var escapedName = _esc(f.ref_name);
+        text = text.includes(escapedName) ? text.replace(escapedName, badge) : text + ' ' + badge;
+      }
+      return text;
+    }
+
+    function _renderAction(a) {
+      if (typeof a === 'string') return _esc(a);
+      var text = _esc(a.text || '');
+      if (a.actionable && a.action_type && a.entity_name) {
+        text += ' <button class="cop-propose-btn" ' +
+          'data-action-type="' + _esc(a.action_type) + '" ' +
+          'data-entity-name="' + _esc(a.entity_name) + '" ' +
+          'data-entity-type="' + _esc(a.entity_type || 'campaign') + '" ' +
+          'data-platform="' + _esc(a.platform || 'meta') + '" ' +
+          'data-reason="' + _esc(a.reason || a.text || '') + '" ' +
+          'data-confidence="' + _esc(a.confidence_for_action || 'medium') + '" ' +
+          'title="Queue this action for human review in the Automation Center">' +
+          '→ Propose</button>';
+      }
+      return text;
     }
 
     function _esc(s) {
-      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
     }
 
     function _md(s) {
-      // Minimal markdown: **bold**, bullet lists, newlines
       return _esc(s)
         .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
         .replace(/\n/g, '<br>');

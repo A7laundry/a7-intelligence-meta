@@ -464,6 +464,32 @@ class AutomationEngine:
         finally:
             conn.close()
 
+    def queue_proposal(self, proposal):
+        """Validate and queue a single manually constructed proposal.
+
+        Used by the Copilot to convert suggested actions into automation queue entries.
+        Runs full guardrail validation — blocked proposals are never persisted.
+
+        Returns:
+            {"success": True,  "action_id": int}
+            {"success": False, "reason": str, "action_id": None}
+        """
+        validation = self.validate_action(proposal)
+        if not validation["allowed"]:
+            return {"success": False, "reason": validation["reason"], "action_id": None}
+
+        proposal = dict(proposal)
+        proposal["status"] = "proposed"
+        proposal["execution_mode"] = self.config["execution_mode"]
+        action_id = self._persist_action(proposal)
+        proposal["id"] = action_id
+        self._log_action(
+            action_id, proposal, "proposed",
+            f"Copilot proposal: {proposal.get('action_type')} on {proposal.get('entity_name')}"
+        )
+        self._notify("action_proposed", proposal)
+        return {"success": True, "action_id": action_id}
+
     def get_runs(self, account_id=None, limit=20):
         """Get automation run history records."""
         conn = get_connection()
