@@ -129,11 +129,17 @@ class AutomationEngine:
     # APPROVAL WORKFLOW
     # ══════════════════════════════════════════════════════════
 
-    def approve_action(self, action_id):
-        """Approve a proposed action for execution."""
+    def approve_action(self, action_id, account_id=None):
+        """Approve a proposed action for execution.
+
+        If account_id is provided, the action must belong to that account
+        (prevents cross-account approval).
+        """
         action = self._get_action(action_id)
         if not action:
             return {"success": False, "error": "Action not found"}
+        if account_id is not None and action.get("account_id") != account_id:
+            return {"success": False, "error": "Action does not belong to the specified account"}
         if action["status"] != "proposed":
             return {"success": False, "error": f"Cannot approve action in '{action['status']}' status"}
 
@@ -180,11 +186,17 @@ class AutomationEngine:
     # EXECUTION ENGINE
     # ══════════════════════════════════════════════════════════
 
-    def execute_action(self, action_id):
-        """Execute a single approved action."""
+    def execute_action(self, action_id, account_id=None):
+        """Execute a single approved action.
+
+        If account_id is provided, the action must belong to that account
+        (prevents cross-account execution).
+        """
         action = self._get_action(action_id)
         if not action:
             return {"success": False, "error": "Action not found"}
+        if account_id is not None and action.get("account_id") != account_id:
+            return {"success": False, "error": "Action does not belong to the specified account"}
         if action["status"] != "approved":
             return {"success": False, "error": f"Cannot execute action in '{action['status']}' status. Must be 'approved'."}
 
@@ -249,6 +261,32 @@ class AutomationEngine:
                 executed_count += 1
 
         return {
+            "results": results,
+            "executed_count": executed_count,
+            "total_approved": len(approved),
+            "max_per_run": self.config["max_actions_per_run"],
+            "execution_mode": self.config["execution_mode"],
+        }
+
+    def execute_approved_actions_for_account(self, account_id):
+        """Execute all approved actions for a specific account only.
+
+        Enforces account isolation: actions from other accounts are never touched.
+        """
+        approved = self.get_actions(status="approved", account_id=account_id)
+        results = []
+        executed_count = 0
+
+        for action in approved:
+            if executed_count >= self.config["max_actions_per_run"]:
+                break
+            result = self.execute_action(action["id"], account_id=account_id)
+            results.append(result)
+            if result.get("success"):
+                executed_count += 1
+
+        return {
+            "account_id": account_id,
             "results": results,
             "executed_count": executed_count,
             "total_approved": len(approved),

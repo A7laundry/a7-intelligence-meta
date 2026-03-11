@@ -181,11 +181,86 @@ class SchedulerService:
             self._log_operation("end_of_day", "failed", msg, {"error": str(e)}, started)
             return {"status": "failed", "message": msg}
 
+    def run_account_automation(self, account_id):
+        """Generate automation proposals and execute approved actions for one account.
+
+        Proposals are tagged with account_id at generation time.
+        Execution is scoped strictly to that account — no cross-account leakage.
+        """
+        started = datetime.utcnow()
+        results = {}
+        try:
+            init_db()
+            from app.services.automation_engine import AutomationEngine
+            engine = AutomationEngine()
+
+            # Generate & queue proposals for this account
+            queued = engine.generate_and_queue(days=7, account_id=account_id)
+            results["queued"] = queued.get("queued_count", 0)
+            results["blocked"] = queued.get("blocked_count", 0)
+
+            # Execute only approved actions belonging to this account
+            executed = engine.execute_approved_actions_for_account(account_id)
+            results["executed"] = executed.get("executed_count", 0)
+
+            msg = (
+                f"Account {account_id} automation: "
+                f"{results['queued']} queued, {results['executed']} executed"
+            )
+            self._log_operation("automation", "success", msg,
+                                {"account_id": account_id, **results}, started)
+            return {"status": "success", "message": msg, "account_id": account_id, **results}
+        except Exception as e:
+            msg = f"Account {account_id} automation failed: {str(e)}"
+            self._log_operation("automation", "failed", msg,
+                                {"account_id": account_id, "error": str(e)}, started)
+            return {"status": "failed", "message": msg, "account_id": account_id}
+
+    def run_all_accounts_automation(self):
+        """Run automation for every active ad account sequentially.
+
+        Each account is processed in isolation — no cross-account action execution.
+        """
+        started = datetime.utcnow()
+        try:
+            init_db()
+            from app.services.account_service import AccountService
+            accounts = AccountService.get_all()
+            if not accounts:
+                msg = "No ad accounts found — automation skipped"
+                self._log_operation("automation_all", "success", msg, {}, started)
+                return {"status": "success", "message": msg, "accounts_processed": 0}
+
+            account_results = []
+            for acc in accounts:
+                result = self.run_account_automation(acc["id"])
+                account_results.append(result)
+
+            total_queued = sum(r.get("queued", 0) for r in account_results)
+            total_executed = sum(r.get("executed", 0) for r in account_results)
+            msg = (
+                f"All-accounts automation: {len(accounts)} accounts, "
+                f"{total_queued} queued, {total_executed} executed"
+            )
+            payload = {
+                "accounts_processed": len(accounts),
+                "total_queued": total_queued,
+                "total_executed": total_executed,
+                "per_account": account_results,
+            }
+            self._log_operation("automation_all", "success", msg, payload, started)
+            return {"status": "success", "message": msg, **payload}
+        except Exception as e:
+            msg = f"All-accounts automation failed: {str(e)}"
+            self._log_operation("automation_all", "failed", msg, {"error": str(e)}, started)
+            return {"status": "failed", "message": msg}
+
     def get_operations_status(self):
         """Get latest status for each operation type."""
         conn = get_connection()
         try:
-            types = ["snapshot", "ai_refresh", "alert_refresh", "daily_briefing", "end_of_day"]
+            types = ["snapshot", "ai_refresh", "alert_refresh", "daily_briefing", "end_of_day",
+                     "automation", "automation_all"]
             status = {}
             for op_type in types:
                 row = conn.execute(

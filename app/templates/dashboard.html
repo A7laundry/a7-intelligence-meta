@@ -17,6 +17,50 @@
 {% endblock %}
 
 {% block content %}
+<!-- Cross-Account Overview (shown only when 2+ accounts) -->
+<div class="section" id="crossAccountSection" style="display:none">
+  <div class="section-header">
+    <span class="section-title">Cross-Account Overview</span>
+    <span class="section-subtitle" id="crossAccountPeriod"></span>
+  </div>
+  <div class="section-body">
+    <div id="crossAccountLoading" class="coach-loading">Loading cross-account data...</div>
+    <div id="crossAccountContent" style="display:none">
+      <!-- Totals row -->
+      <div class="cross-account-totals" id="crossAccountTotals"></div>
+      <!-- Insights row -->
+      <div class="cross-account-insights" id="crossAccountInsights"></div>
+      <!-- Chart + Table row -->
+      <div class="cross-account-main">
+        <div class="cross-account-chart-wrap">
+          <canvas id="accountSpendChart" height="220"></canvas>
+        </div>
+        <div class="cross-account-table-wrap">
+          <table id="crossAccountTable">
+            <thead>
+              <tr>
+                <th>Account</th>
+                <th>Platform</th>
+                <th>Spend</th>
+                <th>Conv.</th>
+                <th>CPA</th>
+                <th>CTR</th>
+                <th>Efficiency</th>
+                <th>Alerts</th>
+                <th>Growth</th>
+              </tr>
+            </thead>
+            <tbody id="crossAccountTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div id="crossAccountEmpty" style="display:none;text-align:center;color:var(--text-muted);padding:24px">
+      Connect multiple accounts to see cross-account overview.
+    </div>
+  </div>
+</div>
+
 <!-- Executive Growth Strip -->
 <div class="growth-strip" id="growthStrip" style="display:none">
   <div class="growth-strip-score">

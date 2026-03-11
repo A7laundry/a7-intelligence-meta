@@ -663,3 +663,192 @@ tr:last-child td{border-bottom:none}
   transition: border-color .2s;
 }
 .account-select:focus { border-color: var(--accent); }
+
+/* ─── Cross-Account Overview ─── */
+.section-subtitle {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-left: 8px;
+}
+.cross-account-totals {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.ca-total-card {
+  flex: 1;
+  min-width: 120px;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  text-align: center;
+}
+.ca-total-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text);
+}
+.ca-total-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+}
+.cross-account-insights {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.ca-insight-card {
+  flex: 1;
+  min-width: 180px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  border-left: 3px solid var(--border);
+}
+.ca-insight-card.best { border-left-color: var(--green); }
+.ca-insight-card.worst { border-left-color: var(--red); }
+.ca-insight-card.alert { border-left-color: #f59e0b; }
+.ca-insight-card.opportunity { border-left-color: #2563eb; }
+.ca-insight-type {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.ca-insight-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.ca-insight-reason {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+.cross-account-main {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 20px;
+  align-items: start;
+}
+@media(max-width:720px){
+  .cross-account-main { grid-template-columns: 1fr; }
+}
+.cross-account-chart-wrap {
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+}
+.cross-account-table-wrap { overflow-x: auto; }
+#crossAccountTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+#crossAccountTable th {
+  background: var(--surface-alt);
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+#crossAccountTable td {
+  padding: 10px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+#crossAccountTable tr:last-child td { border-bottom: none; }
+#crossAccountTable tr:hover td { background: var(--surface-alt); }
+.ca-account-name {
+  font-weight: 600;
+  color: var(--text);
+}
+.ca-account-link {
+  font-size: 11px;
+  color: #2563eb;
+  cursor: pointer;
+  text-decoration: underline;
+  margin-top: 2px;
+}
+.ca-platform-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  color: #fff;
+}
+.ca-platform-badge.meta { background: #1877f2; }
+.ca-platform-badge.google { background: #f59e0b; }
+.ca-eff-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.ca-eff-badge.high { background: #d1fae5; color: #065f46; }
+.ca-eff-badge.mid  { background: #fef3c7; color: #92400e; }
+.ca-eff-badge.low  { background: #fee2e2; color: #991b1b; }
+.ca-growth-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.ca-growth-badge.elite  { background: #ddd6fe; color: #5b21b6; }
+.ca-growth-badge.strong { background: #d1fae5; color: #065f46; }
+.ca-growth-badge.stable { background: #e0f2fe; color: #075985; }
+.ca-growth-badge.at_risk{ background: #fef3c7; color: #92400e; }
+.ca-growth-badge.weak   { background: #fee2e2; color: #991b1b; }
+.ca-growth-badge.unknown{ background: var(--surface-alt); color: var(--text-muted); }
+.ca-alert-count {
+  display: inline-block;
+  min-width: 24px;
+  text-align: center;
+  padding: 2px 6px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.ca-alert-count.has-alerts { background: #fee2e2; color: #991b1b; }
+.ca-alert-count.no-alerts  { background: var(--surface-alt); color: var(--text-muted); }
+
+/* ─── Account Status Pill (header) ─── */
+.account-status-pill {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-left: 8px;
+  white-space: nowrap;
+}
+.account-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+}
+.account-status-dot.fresh  { background: var(--green); }
+.account-status-dot.stale  { background: #f59e0b; }
+.account-status-dot.empty  { background: var(--red); }

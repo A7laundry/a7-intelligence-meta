@@ -54,6 +54,8 @@
         const badge = $('#accountPlatformBadge');
         if (badge) badge.textContent = selected.platform === 'google' ? 'Google' : 'Meta';
       }
+      // Load status pill for initial account
+      if (currentAccountId) loadAccountStatus(currentAccountId);
       // Listen for changes
       select.addEventListener('change', function () {
         currentAccountId = parseInt(this.value, 10);
@@ -64,6 +66,7 @@
           const badge = $('#accountPlatformBadge');
           if (badge) badge.textContent = acc.platform === 'google' ? 'Google' : 'Meta';
         }
+        loadAccountStatus(currentAccountId);
         load(currentRange);
         loadAllSections();
       });
@@ -80,6 +83,7 @@
     loadAutomation();
     loadAutoLogs();
     loadCreatives();
+    loadAccountOverview();
   }
 
   const $ = (sel) => document.querySelector(sel);
@@ -1370,6 +1374,180 @@
     }
   };
 
+  /* ─── Cross-Account Overview ─── */
+  let accountSpendChart = null;
+
+  async function loadAccountOverview() {
+    var section = document.getElementById('crossAccountSection');
+    var loading = document.getElementById('crossAccountLoading');
+    var content = document.getElementById('crossAccountContent');
+    var empty = document.getElementById('crossAccountEmpty');
+    if (!section) return;
+
+    try {
+      var data = await fetchApi('/accounts/overview?days=7');
+      var accounts = data.accounts || [];
+
+      // Show section only when 2+ accounts
+      if (accounts.length < 2) {
+        section.style.display = 'none';
+        return;
+      }
+
+      section.style.display = '';
+      loading.style.display = 'none';
+      content.style.display = '';
+
+      var periodEl = document.getElementById('crossAccountPeriod');
+      if (periodEl) periodEl.textContent = 'Last 7 days';
+
+      renderCATotals(data.totals || {});
+      renderCAInsights(data.insights || {});
+      renderCAChart(data.spend_share || {});
+      renderCATable(accounts);
+    } catch (e) {
+      if (section) section.style.display = 'none';
+    }
+  }
+
+  function renderCATotals(t) {
+    var el = document.getElementById('crossAccountTotals');
+    if (!el) return;
+    var cards = [
+      { label: 'Total Spend',   value: fmtMoney(t.spend || 0) },
+      { label: 'Conversions',   value: fmt(t.conversions || 0) },
+      { label: 'Avg CPA',       value: fmtMoney(t.cpa || 0) },
+      { label: 'Avg CTR',       value: fmtPct(t.ctr || 0) },
+      { label: 'Active Alerts', value: t.alerts || 0 },
+      { label: 'Accounts',      value: t.accounts || 0 },
+    ];
+    el.innerHTML = cards.map(function(c) {
+      return '<div class="ca-total-card">' +
+        '<div class="ca-total-value">' + c.value + '</div>' +
+        '<div class="ca-total-label">' + c.label + '</div>' +
+      '</div>';
+    }).join('');
+  }
+
+  function renderCAInsights(ins) {
+    var el = document.getElementById('crossAccountInsights');
+    if (!el) return;
+    var cards = [];
+    if (ins.best_performing) {
+      cards.push({ type: 'Best Performing', name: ins.best_performing.name,
+        reason: ins.best_performing.reason, cls: 'best' });
+    }
+    if (ins.worst_cpa) {
+      cards.push({ type: 'Worst CPA', name: ins.worst_cpa.name,
+        reason: ins.worst_cpa.reason, cls: 'worst' });
+    }
+    if (ins.highest_alerts) {
+      cards.push({ type: 'Alert Concentration', name: ins.highest_alerts.name,
+        reason: ins.highest_alerts.reason, cls: 'alert' });
+    }
+    if (ins.opportunity) {
+      cards.push({ type: 'Opportunity', name: ins.opportunity.name,
+        reason: ins.opportunity.reason, cls: 'opportunity' });
+    }
+    el.innerHTML = cards.map(function(c) {
+      return '<div class="ca-insight-card ' + c.cls + '">' +
+        '<div class="ca-insight-type">' + c.type + '</div>' +
+        '<div class="ca-insight-name">' + c.name + '</div>' +
+        '<div class="ca-insight-reason">' + c.reason + '</div>' +
+      '</div>';
+    }).join('');
+  }
+
+  function renderCAChart(share) {
+    var canvas = document.getElementById('accountSpendChart');
+    if (!canvas) return;
+    if (accountSpendChart) accountSpendChart.destroy();
+    var labels = share.labels || [];
+    var values = share.values || [];
+    var pcts = share.percentages || [];
+    var palette = ['#2563eb','#10b981','#f59e0b','#8b5cf6','#ef4444','#06b6d4'];
+    var colors = labels.map(function(_, i) { return palette[i % palette.length]; });
+
+    accountSpendChart = new Chart(canvas, {
+      type: 'doughnut',
+      data: {
+        labels: labels,
+        datasets: [{ data: values, backgroundColor: colors, borderWidth: 2, borderColor: '#fff' }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: '58%',
+        plugins: {
+          legend: { position: 'bottom', labels: { font: { size: 11, family: 'Inter' }, padding: 10, usePointStyle: true } },
+          tooltip: {
+            callbacks: {
+              label: function(ctx) {
+                return ctx.label + ': $' + (ctx.parsed || 0).toFixed(2) + ' (' + (pcts[ctx.dataIndex] || 0) + '%)';
+              }
+            }
+          }
+        }
+      }
+    });
+  }
+
+  function renderCATable(accounts) {
+    var tbody = document.getElementById('crossAccountTableBody');
+    if (!tbody) return;
+    var html = '';
+    accounts.forEach(function(a) {
+      var effCls = a.efficiency_score >= 70 ? 'high' : (a.efficiency_score >= 40 ? 'mid' : 'low');
+      var alertCls = a.alerts_count > 0 ? 'has-alerts' : 'no-alerts';
+      var platCls = a.platform === 'google' ? 'google' : 'meta';
+      html += '<tr>' +
+        '<td><div class="ca-account-name">' + a.account_name + '</div>' +
+          '<div class="ca-account-link" onclick="switchToAccount(' + a.id + ')">View account &rarr;</div></td>' +
+        '<td><span class="ca-platform-badge ' + platCls + '">' + a.platform + '</span></td>' +
+        '<td>' + fmtMoney(a.spend) + '</td>' +
+        '<td>' + fmt(a.conversions) + '</td>' +
+        '<td>' + fmtMoney(a.cpa) + '</td>' +
+        '<td>' + fmtPct(a.ctr) + '</td>' +
+        '<td><span class="ca-eff-badge ' + effCls + '">' + a.efficiency_score + '</span></td>' +
+        '<td><span class="ca-alert-count ' + alertCls + '">' + a.alerts_count + '</span></td>' +
+        '<td><span class="ca-growth-badge ' + (a.growth_label || 'unknown') + '">' + (a.growth_label || '—') + '</span></td>' +
+      '</tr>';
+    });
+    tbody.innerHTML = html;
+  }
+
+  window.switchToAccount = function(id) {
+    currentAccountId = id;
+    localStorage.setItem('a7_account_id', id);
+    setAccountIdInUrl(id);
+    var select = $('#accountSelect');
+    if (select) select.value = id;
+    load(currentRange);
+    loadAllSections();
+  };
+
+  /* ─── Account Status Pill ─── */
+  async function loadAccountStatus(accountId) {
+    if (!accountId) return;
+    var pill = document.getElementById('accountStatusPill');
+    var dot = document.getElementById('accountStatusDot');
+    var text = document.getElementById('accountStatusText');
+    if (!pill || !dot || !text) return;
+    try {
+      var data = await fetchApi('/accounts/' + accountId + '/status');
+      var freshness = data.freshness || 'empty';
+      dot.className = 'account-status-dot ' + freshness;
+      var parts = [];
+      if (data.spend_today > 0) parts.push('$' + data.spend_today.toFixed(0) + ' today');
+      if (data.alerts_active > 0) parts.push(data.alerts_active + ' alert' + (data.alerts_active !== 1 ? 's' : ''));
+      if (data.last_snapshot) parts.push('snap: ' + data.last_snapshot);
+      text.textContent = parts.join(' · ');
+      pill.style.display = parts.length > 0 ? 'flex' : 'none';
+    } catch (e) {
+      pill.style.display = 'none';
+    }
+  }
+
   /* ─── Init ─── */
   loadPlatformStatus();
   initAccountSelector();
@@ -1383,6 +1561,7 @@
   loadCrossPlatform();
   loadAutomation();
   loadCreatives();
+  loadAccountOverview();
   startAutoRefresh();
 
 })();
