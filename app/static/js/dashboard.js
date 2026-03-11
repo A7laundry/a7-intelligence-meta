@@ -350,6 +350,47 @@
     }
   }
 
+  /* ─── Growth Score Strip ─── */
+  async function loadGrowthScore() {
+    try {
+      var data = await fetchApi('/growth-score?days=7');
+      var strip = document.getElementById('growthStrip');
+      if (!strip) return;
+      strip.style.display = '';
+
+      var numEl = document.getElementById('growthScoreNum');
+      numEl.textContent = data.score;
+      numEl.className = 'growth-score-num ' + (data.label || 'stable');
+
+      var badgeEl = document.getElementById('growthScoreBadge');
+      badgeEl.textContent = (data.label || 'unknown').replace('_', ' ');
+      badgeEl.className = 'growth-score-badge ' + (data.label || 'stable');
+
+      document.getElementById('growthStripSummary').textContent = data.summary || '';
+
+      // Signals
+      var signals = document.getElementById('growthStripSignals');
+      var html = '';
+
+      // Critical alerts count
+      var alertData = null;
+      try { alertData = await fetchApi('/alerts?severity=critical&limit=100'); } catch(e) {}
+      var critCount = alertData ? (alertData.alerts || []).length : 0;
+      if (critCount > 0) {
+        html += '<span class="growth-signal critical">' + critCount + ' Critical Alert' + (critCount > 1 ? 's' : '') + '</span>';
+      }
+
+      // Top drivers
+      if (data.top_positive_driver) {
+        html += '<span class="growth-signal opportunity">' + data.top_positive_driver.component.replace(/_/g, ' ') + ': ' + data.top_positive_driver.score + '</span>';
+      }
+
+      signals.innerHTML = html;
+    } catch (e) {
+      // Growth strip stays hidden
+    }
+  }
+
   /* ─── Budget Intelligence ─── */
   let budgetChart = null;
 
@@ -668,6 +709,516 @@
     }
   };
 
+  /* ─── Forecast Panel ─── */
+  async function loadForecast() {
+    var loading = document.getElementById('forecastLoading');
+    var content = document.getElementById('forecastContent');
+    var empty = document.getElementById('forecastEmpty');
+    if (!loading) return;
+
+    loading.style.display = '';
+    content.style.display = 'none';
+    empty.style.display = 'none';
+
+    try {
+      var data = await fetchApi('/analytics/forecast?horizon=7');
+      loading.style.display = 'none';
+
+      var forecasts = data.forecasts || {};
+      var hasData = false;
+      for (var k in forecasts) {
+        if (forecasts[k].trend_direction !== 'insufficient_data') { hasData = true; break; }
+      }
+
+      if (!hasData) {
+        empty.style.display = '';
+        return;
+      }
+
+      content.style.display = '';
+      renderForecasts(forecasts);
+    } catch (e) {
+      loading.style.display = 'none';
+      empty.style.display = '';
+    }
+  }
+
+  function renderForecasts(forecasts) {
+    var grid = document.getElementById('forecastGrid');
+    if (!grid) return;
+    var html = '';
+    var metricLabels = { spend: 'Spend', conversions: 'Conversions', cpa: 'CPA', ctr: 'CTR' };
+    var metricFormat = {
+      spend: function(v) { return fmtMoney(v); },
+      conversions: function(v) { return fmt(v); },
+      cpa: function(v) { return fmtMoney(v); },
+      ctr: function(v) { return fmtPct(v); }
+    };
+
+    for (var metric in forecasts) {
+      var f = forecasts[metric];
+      if (f.trend_direction === 'insufficient_data') continue;
+
+      var label = metricLabels[metric] || metric;
+      var formatter = metricFormat[metric] || function(v) { return v; };
+      var arrowCls = f.trend_direction;
+      var arrow = f.trend_direction === 'rising' ? '\u25B2' : (f.trend_direction === 'falling' ? '\u25BC' : '\u25CF');
+      var sentiment = f.trend_sentiment || 'neutral';
+      var changePct = f.expected_change_pct || 0;
+      var changeStr = (changePct > 0 ? '+' : '') + changePct.toFixed(1) + '%';
+
+      html += '<div class="forecast-card">' +
+        '<div class="forecast-card-metric">' + label + ' Forecast (7d)</div>' +
+        '<div class="forecast-card-values">' +
+          '<span class="forecast-card-current">' + formatter(f.current_value) + '</span>' +
+          '<span class="forecast-card-arrow ' + arrowCls + '">' + arrow + '</span>' +
+          '<span class="forecast-card-predicted">' + formatter(f.forecast_end_value) + '</span>' +
+        '</div>' +
+        '<div class="forecast-card-trend ' + sentiment + '">' +
+          f.trend_direction.charAt(0).toUpperCase() + f.trend_direction.slice(1) + ' (' + changeStr + ')' +
+        '</div>' +
+        '<span class="forecast-card-confidence">' + f.confidence + ' confidence</span>' +
+      '</div>';
+    }
+    grid.innerHTML = html;
+  }
+
+  /* ─── Executive Reports ─── */
+  async function loadReport() {
+    var loading = document.getElementById('reportLoading');
+    var content = document.getElementById('reportContent');
+    var empty = document.getElementById('reportEmpty');
+    if (!loading) return;
+
+    loading.style.display = '';
+    content.style.display = 'none';
+    empty.style.display = 'none';
+
+    try {
+      var data = await fetchApi('/reports/latest?days=7');
+      loading.style.display = 'none';
+
+      if (!data.sections) {
+        empty.style.display = '';
+        return;
+      }
+
+      content.style.display = '';
+      renderReportSummary(data.sections);
+      renderReportAlerts(data.sections.alert_summary || {});
+    } catch (e) {
+      loading.style.display = 'none';
+      empty.style.display = '';
+    }
+  }
+
+  function renderReportSummary(sections) {
+    var el = document.getElementById('reportSummary');
+    if (!el) return;
+    var s = sections.executive_summary || {};
+    var gs = sections.growth_score || {};
+
+    var spendChange = s.spend_change_pct || 0;
+    var convChange = s.conversion_change_pct || 0;
+    var spendCls = spendChange > 0 ? 'negative' : 'positive';
+    var convCls = convChange > 0 ? 'positive' : 'negative';
+
+    var html = '';
+    html += '<div class="report-stat">' +
+      '<div class="report-stat-value">' + fmtMoney(s.total_spend) + '</div>' +
+      '<div class="report-stat-label">Total Spend</div>' +
+      '<div class="report-stat-change ' + spendCls + '">' + (spendChange > 0 ? '+' : '') + spendChange.toFixed(1) + '% vs prior</div>' +
+    '</div>';
+    html += '<div class="report-stat">' +
+      '<div class="report-stat-value">' + fmt(s.total_conversions) + '</div>' +
+      '<div class="report-stat-label">Conversions</div>' +
+      '<div class="report-stat-change ' + convCls + '">' + (convChange > 0 ? '+' : '') + convChange.toFixed(1) + '% vs prior</div>' +
+    '</div>';
+    html += '<div class="report-stat">' +
+      '<div class="report-stat-value">' + fmtMoney(s.avg_cpa) + '</div>' +
+      '<div class="report-stat-label">Avg CPA</div>' +
+    '</div>';
+    html += '<div class="report-stat">' +
+      '<div class="report-stat-value">' + (gs.score || 0) + '/100</div>' +
+      '<div class="report-stat-label">Growth Score (' + (gs.label || 'unknown') + ')</div>' +
+    '</div>';
+
+    var tc = sections.top_campaigns || {};
+    html += '<div class="report-stat">' +
+      '<div class="report-stat-value">' + (tc.total_campaigns || 0) + '</div>' +
+      '<div class="report-stat-label">Campaigns Tracked</div>' +
+    '</div>';
+
+    var risks = sections.risks || {};
+    var opps = sections.opportunities || {};
+    html += '<div class="report-stat">' +
+      '<div class="report-stat-value">' + (risks.total_risks || 0) + ' / ' + (opps.total_opportunities || 0) + '</div>' +
+      '<div class="report-stat-label">Risks / Opportunities</div>' +
+    '</div>';
+
+    el.innerHTML = html;
+  }
+
+  function renderReportAlerts(alerts) {
+    var el = document.getElementById('reportAlerts');
+    if (!el) return;
+    var total = alerts.unresolved_total || 0;
+    var critical = alerts.unresolved_critical || 0;
+    var warnings = alerts.unresolved_warnings || 0;
+
+    var html = '';
+    html += '<div class="report-alert-card">' +
+      '<div class="report-alert-count ' + (critical > 0 ? 'critical' : 'clean') + '">' + critical + '</div>' +
+      '<div class="report-alert-label">Critical Alerts</div>' +
+    '</div>';
+    html += '<div class="report-alert-card">' +
+      '<div class="report-alert-count ' + (warnings > 0 ? 'warning' : 'clean') + '">' + warnings + '</div>' +
+      '<div class="report-alert-label">Warnings</div>' +
+    '</div>';
+    html += '<div class="report-alert-card">' +
+      '<div class="report-alert-count ' + (total === 0 ? 'clean' : '') + '">' + total + '</div>' +
+      '<div class="report-alert-label">Total Unresolved</div>' +
+    '</div>';
+
+    el.innerHTML = html;
+  }
+
+  /* ─── Cross-Platform Intelligence ─── */
+  let spendShareChart = null;
+
+  async function loadCrossPlatform() {
+    var loading = document.getElementById('crossPlatformLoading');
+    var content = document.getElementById('crossPlatformContent');
+    var empty = document.getElementById('crossPlatformEmpty');
+    if (!loading) return;
+
+    loading.style.display = '';
+    content.style.display = 'none';
+    empty.style.display = 'none';
+
+    try {
+      var [summaryData, effData, oppsData, shareData] = await Promise.all([
+        fetchApi('/platforms/summary?days=7'),
+        fetchApi('/platforms/efficiency?days=7'),
+        fetchApi('/platforms/opportunities?days=7'),
+        fetchApi('/platforms/spend-share?days=7'),
+      ]);
+
+      loading.style.display = 'none';
+
+      var activePlatforms = (summaryData.platforms || []).filter(function(p) { return p.spend > 0; });
+      if (activePlatforms.length === 0) {
+        empty.style.display = '';
+        return;
+      }
+
+      content.style.display = '';
+      renderSpendShareChart(shareData);
+      renderPlatformTable(summaryData, effData);
+      renderCrossPlatformCards(effData, summaryData);
+      renderCrossPlatformOpps(oppsData);
+    } catch (e) {
+      loading.style.display = 'none';
+      empty.style.display = '';
+    }
+  }
+
+  function renderSpendShareChart(data) {
+    var canvas = document.getElementById('spendShareChart');
+    if (!canvas) return;
+    if (spendShareChart) spendShareChart.destroy();
+
+    var colors = { 'Meta': 'rgba(37, 99, 235, 0.8)', 'Google': 'rgba(245, 158, 11, 0.8)' };
+    var labels = data.labels || [];
+    var values = data.values || [];
+    var bgColors = labels.map(function(l) { return colors[l] || '#9ca3af'; });
+
+    spendShareChart = new Chart(canvas, {
+      type: 'doughnut',
+      data: {
+        labels: labels,
+        datasets: [{
+          data: values,
+          backgroundColor: bgColors,
+          borderWidth: 2,
+          borderColor: '#fff',
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: '55%',
+        plugins: {
+          legend: { position: 'bottom', labels: { font: { size: 11, family: 'Inter' }, padding: 10, usePointStyle: true } },
+          tooltip: {
+            callbacks: {
+              label: function(ctx) {
+                var pcts = data.percentages || [];
+                return ctx.label + ': $' + ctx.parsed.toFixed(2) + ' (' + (pcts[ctx.dataIndex] || 0).toFixed(1) + '%)';
+              }
+            }
+          }
+        }
+      }
+    });
+  }
+
+  function renderPlatformTable(summary, efficiency) {
+    var tbody = document.getElementById('platformTableBody');
+    if (!tbody) return;
+    var platforms = summary.platforms || [];
+    var effMap = {};
+    (efficiency.platforms || []).forEach(function(p) { effMap[p.platform] = p; });
+
+    var html = '';
+    platforms.forEach(function(p) {
+      var eff = effMap[p.platform] || {};
+      var effScore = eff.efficiency_score || 0;
+      var scoreClass = effScore >= 60 ? 'score-high' : (effScore >= 30 ? 'score-mid' : 'score-low');
+      html += '<tr>' +
+        '<td style="font-weight:700;text-transform:capitalize">' + p.platform + '</td>' +
+        '<td>' + fmtMoney(p.spend) + '</td>' +
+        '<td>' + fmt(p.conversions) + '</td>' +
+        '<td>' + fmtMoney(p.avg_cpa) + '</td>' +
+        '<td>' + fmtPct(p.ctr) + '</td>' +
+        '<td><span class="creative-score ' + scoreClass + '">' + effScore + '</span></td>' +
+        '<td>' + p.share_of_spend.toFixed(1) + '%</td>' +
+      '</tr>';
+    });
+    tbody.innerHTML = html;
+  }
+
+  function renderCrossPlatformCards(efficiency, summary) {
+    var el = document.getElementById('crossPlatformCards');
+    if (!el) return;
+    var html = '';
+
+    // Best Channel card
+    var best = efficiency.best_channel;
+    if (best) {
+      var bestData = (efficiency.platforms || []).find(function(p) { return p.platform === best; });
+      html += '<div class="cross-card">' +
+        '<div class="cross-card-label">Best Channel</div>' +
+        '<div class="cross-card-value" style="text-transform:capitalize">' + best + '</div>' +
+        '<div class="cross-card-sub">Efficiency: ' + (bestData ? bestData.efficiency_score : 0) + '/100</div>' +
+      '</div>';
+    }
+
+    // Total Spend
+    html += '<div class="cross-card">' +
+      '<div class="cross-card-label">Total Cross-Platform Spend</div>' +
+      '<div class="cross-card-value">' + fmtMoney(summary.total_spend) + '</div>' +
+      '<div class="cross-card-sub">' + summary.platforms_active + ' platform(s) active</div>' +
+    '</div>';
+
+    // Per-platform CPA comparison
+    var platforms = summary.platforms || [];
+    platforms.forEach(function(p) {
+      if (p.spend > 0) {
+        html += '<div class="cross-card">' +
+          '<div class="cross-card-label" style="text-transform:capitalize">' + p.platform + ' CPA</div>' +
+          '<div class="cross-card-value">' + fmtMoney(p.avg_cpa) + '</div>' +
+          '<div class="cross-card-sub">' + p.conversions + ' conversions | ' + fmtPct(p.ctr) + ' CTR</div>' +
+        '</div>';
+      }
+    });
+
+    el.innerHTML = html;
+  }
+
+  function renderCrossPlatformOpps(data) {
+    var el = document.getElementById('crossPlatformOpps');
+    if (!el) return;
+    var opps = data.opportunities || [];
+    if (opps.length === 0) {
+      el.innerHTML = '';
+      return;
+    }
+    var html = '';
+    opps.forEach(function(o) {
+      html += '<div class="cross-opp-card severity-' + (o.severity || 'info') + '">' +
+        '<div class="cross-opp-title">' + o.title + '</div>' +
+        '<div class="cross-opp-message">' + o.message + '</div>' +
+        '<div class="cross-opp-confidence">Confidence: ' + (o.confidence || 'medium') + '</div>' +
+      '</div>';
+    });
+    el.innerHTML = html;
+  }
+
+  /* ─── Automation Control Center ─── */
+  let currentAutoTab = 'pending';
+
+  async function loadAutomation() {
+    var loading = document.getElementById('automationLoading');
+    var content = document.getElementById('automationContent');
+    var empty = document.getElementById('automationEmpty');
+    if (!loading) return;
+
+    loading.style.display = '';
+    content.style.display = 'none';
+    empty.style.display = 'none';
+
+    try {
+      var data = await fetchApi('/automation/actions');
+      loading.style.display = 'none';
+
+      var actions = data.actions || [];
+      var summary = data.summary || {};
+
+      if (actions.length === 0 && (summary.total || 0) === 0) {
+        empty.style.display = '';
+        return;
+      }
+
+      content.style.display = '';
+      renderAutoSummary(summary);
+      renderAutoActions(actions, currentAutoTab);
+    } catch (e) {
+      loading.style.display = 'none';
+      empty.style.display = '';
+    }
+  }
+
+  function renderAutoSummary(s) {
+    var el = document.getElementById('automationSummary');
+    if (!el) return;
+    var html = '';
+    var statuses = ['proposed', 'approved', 'executed', 'rejected'];
+    statuses.forEach(function(st) {
+      html += '<div class="auto-stat">' +
+        '<div class="auto-stat-value ' + st + '">' + (s[st] || 0) + '</div>' +
+        '<div class="auto-stat-label">' + st + '</div>' +
+      '</div>';
+    });
+    html += '<div class="auto-stat">' +
+      '<div class="auto-stat-value">' + (s.total || 0) + '</div>' +
+      '<div class="auto-stat-label">Total</div>' +
+    '</div>';
+    el.innerHTML = html;
+  }
+
+  function renderAutoActions(actions, tab) {
+    var el = document.getElementById('automationList');
+    if (!el) return;
+
+    if (tab === 'logs') {
+      loadAutoLogs();
+      return;
+    }
+
+    var filtered = actions.filter(function(a) { return a.status === tab; });
+    if (filtered.length === 0) {
+      el.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:20px;font-size:13px">No ' + tab + ' actions.</div>';
+      return;
+    }
+
+    var html = '';
+    filtered.forEach(function(a) {
+      html += '<div class="auto-action-card">' +
+        '<div class="action-info">' +
+          '<div class="action-type">' + (a.action_type || '').replace(/_/g, ' ') + '</div>' +
+          '<div class="action-entity">' + (a.entity_name || 'Unknown') + '</div>' +
+          '<div class="action-reason">' + (a.reason || '') + '</div>' +
+          '<div class="action-meta">' +
+            '<span class="auto-confidence ' + (a.confidence || 'medium') + '">' + (a.confidence || 'medium') + '</span>' +
+            '<span class="auto-status-badge ' + a.status + '">' + a.status + '</span>' +
+            (a.suggested_change_pct ? '<span style="font-size:11px;color:var(--text-muted)">' + (a.suggested_change_pct > 0 ? '+' : '') + a.suggested_change_pct + '%</span>' : '') +
+          '</div>' +
+        '</div>' +
+        '<div class="action-buttons">';
+      if (a.status === 'proposed') {
+        html += '<button class="btn-approve" onclick="approveAction(' + a.id + ')">Approve</button>';
+        html += '<button class="btn-reject" onclick="rejectAction(' + a.id + ')">Reject</button>';
+      } else if (a.status === 'approved') {
+        html += '<button class="btn-execute" onclick="executeAction(' + a.id + ')">Execute</button>';
+        html += '<button class="btn-reject" onclick="rejectAction(' + a.id + ')">Reject</button>';
+      }
+      html += '</div></div>';
+    });
+    el.innerHTML = html;
+  }
+
+  async function loadAutoLogs() {
+    var el = document.getElementById('automationList');
+    if (!el) return;
+    try {
+      var data = await fetchApi('/automation/logs?limit=30');
+      var logs = data.logs || [];
+      if (logs.length === 0) {
+        el.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:20px;font-size:13px">No logs yet.</div>';
+        return;
+      }
+      var html = '';
+      logs.forEach(function(l) {
+        var ts = l.created_at ? new Date(l.created_at).toLocaleString('en-US', {
+          month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true
+        }) : '';
+        html += '<div class="auto-log-row">' +
+          '<span class="log-status ' + (l.status || '') + '">' + (l.status || '') + '</span>' +
+          '<span class="log-message">' + (l.message || '') + '</span>' +
+          '<span class="log-time">' + ts + '</span>' +
+        '</div>';
+      });
+      el.innerHTML = html;
+    } catch (e) {
+      el.innerHTML = '<div style="color:var(--text-muted);padding:12px">Error loading logs.</div>';
+    }
+  }
+
+  window.switchAutoTab = function(tab) {
+    currentAutoTab = tab;
+    document.querySelectorAll('.auto-tab').forEach(function(b) { b.classList.remove('active'); });
+    document.querySelector('.auto-tab[data-tab="' + tab + '"]').classList.add('active');
+    loadAutomation();
+  };
+
+  window.approveAction = async function(id) {
+    try {
+      await postApi('/automation/' + id + '/approve', {});
+      await loadAutomation();
+    } catch (e) { alert('Error: ' + e.message); }
+  };
+
+  window.rejectAction = async function(id) {
+    try {
+      await postApi('/automation/' + id + '/reject', {});
+      await loadAutomation();
+    } catch (e) { alert('Error: ' + e.message); }
+  };
+
+  window.executeAction = async function(id) {
+    if (!confirm('Execute this automation action?')) return;
+    try {
+      var result = await postApi('/automation/' + id + '/execute', {});
+      alert(result.message || 'Action executed');
+      await loadAutomation();
+    } catch (e) { alert('Error: ' + e.message); }
+  };
+
+  window.generateAutomation = async function() {
+    try {
+      var result = await postApi('/automation/generate', {});
+      alert('Generated ' + (result.queued_count || 0) + ' proposals (' + (result.blocked_count || 0) + ' blocked)');
+      await loadAutomation();
+    } catch (e) { alert('Error: ' + e.message); }
+  };
+
+  window.runAutomation = async function() {
+    if (!confirm('Execute all approved automation actions?')) return;
+    try {
+      // Execute each approved action
+      var pending = await fetchApi('/automation/actions?status=approved');
+      var actions = pending.actions || [];
+      var executed = 0;
+      for (var i = 0; i < actions.length; i++) {
+        await postApi('/automation/' + actions[i].id + '/execute', {});
+        executed++;
+      }
+      alert('Executed ' + executed + ' actions');
+      await loadAutomation();
+    } catch (e) { alert('Error: ' + e.message); }
+  };
+
   /* ─── Creative Intelligence ─── */
   async function loadCreatives() {
     try {
@@ -748,9 +1299,14 @@
   /* ─── Init ─── */
   loadPlatformStatus();
   load(currentRange);
+  loadGrowthScore();
   loadCoach();
   loadBudget();
   loadAlerts();
+  loadForecast();
+  loadReport();
+  loadCrossPlatform();
+  loadAutomation();
   loadCreatives();
   startAutoRefresh();
 

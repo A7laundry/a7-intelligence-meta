@@ -37,6 +37,18 @@ def create_app():
     from app.routes.budget_intelligence import budget_bp
     app.register_blueprint(budget_bp, url_prefix="/api")
 
+    from app.routes.growth_operations import growth_ops_bp
+    app.register_blueprint(growth_ops_bp, url_prefix="/api")
+
+    from app.routes.cross_platform import cross_platform_bp
+    app.register_blueprint(cross_platform_bp, url_prefix="/api")
+
+    from app.routes.analytics_reports import analytics_reports_bp
+    app.register_blueprint(analytics_reports_bp, url_prefix="/api")
+
+    from app.routes.automation import automation_bp
+    app.register_blueprint(automation_bp, url_prefix="/api")
+
     # Template context processor
     @app.context_processor
     def inject_globals():

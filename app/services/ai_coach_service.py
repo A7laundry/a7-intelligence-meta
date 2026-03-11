@@ -131,6 +131,14 @@ class AICoachService:
                 seen_keys.add(key)
                 recommendations.append(r)
 
+        # Cross-platform insights
+        cross_recs = self._analyze_cross_platform(days)
+        for r in cross_recs:
+            key = f"{r['type']}:{r.get('entity_name', 'cross')}"
+            if key not in seen_keys:
+                seen_keys.add(key)
+                recommendations.append(r)
+
         # Sort by severity priority: critical > warning > success > info
         severity_order = {"critical": 0, "warning": 1, "success": 2, "info": 3}
         recommendations.sort(key=lambda r: (severity_order.get(r["severity"], 4), -r.get("_impact", 0)))
@@ -674,6 +682,59 @@ class AICoachService:
                 created_at=now,
             ))
 
+        return recs
+
+    def _analyze_cross_platform(self, days):
+        """Generate cross-platform channel comparison recommendations."""
+        recs = []
+        now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+        try:
+            from app.services.cross_platform_service import CrossPlatformService
+            cp = CrossPlatformService()
+            opps = cp.detect_channel_opportunities(days)
+            for opp in opps.get("opportunities", []):
+                opp_type = opp.get("type", "")
+                if opp_type == "channel_efficiency":
+                    recs.append(self._make_rec(
+                        rec_type="channel_efficiency",
+                        severity="success",
+                        title=opp["title"],
+                        message=opp["message"],
+                        recommendation=f"Consider reallocating experimental budget from {opp.get('from_platform', '')} to {opp.get('to_platform', '')}.",
+                        entity_type="cross_platform",
+                        entity_name=f"{opp.get('from_platform', '')} vs {opp.get('to_platform', '')}",
+                        metrics={"confidence": opp.get("confidence", "medium")},
+                        impact=30,
+                        created_at=now,
+                    ))
+                elif opp_type == "concentration_risk":
+                    recs.append(self._make_rec(
+                        rec_type="channel_risk",
+                        severity="warning",
+                        title=opp["title"],
+                        message=opp["message"],
+                        recommendation="Diversify spend across channels to reduce platform dependency.",
+                        entity_type="cross_platform",
+                        entity_name="Channel Balance",
+                        metrics={"confidence": opp.get("confidence", "medium")},
+                        impact=20,
+                        created_at=now,
+                    ))
+                elif opp_type == "engagement_gap":
+                    recs.append(self._make_rec(
+                        rec_type="channel_shift_opportunity",
+                        severity="info",
+                        title=opp["title"],
+                        message=opp["message"],
+                        recommendation=f"Review creative strategy on the lower-performing platform.",
+                        entity_type="cross_platform",
+                        entity_name=opp.get("to_platform", ""),
+                        metrics={"confidence": opp.get("confidence", "medium")},
+                        impact=15,
+                        created_at=now,
+                    ))
+        except Exception:
+            pass
         return recs
 
     @staticmethod

@@ -359,6 +359,23 @@ class BudgetIntelligenceService:
             "generated_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
 
+    def evaluate_cross_platform_budget(self, days=7):
+        """Evaluate budget efficiency across platforms and suggest reallocations."""
+        try:
+            from app.services.cross_platform_service import CrossPlatformService
+            cp = CrossPlatformService()
+            return cp.evaluate_cross_platform_budget(days)
+        except Exception:
+            return {
+                "total_spend": 0,
+                "meta_spend": 0,
+                "google_spend": 0,
+                "meta_efficiency": 0,
+                "google_efficiency": 0,
+                "budget_reallocation_opportunity": None,
+                "period_days": days,
+            }
+
     # ══════════════════════════════════════════════════════════
     # HELPERS
     # ══════════════════════════════════════════════════════════

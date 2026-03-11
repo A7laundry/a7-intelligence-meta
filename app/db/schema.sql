@@ -154,3 +154,61 @@ CREATE INDEX IF NOT EXISTS idx_alerts_type ON alerts(alert_type);
 CREATE INDEX IF NOT EXISTS idx_alerts_severity ON alerts(severity);
 CREATE INDEX IF NOT EXISTS idx_alerts_created ON alerts(created_at);
 CREATE INDEX IF NOT EXISTS idx_alerts_resolved ON alerts(resolved);
+
+-- Scheduled operations log
+CREATE TABLE IF NOT EXISTS operations_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    operation_type TEXT NOT NULL,
+    status TEXT DEFAULT 'success' CHECK(status IN ('success', 'warning', 'failed')),
+    message TEXT DEFAULT '',
+    payload_json TEXT DEFAULT '{}',
+    started_at TEXT,
+    finished_at TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_operations_log_type ON operations_log(operation_type);
+CREATE INDEX IF NOT EXISTS idx_operations_log_created ON operations_log(created_at);
+
+-- Automation action queue
+CREATE TABLE IF NOT EXISTS automation_actions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    action_type TEXT NOT NULL CHECK(action_type IN (
+        'pause_campaign', 'increase_budget', 'decrease_budget',
+        'refresh_creative', 'rotate_creative'
+    )),
+    platform TEXT NOT NULL DEFAULT 'meta' CHECK(platform IN ('meta', 'google')),
+    entity_type TEXT NOT NULL DEFAULT 'campaign',
+    entity_id TEXT DEFAULT '',
+    entity_name TEXT DEFAULT '',
+    reason TEXT DEFAULT '',
+    confidence TEXT DEFAULT 'medium' CHECK(confidence IN ('low', 'medium', 'high')),
+    suggested_change_pct REAL DEFAULT 0,
+    status TEXT DEFAULT 'proposed' CHECK(status IN (
+        'proposed', 'approved', 'rejected', 'executed', 'failed'
+    )),
+    execution_mode TEXT DEFAULT 'dry_run' CHECK(execution_mode IN ('dry_run', 'live', 'blocked')),
+    created_at TEXT DEFAULT (datetime('now')),
+    approved_at TEXT,
+    executed_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_automation_actions_status ON automation_actions(status);
+CREATE INDEX IF NOT EXISTS idx_automation_actions_platform ON automation_actions(platform);
+CREATE INDEX IF NOT EXISTS idx_automation_actions_created ON automation_actions(created_at);
+
+-- Automation execution logs (audit trail)
+CREATE TABLE IF NOT EXISTS automation_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    action_id INTEGER REFERENCES automation_actions(id),
+    platform TEXT DEFAULT '',
+    entity_name TEXT DEFAULT '',
+    action_type TEXT DEFAULT '',
+    status TEXT DEFAULT '' CHECK(status IN ('proposed', 'approved', 'simulated', 'executed', 'failed', 'blocked', '')),
+    message TEXT DEFAULT '',
+    execution_time_ms INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_automation_logs_action ON automation_logs(action_id);
+CREATE INDEX IF NOT EXISTS idx_automation_logs_created ON automation_logs(created_at);

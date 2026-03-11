@@ -17,6 +17,16 @@
 {% endblock %}
 
 {% block content %}
+<!-- Executive Growth Strip -->
+<div class="growth-strip" id="growthStrip" style="display:none">
+  <div class="growth-strip-score">
+    <div class="growth-score-num" id="growthScoreNum">--</div>
+    <div class="growth-score-badge" id="growthScoreBadge">--</div>
+  </div>
+  <div class="growth-strip-summary" id="growthStripSummary">Loading growth score...</div>
+  <div class="growth-strip-signals" id="growthStripSignals"></div>
+</div>
+
 <div class="loading" id="loadingState">Loading dashboard data...</div>
 
 <!-- KPI Cards -->
@@ -195,6 +205,109 @@
           </thead>
           <tbody id="googleTableBody"></tbody>
         </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Forecast Panel -->
+  <div class="section" id="forecastSection">
+    <div class="section-header">
+      <span class="section-title">Performance Forecast</span>
+    </div>
+    <div class="section-body">
+      <div id="forecastLoading" class="coach-loading">Computing forecasts...</div>
+      <div id="forecastContent" style="display:none">
+        <div class="forecast-grid" id="forecastGrid"></div>
+      </div>
+      <div id="forecastEmpty" style="display:none;text-align:center;color:var(--text-muted);padding:24px">
+        Not enough historical data for forecasting. Collect at least 5 daily snapshots.
+      </div>
+    </div>
+  </div>
+
+  <!-- Executive Reports -->
+  <div class="section" id="reportsSection">
+    <div class="section-header">
+      <span class="section-title">Executive Reports</span>
+      <div>
+        <a href="/api/reports/export/csv" class="btn-action" style="text-decoration:none">CSV</a>
+        <a href="/api/reports/export/pdf" class="btn-action" style="text-decoration:none">PDF</a>
+        <a href="/api/reports/export/json" class="btn-action" style="text-decoration:none">JSON</a>
+      </div>
+    </div>
+    <div class="section-body">
+      <div id="reportLoading" class="coach-loading">Generating report...</div>
+      <div id="reportContent" style="display:none">
+        <div class="report-summary" id="reportSummary"></div>
+        <div class="report-alerts" id="reportAlerts"></div>
+      </div>
+      <div id="reportEmpty" style="display:none;text-align:center;color:var(--text-muted);padding:24px">
+        No report data available.
+      </div>
+    </div>
+  </div>
+
+  <!-- Cross-Platform Intelligence -->
+  <div class="section" id="crossPlatformSection">
+    <div class="section-header">
+      <span class="section-title">Cross-Platform Intelligence</span>
+    </div>
+    <div class="section-body">
+      <div id="crossPlatformLoading" class="coach-loading">Analyzing cross-platform data...</div>
+      <div id="crossPlatformContent" style="display:none">
+        <div class="cross-platform-top">
+          <div class="cross-platform-chart-wrap">
+            <canvas id="spendShareChart" height="180"></canvas>
+          </div>
+          <div class="cross-platform-cards" id="crossPlatformCards"></div>
+        </div>
+        <div class="cross-platform-table-wrap">
+          <table id="platformComparisonTable">
+            <thead>
+              <tr>
+                <th>Platform</th>
+                <th>Spend</th>
+                <th>Conversions</th>
+                <th>CPA</th>
+                <th>CTR</th>
+                <th>Efficiency</th>
+                <th>Share</th>
+              </tr>
+            </thead>
+            <tbody id="platformTableBody"></tbody>
+          </table>
+        </div>
+        <div class="cross-platform-opps" id="crossPlatformOpps"></div>
+      </div>
+      <div id="crossPlatformEmpty" style="display:none;text-align:center;color:var(--text-muted);padding:24px">
+        Cross-platform data requires both Meta and Google to be connected.
+      </div>
+    </div>
+  </div>
+
+  <!-- Automation Control Center -->
+  <div class="section" id="automationSection">
+    <div class="section-header">
+      <span class="section-title">Automation Control Center</span>
+      <div>
+        <button class="btn-action" onclick="generateAutomation()" title="Generate new proposals">&#x1F504; Generate</button>
+        <button class="btn-action" onclick="runAutomation()" title="Execute approved actions">&#x25B6; Run</button>
+      </div>
+    </div>
+    <div class="section-body">
+      <div id="automationLoading" class="coach-loading">Loading automation data...</div>
+      <div id="automationContent" style="display:none">
+        <div class="automation-summary" id="automationSummary"></div>
+        <div class="automation-tabs">
+          <button class="auto-tab active" data-tab="pending" onclick="switchAutoTab('pending')">Pending</button>
+          <button class="auto-tab" data-tab="approved" onclick="switchAutoTab('approved')">Approved</button>
+          <button class="auto-tab" data-tab="executed" onclick="switchAutoTab('executed')">Executed</button>
+          <button class="auto-tab" data-tab="logs" onclick="switchAutoTab('logs')">Logs</button>
+        </div>
+        <div id="automationList"></div>
+      </div>
+      <div id="automationEmpty" style="display:none;text-align:center;color:var(--text-muted);padding:24px">
+        No automation actions yet. Click <strong>Generate</strong> to create proposals.
       </div>
     </div>
   </div>
