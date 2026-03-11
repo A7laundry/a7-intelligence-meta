@@ -15,6 +15,9 @@ class MetaAdsClient:
     """Cliente principal para interagir com a Meta Marketing API."""
 
     BASE_URL = "https://graph.facebook.com/v21.0"
+    RETRYABLE_STATUS_CODES = (429, 500, 502, 503, 504)
+    MAX_RETRIES = 3
+    REQUEST_TIMEOUT = 30  # segundos
 
     def __init__(self):
         self.access_token = META_CONFIG["access_token"]
@@ -22,34 +25,77 @@ class MetaAdsClient:
         self.page_id = META_CONFIG["page_id"]
         self.pixel_id = META_CONFIG["pixel_id"]
 
+    def _get_headers(self) -> dict:
+        """Retorna headers de autenticação."""
+        return {"Authorization": f"Bearer {self.access_token}"}
+
     def _request(self, method: str, endpoint: str, params: dict = None, data: dict = None) -> dict:
-        """Faz requisição à API da Meta com tratamento de erros."""
+        """Faz requisição à API da Meta com retry automático para erros transientes."""
         url = f"{self.BASE_URL}/{endpoint}"
 
         if params is None:
             params = {}
-        params["access_token"] = self.access_token
+        headers = self._get_headers()
 
-        try:
-            if method == "GET":
-                response = requests.get(url, params=params)
-            elif method == "POST":
-                response = requests.post(url, params=params, json=data)
-            elif method == "DELETE":
-                response = requests.delete(url, params=params)
+        last_exception = None
+        for attempt in range(self.MAX_RETRIES + 1):
+            try:
+                if method == "GET":
+                    response = requests.get(url, params=params, headers=headers, timeout=self.REQUEST_TIMEOUT)
+                elif method == "POST":
+                    response = requests.post(url, params=params, json=data, headers=headers, timeout=self.REQUEST_TIMEOUT)
+                elif method == "DELETE":
+                    response = requests.delete(url, params=params, headers=headers, timeout=self.REQUEST_TIMEOUT)
+                else:
+                    raise ValueError(f"Método HTTP não suportado: {method}")
+
+                response.raise_for_status()
+                return response.json()
+
+            except requests.exceptions.HTTPError as e:
+                status_code = e.response.status_code if e.response is not None else 0
+                if status_code in self.RETRYABLE_STATUS_CODES and attempt < self.MAX_RETRIES:
+                    delay = 2 ** attempt  # 1s, 2s, 4s
+                    print(f"⚠️ API retornou {status_code}. Retry {attempt + 1}/{self.MAX_RETRIES} em {delay}s...")
+                    time.sleep(delay)
+                    last_exception = e
+                    continue
+                error_data = e.response.json() if e.response else {}
+                print(f"❌ Erro API Meta: {error_data}")
+                raise
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+                if attempt < self.MAX_RETRIES:
+                    delay = 2 ** attempt
+                    print(f"⚠️ Erro de conexão. Retry {attempt + 1}/{self.MAX_RETRIES} em {delay}s...")
+                    time.sleep(delay)
+                    last_exception = e
+                    continue
+                print(f"❌ Erro na requisição após {self.MAX_RETRIES} tentativas: {e}")
+                raise
+            except Exception as e:
+                print(f"❌ Erro na requisição: {e}")
+                raise
+
+        raise last_exception
+
+    def _paginated_request(self, endpoint: str, params: dict, max_items: int = 500) -> list:
+        """Faz requisições paginadas automaticamente, seguindo cursores da API."""
+        all_data = []
+        while len(all_data) < max_items:
+            result = self._request("GET", endpoint, params=params)
+            all_data.extend(result.get("data", []))
+
+            paging = result.get("paging", {})
+            cursors = paging.get("cursors", {})
+            after = cursors.get("after")
+
+            if after and paging.get("next"):
+                params = dict(params)
+                params["after"] = after
             else:
-                raise ValueError(f"Método HTTP não suportado: {method}")
+                break
 
-            response.raise_for_status()
-            return response.json()
-
-        except requests.exceptions.HTTPError as e:
-            error_data = e.response.json() if e.response else {}
-            print(f"❌ Erro API Meta: {error_data}")
-            raise
-        except Exception as e:
-            print(f"❌ Erro na requisição: {e}")
-            raise
+        return all_data[:max_items]
 
     # ==============================================================
     # CAMPANHAS
@@ -85,18 +131,17 @@ class MetaAdsClient:
         return result
 
     def list_campaigns(self, status_filter: str = None) -> list:
-        """Lista todas as campanhas da conta."""
+        """Lista todas as campanhas da conta (com paginação automática)."""
         params = {
             "fields": "id,name,objective,status,daily_budget,lifetime_budget,created_time",
-            "limit": 50,
+            "limit": 100,
         }
         if status_filter:
             params["filtering"] = json.dumps([
                 {"field": "effective_status", "operator": "IN", "value": [status_filter]}
             ])
 
-        result = self._request("GET", f"{self.ad_account_id}/campaigns", params=params)
-        return result.get("data", [])
+        return self._paginated_request(f"{self.ad_account_id}/campaigns", params)
 
     def update_campaign_status(self, campaign_id: str, status: str) -> dict:
         """Atualiza o status de uma campanha (ACTIVE, PAUSED, ARCHIVED)."""
@@ -160,15 +205,14 @@ class MetaAdsClient:
         return result
 
     def list_ad_sets(self, campaign_id: str = None) -> list:
-        """Lista ad sets, opcionalmente filtrado por campanha."""
+        """Lista ad sets com paginação automática, opcionalmente filtrado por campanha."""
         params = {
             "fields": "id,name,status,daily_budget,targeting,optimization_goal,campaign_id",
-            "limit": 50,
+            "limit": 100,
         }
 
         endpoint = f"{campaign_id}/adsets" if campaign_id else f"{self.ad_account_id}/adsets"
-        result = self._request("GET", endpoint, params=params)
-        return result.get("data", [])
+        return self._paginated_request(endpoint, params)
 
     def update_ad_set_budget(self, ad_set_id: str, new_daily_budget_cents: int) -> dict:
         """Atualiza o orçamento diário de um ad set."""
@@ -256,14 +300,13 @@ class MetaAdsClient:
         return result
 
     def list_ads(self, ad_set_id: str = None) -> list:
-        """Lista anúncios."""
+        """Lista anúncios com paginação automática."""
         params = {
             "fields": "id,name,status,creative,adset_id",
-            "limit": 50,
+            "limit": 100,
         }
         endpoint = f"{ad_set_id}/ads" if ad_set_id else f"{self.ad_account_id}/ads"
-        result = self._request("GET", endpoint, params=params)
-        return result.get("data", [])
+        return self._paginated_request(endpoint, params)
 
     # ==============================================================
     # UPLOAD DE CRIATIVOS
@@ -280,8 +323,7 @@ class MetaAdsClient:
 
         with open(image_path, "rb") as img_file:
             files = {"filename": img_file}
-            params = {"access_token": self.access_token}
-            response = requests.post(url, params=params, files=files)
+            response = requests.post(url, headers=self._get_headers(), files=files, timeout=60)
             response.raise_for_status()
 
         data = response.json()
@@ -305,11 +347,8 @@ class MetaAdsClient:
 
         with open(video_path, "rb") as vid_file:
             files = {"source": vid_file}
-            params = {
-                "access_token": self.access_token,
-                "title": title,
-            }
-            response = requests.post(url, params=params, files=files)
+            params = {"title": title}
+            response = requests.post(url, params=params, headers=self._get_headers(), files=files, timeout=120)
             response.raise_for_status()
 
         data = response.json()
@@ -376,6 +415,17 @@ class MetaAdsClient:
         result = self._request("GET", f"{ad_set_id}/insights", params=params)
         return result.get("data", [])
 
+    def get_daily_insights(self, date_preset: str = "last_7d") -> list:
+        """Puxa métricas diárias da conta (para trend charts)."""
+        params = {
+            "fields": "spend,impressions,clicks,actions",
+            "date_preset": date_preset,
+            "time_increment": 1,
+        }
+
+        result = self._request("GET", f"{self.ad_account_id}/insights", params=params)
+        return result.get("data", [])
+
     # ==============================================================
     # AUDIÊNCIAS CUSTOMIZADAS
     # ==============================================================
@@ -430,6 +480,110 @@ class MetaAdsClient:
         result = self._request("POST", f"{self.ad_account_id}/customaudiences", params=params)
         print(f"✅ Lookalike criada: {name} (ID: {result['id']})")
         return result
+
+    # ==============================================================
+    # TOKEN MANAGEMENT
+    # ==============================================================
+
+    def check_token_validity(self) -> dict:
+        """
+        Verifica validade do access token via debug_token endpoint.
+
+        Returns:
+            dict com is_valid, expires_at, days_left
+        """
+        app_id = META_CONFIG.get("app_id", "")
+        app_secret = META_CONFIG.get("app_secret", "")
+
+        if not app_id or not app_secret or app_id == "SEU_APP_ID":
+            print("⚠️ app_id/app_secret não configurados. Não é possível verificar token.")
+            return {"is_valid": None, "expires_at": 0, "days_left": None}
+
+        params = {
+            "input_token": self.access_token,
+            "access_token": f"{app_id}|{app_secret}",
+        }
+
+        try:
+            response = requests.get(
+                f"{self.BASE_URL}/debug_token",
+                params=params,
+                timeout=self.REQUEST_TIMEOUT,
+            )
+            response.raise_for_status()
+            data = response.json().get("data", {})
+
+            is_valid = data.get("is_valid", False)
+            expires_at = data.get("expires_at", 0)
+
+            result = {"is_valid": is_valid, "expires_at": expires_at, "days_left": None}
+
+            if not is_valid:
+                print("❌ Token expirado ou inválido! Renove com: python3 main.py --refresh-token")
+            elif expires_at > 0:
+                expiry = datetime.fromtimestamp(expires_at)
+                days_left = (expiry - datetime.now()).days
+                result["days_left"] = days_left
+
+                if days_left < 0:
+                    print(f"❌ Token expirou em {expiry.strftime('%d/%m/%Y')}")
+                elif days_left < 7:
+                    print(f"⚠️ Token expira em {days_left} dias ({expiry.strftime('%d/%m/%Y')})")
+                else:
+                    print(f"✅ Token válido — expira em {days_left} dias ({expiry.strftime('%d/%m/%Y')})")
+            else:
+                print("✅ Token válido (sem data de expiração — token permanente)")
+
+            return result
+
+        except Exception as e:
+            print(f"⚠️ Não foi possível verificar token: {e}")
+            return {"is_valid": None, "expires_at": 0, "days_left": None}
+
+    def refresh_long_lived_token(self) -> str:
+        """
+        Renova o access token de longa duração.
+        Requer app_id e app_secret configurados.
+
+        Returns:
+            Novo access token (ou None se falhar)
+        """
+        app_id = META_CONFIG.get("app_id", "")
+        app_secret = META_CONFIG.get("app_secret", "")
+
+        if not app_id or not app_secret or app_id == "SEU_APP_ID":
+            print("❌ app_id e app_secret são obrigatórios para renovar token.")
+            return None
+
+        params = {
+            "grant_type": "fb_exchange_token",
+            "client_id": app_id,
+            "client_secret": app_secret,
+            "fb_exchange_token": self.access_token,
+        }
+
+        try:
+            response = requests.get(
+                f"{self.BASE_URL}/oauth/access_token",
+                params=params,
+                timeout=self.REQUEST_TIMEOUT,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            new_token = data.get("access_token")
+            if new_token:
+                print(f"✅ Token renovado com sucesso!")
+                print(f"   Novo token: {new_token[:20]}...{new_token[-10:]}")
+                print(f"\n⚠️ IMPORTANTE: Atualize o access_token em config.py com o novo valor!")
+                return new_token
+            else:
+                print(f"❌ Resposta inesperada: {data}")
+                return None
+
+        except Exception as e:
+            print(f"❌ Erro ao renovar token: {e}")
+            return None
 
     # ==============================================================
     # FUNÇÕES DE CONVENIÊNCIA

@@ -5,4 +5,46 @@ __pycache__/
 venv/
 .venv/
 optimization_log_*.json
+alerts_sent.json
 config.py
+data/*.db
+.vercel
+
+# Environment & Secrets (AIOS)
+.env.local
+.env.*.local
+*.key
+*.pem
+
+# Dependencies (AIOS)
+node_modules/
+node_modules
+
+# Build & Logs (AIOS)
+dist/
+build/
+*.log
+logs/
+
+# IDE & OS (AIOS)
+.DS_Store
+Thumbs.db
+.idea/
+*.swp
+
+# AIOS Local (AIOS)
+.aios-core/local/
+.claude/settings.local.json
+.aios/install-log.txt
+
+# Framework & tool directories (not project code)
+.aios-core/
+.aiox-core/
+.antigravity/
+.codex/
+.cursor/
+.gemini/
+.github/agents/
+
+# Pytest cache
+.pytest_cache/

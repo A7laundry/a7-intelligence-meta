@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% block title %}{{ app_name }}{% endblock %}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+{% block head %}{% endblock %}
+</head>
+<body>
+<header class="header">
+  <div class="header-left">
+    <div class="header-brand">
+      <span class="header-logo">A7</span>
+      <div>
+        <div class="header-title">Intelligence</div>
+        <div class="header-subtitle">v{{ version }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="header-right">
+    {% block header_actions %}{% endblock %}
+    <div class="platform-status" id="platformStatus"></div>
+  </div>
+</header>
+
+<div class="demo-banner" id="demoBanner">Demo Mode — Showing sample data. Connect your Meta & Google Ads accounts for live metrics.</div>
+
+<main class="container">
+  {% block content %}{% endblock %}
+</main>
+
+<footer class="footer" id="footer"></footer>
+
+{% block scripts %}{% endblock %}
+</body>
+</html>

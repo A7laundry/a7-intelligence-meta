@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>A7 Laundry — Ads Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --meta:#2563eb;
+  --google:#f59e0b;
+  --bg:#f0f2f5;
+  --surface:#fff;
+  --surface-alt:#f8f9fb;
+  --text:#111827;
+  --text-muted:#6b7280;
+  --border:#e5e7eb;
+  --green:#10b981;
+  --red:#ef4444;
+  --radius:8px;
+}
+body{
+  font-family:'Inter',system-ui,-apple-system,sans-serif;
+  background:var(--bg);
+  color:var(--text);
+  line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ─── Header ─── */
+.header{
+  background:var(--surface);
+  border-bottom:1px solid var(--border);
+  padding:12px 24px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  position:sticky;top:0;z-index:100;
+}
+.header-left{display:flex;align-items:center;gap:12px}
+.header-logo{height:32px}
+.header-title{font-size:18px;font-weight:700;color:var(--text)}
+.header-subtitle{font-size:12px;color:var(--text-muted);font-weight:500}
+
+/* Range Switcher */
+.range-switcher{display:flex;gap:4px;background:var(--bg);border-radius:6px;padding:3px}
+.range-btn{
+  padding:6px 14px;border-radius:4px;border:none;
+  background:transparent;font-family:inherit;font-size:13px;font-weight:600;
+  color:var(--text-muted);cursor:pointer;transition:all .15s;
+}
+.range-btn.active{background:var(--surface);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+
+/* ─── Demo Banner ─── */
+.demo-banner{
+  background:#fef3c7;border-bottom:1px solid #fcd34d;
+  padding:8px 24px;font-size:13px;font-weight:500;color:#92400e;
+  text-align:center;display:none;
+}
+.demo-banner.visible{display:block}
+
+/* ─── Container ─── */
+.container{max-width:1200px;margin:0 auto;padding:20px 24px 40px}
+
+/* ─── KPI Cards ─── */
+.kpi-grid{
+  display:grid;
+  grid-template-columns:repeat(6,1fr);
+  gap:12px;
+  margin-bottom:24px;
+}
+.kpi-card{
+  background:var(--surface);
+  border-radius:var(--radius);
+  padding:16px;
+  border:1px solid var(--border);
+}
+.kpi-value{font-size:24px;font-weight:800;color:var(--text);line-height:1.2}
+.kpi-label{font-size:12px;font-weight:500;color:var(--text-muted);margin-top:2px;text-transform:uppercase;letter-spacing:.03em}
+.kpi-breakdown{margin-top:8px;font-size:11px;color:var(--text-muted);line-height:1.6}
+.kpi-breakdown .meta-val{color:var(--meta);font-weight:600}
+.kpi-breakdown .google-val{color:var(--google);font-weight:600}
+
+/* ─── Section ─── */
+.section{
+  background:var(--surface);
+  border-radius:var(--radius);
+  border:1px solid var(--border);
+  margin-bottom:16px;
+  overflow:hidden;
+}
+.section-header{
+  padding:16px 20px;
+  border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;
+}
+.section-title{font-size:15px;font-weight:700}
+.section-body{padding:20px}
+
+/* ─── Platform Legend ─── */
+.legend{display:flex;gap:16px;font-size:12px;font-weight:600}
+.legend-item{display:flex;align-items:center;gap:5px}
+.legend-dot{width:10px;height:10px;border-radius:2px}
+.legend-dot.meta{background:var(--meta)}
+.legend-dot.google{background:var(--google)}
+
+/* ─── Comparison Bars ─── */
+.comparison-row{
+  display:flex;align-items:center;
+  padding:10px 0;
+  border-bottom:1px solid var(--border);
+}
+.comparison-row:last-child{border-bottom:none}
+.comparison-label{width:100px;font-size:13px;font-weight:600;flex-shrink:0}
+.comparison-bars{flex:1;display:flex;flex-direction:column;gap:4px}
+.bar-row{display:flex;align-items:center;gap:8px}
+.bar-platform{font-size:10px;font-weight:700;width:14px;flex-shrink:0;color:var(--text-muted)}
+.bar-track{flex:1;height:20px;background:var(--bg);border-radius:3px;overflow:hidden;position:relative}
+.bar-fill{height:100%;border-radius:3px;transition:width .4s ease}
+.bar-fill.meta{background:var(--meta)}
+.bar-fill.google{background:var(--google)}
+.bar-value{font-size:12px;font-weight:600;width:70px;text-align:right;flex-shrink:0}
+
+/* ─── Campaign Tables ─── */
+.table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{
+  text-align:left;padding:8px 12px;font-weight:600;font-size:11px;
+  text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted);
+  border-bottom:2px solid var(--border);cursor:pointer;white-space:nowrap;
+  user-select:none;
+}
+th:hover{color:var(--text)}
+th .sort-arrow{margin-left:3px;font-size:9px;opacity:.4}
+th.sorted .sort-arrow{opacity:1}
+td{padding:8px 12px;border-bottom:1px solid var(--border);white-space:nowrap}
+tr:last-child td{border-bottom:none}
+.status-badge{
+  display:inline-block;padding:2px 8px;border-radius:10px;
+  font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;
+}
+.status-active,.status-enabled{background:#d1fae5;color:#065f46}
+.status-paused{background:#fef3c7;color:#92400e}
+.status-removed,.status-archived{background:#fee2e2;color:#991b1b}
+
+/* ─── Sparkline (CSS bars) ─── */
+.sparkline-grid{
+  display:flex;align-items:flex-end;gap:2px;height:100px;
+  padding:0 4px;
+}
+.spark-day{
+  flex:1;display:flex;flex-direction:column;align-items:center;gap:1px;
+  justify-content:flex-end;height:100%;
+}
+.spark-bar{width:100%;border-radius:2px 2px 0 0;min-height:1px;transition:height .3s}
+.spark-bar.meta{background:var(--meta)}
+.spark-bar.google{background:var(--google)}
+.spark-labels{
+  display:flex;justify-content:space-between;
+  padding:6px 4px 0;font-size:10px;color:var(--text-muted);
+}
+.spark-legend{
+  display:flex;gap:16px;justify-content:center;
+  padding:12px 0 0;font-size:11px;font-weight:600;
+}
+
+/* ─── Footer ─── */
+.footer{
+  text-align:center;padding:16px;
+  font-size:12px;color:var(--text-muted);
+}
+
+/* ─── Loading ─── */
+.loading{
+  display:flex;align-items:center;justify-content:center;
+  padding:60px 20px;color:var(--text-muted);font-size:14px;
+}
+.loading::before{
+  content:'';display:inline-block;width:18px;height:18px;
+  border:2px solid var(--border);border-top-color:var(--meta);
+  border-radius:50%;margin-right:10px;
+  animation:spin .6s linear infinite;
+}
+.loading.error::before{
+  display:none;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ─── Error State ─── */
+.error-box{
+  background:#fef2f2;border:1px solid #fecaca;border-radius:8px;
+  padding:24px;max-width:560px;margin:0 auto;text-align:left;
+  font-size:13px;line-height:1.7;color:#991b1b;
+}
+.error-box h3{font-size:15px;font-weight:700;margin-bottom:8px;color:#7f1d1d}
+.error-box code{
+  background:#fee2e2;padding:2px 6px;border-radius:4px;
+  font-family:monospace;font-size:12px;
+}
+
+/* ─── Mobile Cards (for campaigns) ─── */
+.campaign-cards{display:none}
+.campaign-card{
+  background:var(--surface-alt);border-radius:6px;padding:12px;
+  margin-bottom:8px;border:1px solid var(--border);
+}
+.campaign-card-name{font-weight:700;font-size:13px;margin-bottom:6px}
+.campaign-card-row{
+  display:flex;justify-content:space-between;
+  font-size:12px;padding:2px 0;
+}
+.campaign-card-row .label{color:var(--text-muted)}
+.campaign-card-row .value{font-weight:600}
+
+/* ─── Responsive ─── */
+@media(max-width:1024px){
+  .kpi-grid{grid-template-columns:repeat(3,1fr)}
+}
+@media(max-width:768px){
+  .header{padding:10px 16px;flex-direction:column;gap:10px}
+  .container{padding:12px 12px 30px}
+  .kpi-grid{grid-template-columns:repeat(2,1fr);gap:8px}
+  .kpi-card{padding:12px}
+  .kpi-value{font-size:20px}
+  .section-body{padding:12px}
+  .comparison-label{width:70px;font-size:12px}
+  .table-wrap{display:none}
+  .campaign-cards{display:block}
+}
+@media(max-width:480px){
+  .header-title{font-size:15px}
+  .kpi-value{font-size:18px}
+}
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header class="header">
+  <div class="header-left">
+    <svg class="header-logo" viewBox="0 0 120 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <text x="0" y="24" font-family="Inter,sans-serif" font-weight="800" font-size="22" fill="#2563eb">A7</text>
+      <text x="38" y="24" font-family="Inter,sans-serif" font-weight="500" font-size="14" fill="#6b7280">Ads Dashboard</text>
+    </svg>
+  </div>
+  <div class="range-switcher">
+    <button class="range-btn" data-range="today">Today</button>
+    <button class="range-btn active" data-range="7d">7 Days</button>
+    <button class="range-btn" data-range="30d">30 Days</button>
+  </div>
+</header>
+
+<!-- Demo Banner -->
+<div class="demo-banner" id="demoBanner">Demo Mode — Showing sample data. Connect your Meta &amp; Google Ads accounts for live metrics.</div>
+
+<!-- Main Content -->
+<main class="container" id="mainContent">
+  <div class="loading" id="loadingState">Loading dashboard data...</div>
+
+  <!-- KPI Cards (hidden until data loads) -->
+  <div class="kpi-grid" id="kpiGrid" style="display:none">
+    <div class="kpi-card">
+      <div class="kpi-value" id="kpiSpend">—</div>
+      <div class="kpi-label">Total Spend</div>
+      <div class="kpi-breakdown">
+        <span class="meta-val" id="kpiMetaSpend">M: —</span><br>
+        <span class="google-val" id="kpiGoogleSpend">G: —</span>
+      </div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-value" id="kpiImpressions">—</div>
+      <div class="kpi-label">Impressions</div>
+      <div class="kpi-breakdown">
+        <span class="meta-val" id="kpiMetaImpressions">M: —</span><br>
+        <span class="google-val" id="kpiGoogleImpressions">G: —</span>
+      </div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-value" id="kpiClicks">—</div>
+      <div class="kpi-label">Clicks</div>
+      <div class="kpi-breakdown">
+        <span class="meta-val" id="kpiMetaClicks">M: —</span><br>
+        <span class="google-val" id="kpiGoogleClicks">G: —</span>
+      </div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-value" id="kpiCtr">—</div>
+      <div class="kpi-label">CTR</div>
+      <div class="kpi-breakdown">
+        <span class="meta-val" id="kpiMetaCtr">M: —</span><br>
+        <span class="google-val" id="kpiGoogleCtr">G: —</span>
+      </div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-value" id="kpiConversions">—</div>
+      <div class="kpi-label">Conversions</div>
+      <div class="kpi-breakdown">
+        <span class="meta-val" id="kpiMetaConversions">M: —</span><br>
+        <span class="google-val" id="kpiGoogleConversions">G: —</span>
+      </div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-value" id="kpiCpa">—</div>
+      <div class="kpi-label">CPA</div>
+      <div class="kpi-breakdown">
+        <span class="meta-val" id="kpiMetaCpa">M: —</span><br>
+        <span class="google-val" id="kpiGoogleCpa">G: —</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sections container (hidden until data loads) -->
+  <div id="sectionsContainer" style="display:none">
+
+    <!-- Platform Comparison -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-title">Platform Comparison</span>
+        <div class="legend">
+          <div class="legend-item"><span class="legend-dot meta"></span>Meta</div>
+          <div class="legend-item"><span class="legend-dot google"></span>Google</div>
+        </div>
+      </div>
+      <div class="section-body" id="comparisonBars"></div>
+    </div>
+
+    <!-- Meta Campaigns -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-title">Meta Campaigns</span>
+      </div>
+      <div class="section-body">
+        <div class="table-wrap">
+          <table id="metaTable">
+            <thead>
+              <tr>
+                <th data-key="name">Campaign <span class="sort-arrow">▲</span></th>
+                <th data-key="status">Status <span class="sort-arrow">▲</span></th>
+                <th data-key="spend">Spend <span class="sort-arrow">▲</span></th>
+                <th data-key="clicks">Clicks <span class="sort-arrow">▲</span></th>
+                <th data-key="ctr">CTR <span class="sort-arrow">▲</span></th>
+                <th data-key="conversions">Conv. <span class="sort-arrow">▲</span></th>
+                <th data-key="cpa">CPA <span class="sort-arrow">▲</span></th>
+                <th data-key="roas">ROAS <span class="sort-arrow">▲</span></th>
+              </tr>
+            </thead>
+            <tbody id="metaTableBody"></tbody>
+          </table>
+        </div>
+        <div class="campaign-cards" id="metaCards"></div>
+      </div>
+    </div>
+
+    <!-- Google Campaigns -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-title">Google Campaigns</span>
+      </div>
+      <div class="section-body">
+        <div class="table-wrap">
+          <table id="googleTable">
+            <thead>
+              <tr>
+                <th data-key="name">Campaign <span class="sort-arrow">▲</span></th>
+                <th data-key="status">Status <span class="sort-arrow">▲</span></th>
+                <th data-key="spend">Spend <span class="sort-arrow">▲</span></th>
+                <th data-key="clicks">Clicks <span class="sort-arrow">▲</span></th>
+                <th data-key="ctr">CTR <span class="sort-arrow">▲</span></th>
+                <th data-key="conversions">Conv. <span class="sort-arrow">▲</span></th>
+                <th data-key="cpa">CPA <span class="sort-arrow">▲</span></th>
+                <th data-key="roas">ROAS <span class="sort-arrow">▲</span></th>
+              </tr>
+            </thead>
+            <tbody id="googleTableBody"></tbody>
+          </table>
+        </div>
+        <div class="campaign-cards" id="googleCards"></div>
+      </div>
+    </div>
+
+    <!-- Daily Trend -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-title">Daily Spend Trend</span>
+        <div class="legend">
+          <div class="legend-item"><span class="legend-dot meta"></span>Meta</div>
+          <div class="legend-item"><span class="legend-dot google"></span>Google</div>
+        </div>
+      </div>
+      <div class="section-body">
+        <div class="sparkline-grid" id="sparklineGrid"></div>
+        <div class="spark-labels" id="sparkLabels"></div>
+      </div>
+    </div>
+
+  </div><!-- /sectionsContainer -->
+</main>
+
+<footer class="footer" id="footer"></footer>
+
+<script>
+(function(){
+  'use strict';
+
+  /* ─── State ─── */
+  let currentRange = '7d';
+  let dashboardData = null;
+
+  /* ─── Helpers ─── */
+  const $ = (sel) => document.querySelector(sel);
+  const $$ = (sel) => document.querySelectorAll(sel);
+
+  function fmt(n, prefix, suffix) {
+    if (n == null || isNaN(n)) return '—';
+    prefix = prefix || '';
+    suffix = suffix || '';
+    if (n >= 1000000) return prefix + (n / 1000000).toFixed(1) + 'M' + suffix;
+    if (n >= 1000) return prefix + (n / 1000).toFixed(1) + 'K' + suffix;
+    return prefix + n.toLocaleString('en-US') + suffix;
+  }
+
+  function fmtMoney(n) {
+    if (n == null || isNaN(n)) return '—';
+    return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  function fmtPct(n) {
+    if (n == null || isNaN(n)) return '—';
+    return n.toFixed(2) + '%';
+  }
+
+  function fmtRoas(n) {
+    if (n == null || isNaN(n) || n === 0) return '—';
+    return n.toFixed(2) + 'x';
+  }
+
+  function statusClass(s) {
+    s = (s || '').toLowerCase();
+    if (s === 'active' || s === 'enabled') return 'status-active';
+    if (s === 'paused') return 'status-paused';
+    return 'status-removed';
+  }
+
+  /* ─── Data Loading ─── */
+  async function loadData(range) {
+    var file = 'dashboard-data-' + range + '.json';
+
+    // Try fetch first (works when served via HTTP server)
+    try {
+      var resp = await fetch(file);
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      return await resp.json();
+    } catch (e) {
+      console.warn('fetch() failed for ' + file + ': ' + e.message);
+    }
+
+    // Fallback: check for inline data embedded in page (set by dashboard_fetcher.py --embed)
+    if (window.__DASHBOARD_DATA__ && window.__DASHBOARD_DATA__[range]) {
+      console.info('Using inline embedded data for range: ' + range);
+      return window.__DASHBOARD_DATA__[range];
+    }
+
+    // No data available
+    return null;
+  }
+
+  /* ─── Render KPIs ─── */
+  function renderKPIs(data) {
+    const t = data.summary.total;
+    const m = data.summary.meta;
+    const g = data.summary.google;
+
+    $('#kpiSpend').textContent = fmtMoney(t.spend);
+    $('#kpiImpressions').textContent = fmt(t.impressions);
+    $('#kpiClicks').textContent = fmt(t.clicks);
+    $('#kpiCtr').textContent = fmtPct(t.ctr);
+    $('#kpiConversions').textContent = fmt(t.conversions);
+    $('#kpiCpa').textContent = fmtMoney(t.cpa);
+
+    $('#kpiMetaSpend').textContent = 'M: ' + fmtMoney(m.spend);
+    $('#kpiGoogleSpend').textContent = 'G: ' + fmtMoney(g.spend);
+    $('#kpiMetaImpressions').textContent = 'M: ' + fmt(m.impressions);
+    $('#kpiGoogleImpressions').textContent = 'G: ' + fmt(g.impressions);
+    $('#kpiMetaClicks').textContent = 'M: ' + fmt(m.clicks);
+    $('#kpiGoogleClicks').textContent = 'G: ' + fmt(g.clicks);
+    $('#kpiMetaCtr').textContent = 'M: ' + fmtPct(m.ctr);
+    $('#kpiGoogleCtr').textContent = 'G: ' + fmtPct(g.ctr);
+    $('#kpiMetaConversions').textContent = 'M: ' + fmt(m.conversions);
+    $('#kpiGoogleConversions').textContent = 'G: ' + fmt(g.conversions);
+    $('#kpiMetaCpa').textContent = 'M: ' + fmtMoney(m.cpa);
+    $('#kpiGoogleCpa').textContent = 'G: ' + fmtMoney(g.cpa);
+  }
+
+  /* ─── Render Comparison Bars ─── */
+  function renderComparison(data) {
+    const m = data.summary.meta;
+    const g = data.summary.google;
+    const metrics = [
+      { label: 'Spend', metaVal: m.spend, googleVal: g.spend, format: fmtMoney },
+      { label: 'Impressions', metaVal: m.impressions, googleVal: g.impressions, format: fmt },
+      { label: 'Clicks', metaVal: m.clicks, googleVal: g.clicks, format: fmt },
+      { label: 'CTR', metaVal: m.ctr, googleVal: g.ctr, format: fmtPct },
+      { label: 'Conversions', metaVal: m.conversions, googleVal: g.conversions, format: fmt },
+      { label: 'CPA', metaVal: m.cpa, googleVal: g.cpa, format: fmtMoney },
+      { label: 'ROAS', metaVal: m.roas, googleVal: g.roas, format: fmtRoas },
+    ];
+
+    let html = '';
+    metrics.forEach(function(row) {
+      const max = Math.max(row.metaVal || 0, row.googleVal || 0, 1);
+      const mPct = ((row.metaVal || 0) / max * 100).toFixed(1);
+      const gPct = ((row.googleVal || 0) / max * 100).toFixed(1);
+      html += '<div class="comparison-row">' +
+        '<div class="comparison-label">' + row.label + '</div>' +
+        '<div class="comparison-bars">' +
+          '<div class="bar-row">' +
+            '<span class="bar-platform">M</span>' +
+            '<div class="bar-track"><div class="bar-fill meta" style="width:' + mPct + '%"></div></div>' +
+            '<span class="bar-value">' + row.format(row.metaVal) + '</span>' +
+          '</div>' +
+          '<div class="bar-row">' +
+            '<span class="bar-platform">G</span>' +
+            '<div class="bar-track"><div class="bar-fill google" style="width:' + gPct + '%"></div></div>' +
+            '<span class="bar-value">' + row.format(row.googleVal) + '</span>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    });
+    $('#comparisonBars').innerHTML = html;
+  }
+
+  /* ─── Render Campaign Table ─── */
+  function renderCampaignTable(campaigns, tbodyId, cardsId) {
+    const tbody = document.getElementById(tbodyId);
+    const cards = document.getElementById(cardsId);
+    if (!campaigns || campaigns.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:20px">No campaigns</td></tr>';
+      cards.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:16px">No campaigns</div>';
+      return;
+    }
+
+    let tableHtml = '';
+    let cardHtml = '';
+    campaigns.forEach(function(c) {
+      const sc = statusClass(c.status);
+      tableHtml += '<tr>' +
+        '<td style="font-weight:600">' + c.name + '</td>' +
+        '<td><span class="status-badge ' + sc + '">' + c.status + '</span></td>' +
+        '<td>' + fmtMoney(c.spend) + '</td>' +
+        '<td>' + fmt(c.clicks) + '</td>' +
+        '<td>' + fmtPct(c.ctr) + '</td>' +
+        '<td>' + fmt(c.conversions) + '</td>' +
+        '<td>' + fmtMoney(c.cpa) + '</td>' +
+        '<td>' + fmtRoas(c.roas) + '</td>' +
+      '</tr>';
+
+      cardHtml += '<div class="campaign-card">' +
+        '<div class="campaign-card-name">' + c.name + '</div>' +
+        '<span class="status-badge ' + sc + '">' + c.status + '</span>' +
+        '<div class="campaign-card-row"><span class="label">Spend</span><span class="value">' + fmtMoney(c.spend) + '</span></div>' +
+        '<div class="campaign-card-row"><span class="label">Clicks</span><span class="value">' + fmt(c.clicks) + '</span></div>' +
+        '<div class="campaign-card-row"><span class="label">CTR</span><span class="value">' + fmtPct(c.ctr) + '</span></div>' +
+        '<div class="campaign-card-row"><span class="label">Conv.</span><span class="value">' + fmt(c.conversions) + '</span></div>' +
+        '<div class="campaign-card-row"><span class="label">CPA</span><span class="value">' + fmtMoney(c.cpa) + '</span></div>' +
+        '<div class="campaign-card-row"><span class="label">ROAS</span><span class="value">' + fmtRoas(c.roas) + '</span></div>' +
+      '</div>';
+    });
+    tbody.innerHTML = tableHtml;
+    cards.innerHTML = cardHtml;
+  }
+
+  /* ─── Render Sparkline ─── */
+  function renderSparkline(trend) {
+    const grid = $('#sparklineGrid');
+    const labels = $('#sparkLabels');
+
+    if (!trend || trend.length === 0) {
+      grid.innerHTML = '<div style="text-align:center;color:var(--text-muted);width:100%;padding:20px">No trend data</div>';
+      labels.innerHTML = '';
+      return;
+    }
+
+    const maxSpend = Math.max.apply(null, trend.map(function(d) { return (d.meta_spend || 0) + (d.google_spend || 0); }).concat([1]));
+
+    let barsHtml = '';
+    trend.forEach(function(d) {
+      const mH = Math.max(1, (d.meta_spend || 0) / maxSpend * 90);
+      const gH = Math.max(1, (d.google_spend || 0) / maxSpend * 90);
+      barsHtml += '<div class="spark-day" title="' + d.date + '">' +
+        '<div class="spark-bar google" style="height:' + gH + 'px"></div>' +
+        '<div class="spark-bar meta" style="height:' + mH + 'px"></div>' +
+      '</div>';
+    });
+    grid.innerHTML = barsHtml;
+
+    // Labels: first and last date
+    if (trend.length > 1) {
+      labels.innerHTML = '<span>' + trend[0].date + '</span><span>' + trend[trend.length - 1].date + '</span>';
+    } else {
+      labels.innerHTML = '<span>' + trend[0].date + '</span>';
+    }
+  }
+
+  /* ─── Table Sorting ─── */
+  function setupTableSort(tableId, campaigns, tbodyId, cardsId) {
+    const table = document.getElementById(tableId);
+    if (!table) return;
+    const headers = table.querySelectorAll('th[data-key]');
+    let sortKey = null;
+    let sortAsc = true;
+
+    headers.forEach(function(th) {
+      th.addEventListener('click', function() {
+        const key = th.getAttribute('data-key');
+        if (sortKey === key) {
+          sortAsc = !sortAsc;
+        } else {
+          sortKey = key;
+          sortAsc = true;
+        }
+        // Update arrows
+        headers.forEach(function(h) {
+          h.classList.remove('sorted');
+          h.querySelector('.sort-arrow').textContent = '▲';
+        });
+        th.classList.add('sorted');
+        th.querySelector('.sort-arrow').textContent = sortAsc ? '▲' : '▼';
+
+        // Sort
+        var sorted = campaigns.slice().sort(function(a, b) {
+          var va = a[key], vb = b[key];
+          if (typeof va === 'string') {
+            return sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+          }
+          return sortAsc ? (va - vb) : (vb - va);
+        });
+        renderCampaignTable(sorted, tbodyId, cardsId);
+      });
+    });
+  }
+
+  /* ─── Master Render ─── */
+  function render(data) {
+    dashboardData = data;
+
+    // Show/hide demo banner
+    if (data.demo) {
+      $('#demoBanner').classList.add('visible');
+    } else {
+      $('#demoBanner').classList.remove('visible');
+    }
+
+    // Hide loading, show content
+    $('#loadingState').style.display = 'none';
+    $('#kpiGrid').style.display = '';
+    $('#sectionsContainer').style.display = '';
+
+    renderKPIs(data);
+    renderComparison(data);
+    renderCampaignTable(data.campaigns.meta, 'metaTableBody', 'metaCards');
+    renderCampaignTable(data.campaigns.google, 'googleTableBody', 'googleCards');
+    renderSparkline(data.daily_trend);
+
+    // Setup sorting
+    setupTableSort('metaTable', data.campaigns.meta, 'metaTableBody', 'metaCards');
+    setupTableSort('googleTable', data.campaigns.google, 'googleTableBody', 'googleCards');
+
+    // Footer
+    var dt = data.generated_at ? new Date(data.generated_at) : new Date();
+    $('#footer').textContent = 'Last updated: ' + dt.toLocaleString('en-US', {
+      month: 'short', day: 'numeric', year: 'numeric',
+      hour: 'numeric', minute: '2-digit', hour12: true
+    }) + (data.demo ? ' (Demo Data)' : '');
+  }
+
+  /* ─── Range Switcher ─── */
+  $$('.range-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      $$('.range-btn').forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      currentRange = btn.getAttribute('data-range');
+      load(currentRange);
+    });
+  });
+
+  /* ─── Load ─── */
+  async function load(range) {
+    $('#loadingState').style.display = '';
+    $('#loadingState').className = 'loading';
+    $('#loadingState').textContent = 'Loading dashboard data...';
+    $('#kpiGrid').style.display = 'none';
+    $('#sectionsContainer').style.display = 'none';
+
+    var data = await loadData(range);
+    if (data) {
+      render(data);
+    } else {
+      // Show helpful error with instructions
+      var isFileProtocol = window.location.protocol === 'file:';
+      var errorHtml = '<div class="error-box">' +
+        '<h3>Could not load dashboard data</h3>';
+
+      if (isFileProtocol) {
+        errorHtml += '<p>This file was opened directly in the browser (<code>file://</code>), ' +
+          'which blocks loading the JSON data files due to browser security restrictions (CORS).</p>' +
+          '<p><strong>To fix this, use the built-in server:</strong></p>' +
+          '<p><code>python3 serve_dashboard.py</code></p>' +
+          '<p>Or generate embedded data:</p>' +
+          '<p><code>python3 dashboard_fetcher.py --demo --embed</code></p>';
+      } else {
+        errorHtml += '<p>No data file found for this range. Generate data first:</p>' +
+          '<p><code>python3 dashboard_fetcher.py --demo</code></p>';
+      }
+
+      errorHtml += '</div>';
+      $('#loadingState').className = 'loading error';
+      $('#loadingState').innerHTML = errorHtml;
+    }
+  }
+
+  /* ─── Init ─── */
+  load(currentRange);
+
+})();
+</script>
+</body>
+</html>

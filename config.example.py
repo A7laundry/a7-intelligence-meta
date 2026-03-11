@@ -11,14 +11,19 @@ INSTRUÇÕES: Copie este arquivo para config.py e preencha com suas credenciais 
 # ==============================================================
 # Preencha com suas credenciais do Meta for Developers
 # https://developers.facebook.com/
+#
+# Token Management:
+#   Verificar validade: python3 main.py --check-token
+#   Renovar token:      python3 main.py --refresh-token
+#   O token longo prazo expira em ~60 dias. O sistema alerta quando faltam 7 dias.
 
 META_CONFIG = {
-    "app_id": "SEU_APP_ID",
-    "app_secret": "SEU_APP_SECRET",
+    "app_id": "SEU_APP_ID",                      # Necessário para verificar/renovar token
+    "app_secret": "SEU_APP_SECRET",               # Necessário para verificar/renovar token
     "access_token": "SEU_ACCESS_TOKEN_LONGO_PRAZO",
-    "ad_account_id": "act_SEU_AD_ACCOUNT_ID",  # Sempre com prefixo "act_"
-    "page_id": "SEU_PAGE_ID",  # ID da página A7 Lavanderia no Facebook
-    "pixel_id": "SEU_PIXEL_ID",  # Facebook Pixel (para conversões)
+    "ad_account_id": "act_SEU_AD_ACCOUNT_ID",     # Sempre com prefixo "act_"
+    "page_id": "SEU_PAGE_ID",                     # ID da página A7 Lavanderia no Facebook
+    "pixel_id": "SEU_PIXEL_ID",                   # Facebook Pixel (para conversões)
 }
 
 # ==============================================================
@@ -147,6 +152,24 @@ AD_COPY_TEMPLATES = {
 # ==============================================================
 # REGRAS DE OTIMIZAÇÃO AUTOMÁTICA
 # ==============================================================
+# ==============================================================
+# CONFIGURAÇÃO GOOGLE ADS API
+# ==============================================================
+# Preencha com suas credenciais do Google Ads
+# https://developers.google.com/google-ads/api/docs/get-started/introduction
+
+GOOGLE_ADS_CONFIG = {
+    "developer_token": "SEU_DEVELOPER_TOKEN",
+    "client_id": "SEU_CLIENT_ID.apps.googleusercontent.com",
+    "client_secret": "SEU_CLIENT_SECRET",
+    "refresh_token": "SEU_REFRESH_TOKEN",
+    "customer_id": "SEU_CUSTOMER_ID",  # Sem hífens (ex: "1234567890")
+    "login_customer_id": "",  # Preencher se usar conta gerente (MCC)
+}
+
+# ==============================================================
+# REGRAS DE OTIMIZAÇÃO AUTOMÁTICA
+# ==============================================================
 OPTIMIZATION_RULES = {
     "pause_high_cpa": {
         "description": "Pausa ad sets com CPA acima do limite",
@@ -172,4 +195,23 @@ OPTIMIZATION_RULES = {
         "action": "PAUSE",
         "lookback_days": 3,
     },
+}
+
+# ==============================================================
+# CONFIGURAÇÃO DE ALERTAS
+# ==============================================================
+# Canal: "console" (padrão) ou "webhook" (Slack, Discord, n8n, WhatsApp)
+# Alertas não repetem para o mesmo ad set dentro de 24h
+
+ALERT_CONFIG = {
+    "enabled": True,
+    "channel": "console",  # "console" ou "webhook"
+    "webhook_url": "",      # URL do webhook (Slack, Discord, n8n, etc.)
+    "thresholds": {
+        "cpa_max": 50.00,                 # Alerta quando CPA > R$50
+        "ctr_min": 0.5,                   # Alerta quando CTR < 0.5%
+        "min_impressions_for_ctr": 1000,  # Mínimo de impressões antes de alertar CTR
+        "spend_without_conversions": 100.00,  # Alerta quando gasta R$100+ sem conversão
+    },
+    "daily_summary": True,  # Enviar sumário diário após cada otimização
 }

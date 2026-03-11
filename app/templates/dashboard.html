@@ -1,0 +1,222 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard — {{ app_name }}{% endblock %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+{% endblock %}
+
+{% block header_actions %}
+<div class="range-switcher">
+  <button class="range-btn {% if current_range == 'today' %}active{% endif %}" data-range="today">Today</button>
+  <button class="range-btn {% if current_range == '7d' %}active{% endif %}" data-range="7d">7 Days</button>
+  <button class="range-btn {% if current_range == '30d' %}active{% endif %}" data-range="30d">30 Days</button>
+</div>
+<a href="/api/export/campaigns.csv" class="btn-refresh" title="Export CSV" style="text-decoration:none;font-size:14px">&#x2B07;</a>
+<button class="btn-refresh" id="btnRefresh" title="Refresh data">&#x21bb;</button>
+{% endblock %}
+
+{% block content %}
+<div class="loading" id="loadingState">Loading dashboard data...</div>
+
+<!-- KPI Cards -->
+<div class="kpi-grid" id="kpiGrid" style="display:none">
+  <div class="kpi-card">
+    <div class="kpi-value" id="kpiSpend">&mdash;</div>
+    <div class="kpi-label">Total Spend</div>
+    <div class="kpi-change" id="kpiSpendChange"></div>
+    <div class="kpi-breakdown">
+      <span class="meta-val" id="kpiMetaSpend">M: &mdash;</span><br>
+      <span class="google-val" id="kpiGoogleSpend">G: &mdash;</span>
+    </div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-value" id="kpiImpressions">&mdash;</div>
+    <div class="kpi-label">Impressions</div>
+    <div class="kpi-change" id="kpiImpressionsChange"></div>
+    <div class="kpi-breakdown">
+      <span class="meta-val" id="kpiMetaImpressions">M: &mdash;</span><br>
+      <span class="google-val" id="kpiGoogleImpressions">G: &mdash;</span>
+    </div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-value" id="kpiClicks">&mdash;</div>
+    <div class="kpi-label">Clicks</div>
+    <div class="kpi-change" id="kpiClicksChange"></div>
+    <div class="kpi-breakdown">
+      <span class="meta-val" id="kpiMetaClicks">M: &mdash;</span><br>
+      <span class="google-val" id="kpiGoogleClicks">G: &mdash;</span>
+    </div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-value" id="kpiCtr">&mdash;</div>
+    <div class="kpi-label">CTR</div>
+    <div class="kpi-change" id="kpiCtrChange"></div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-value" id="kpiConversions">&mdash;</div>
+    <div class="kpi-label">Conversions</div>
+    <div class="kpi-change" id="kpiConversionsChange"></div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-value" id="kpiCpa">&mdash;</div>
+    <div class="kpi-label">CPA</div>
+    <div class="kpi-change" id="kpiCpaChange"></div>
+  </div>
+</div>
+
+<!-- Sections -->
+<div id="sectionsContainer" style="display:none">
+
+  <!-- AI Coach Intelligence Panel -->
+  <div class="section" id="coachSection">
+    <div class="section-header">
+      <span class="section-title">AI Coach</span>
+      <button class="btn-action" onclick="refreshCoach()" title="Refresh insights">&#x1F504; Refresh</button>
+    </div>
+    <div class="section-body">
+      <div id="coachLoading" class="coach-loading">Analyzing performance data...</div>
+      <div id="coachContent" style="display:none">
+        <!-- Health + Headline -->
+        <div class="coach-header" id="coachHeader">
+          <div class="coach-health" id="coachHealth">
+            <div class="health-badge" id="healthBadge">--</div>
+            <div class="health-label" id="healthLabel">Loading</div>
+            <div class="health-score" id="healthScore">Score: --</div>
+          </div>
+          <div class="coach-headline" id="coachHeadline"></div>
+        </div>
+        <!-- Summary Bullets -->
+        <ul class="coach-bullets" id="coachBullets"></ul>
+        <!-- Highlights Row -->
+        <div class="coach-highlights" id="coachHighlights"></div>
+        <!-- Recommendation Cards -->
+        <div class="coach-recs" id="coachRecs"></div>
+      </div>
+      <div id="coachEmpty" style="display:none;text-align:center;color:var(--text-muted);padding:24px">
+        No insights available yet. Click <strong>Refresh</strong> to generate AI Coach analysis.
+      </div>
+    </div>
+  </div>
+
+  <!-- Budget Intelligence -->
+  <div class="section" id="budgetSection">
+    <div class="section-header">
+      <span class="section-title">Budget Intelligence</span>
+    </div>
+    <div class="section-body">
+      <div id="budgetLoading" class="coach-loading">Analyzing budget allocation...</div>
+      <div id="budgetContent" style="display:none">
+        <div class="budget-top-row">
+          <div class="budget-score-card" id="budgetScoreCard">
+            <div class="budget-score-value" id="budgetScoreValue">--</div>
+            <div class="budget-score-label">Efficiency Score</div>
+          </div>
+          <div class="budget-chart-wrap">
+            <canvas id="budgetChart" height="160"></canvas>
+          </div>
+        </div>
+        <div class="budget-lists" id="budgetLists"></div>
+      </div>
+      <div id="budgetEmpty" style="display:none;text-align:center;color:var(--text-muted);padding:24px">
+        No budget data available.
+      </div>
+    </div>
+  </div>
+
+  <!-- Alerts Center -->
+  <div class="section" id="alertsSection">
+    <div class="section-header">
+      <span class="section-title">Alerts Center</span>
+      <button class="btn-action" onclick="refreshAlerts()" title="Refresh alerts">&#x1F504; Refresh</button>
+    </div>
+    <div class="section-body">
+      <div id="alertsList"></div>
+      <div id="alertsEmpty" style="display:none;text-align:center;color:var(--text-muted);padding:24px">
+        No active alerts. System is operating normally.
+      </div>
+    </div>
+  </div>
+
+  <!-- Daily Trend Chart -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-title">Daily Spend & Conversions</span>
+    </div>
+    <div class="section-body chart-container">
+      <canvas id="trendChart"></canvas>
+    </div>
+  </div>
+
+  <!-- Meta Campaigns -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-title">Meta Campaigns</span>
+    </div>
+    <div class="section-body">
+      <div class="table-wrap">
+        <table id="metaTable">
+          <thead>
+            <tr>
+              <th data-key="name">Campaign <span class="sort-arrow">&#x25B2;</span></th>
+              <th data-key="status">Status <span class="sort-arrow">&#x25B2;</span></th>
+              <th data-key="spend">Spend <span class="sort-arrow">&#x25B2;</span></th>
+              <th data-key="clicks">Clicks <span class="sort-arrow">&#x25B2;</span></th>
+              <th data-key="ctr">CTR <span class="sort-arrow">&#x25B2;</span></th>
+              <th data-key="conversions">Conv. <span class="sort-arrow">&#x25B2;</span></th>
+              <th data-key="cpa">CPA <span class="sort-arrow">&#x25B2;</span></th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="metaTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Google Campaigns -->
+  <div class="section" id="googleSection">
+    <div class="section-header">
+      <span class="section-title">Google Campaigns</span>
+    </div>
+    <div class="section-body">
+      <div class="table-wrap">
+        <table id="googleTable">
+          <thead>
+            <tr>
+              <th data-key="name">Campaign <span class="sort-arrow">&#x25B2;</span></th>
+              <th data-key="status">Status <span class="sort-arrow">&#x25B2;</span></th>
+              <th data-key="spend">Spend <span class="sort-arrow">&#x25B2;</span></th>
+              <th data-key="clicks">Clicks <span class="sort-arrow">&#x25B2;</span></th>
+              <th data-key="ctr">CTR <span class="sort-arrow">&#x25B2;</span></th>
+              <th data-key="conversions">Conv. <span class="sort-arrow">&#x25B2;</span></th>
+              <th data-key="cpa">CPA <span class="sort-arrow">&#x25B2;</span></th>
+            </tr>
+          </thead>
+          <tbody id="googleTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Creative Intelligence -->
+  <div class="section" id="creativeSection">
+    <div class="section-header">
+      <span class="section-title">Creative Intelligence</span>
+      <button class="btn-action" onclick="collectCreatives()" title="Sync creatives from Meta">&#x1F504; Sync</button>
+    </div>
+    <div class="section-body">
+      <div id="creativeSummary" class="creative-summary"></div>
+      <div id="creativeGrid" class="creative-grid"></div>
+      <div id="creativeEmpty" style="text-align:center;color:var(--text-muted);padding:24px;display:none">
+        No creative data yet. Click <strong>Sync</strong> to collect creative data from Meta Ads.
+      </div>
+    </div>
+  </div>
+
+</div><!-- /sectionsContainer -->
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,757 @@
+/**
+ * A7 Intelligence Dashboard v2
+ * Interactive dashboard with Chart.js and Flask API backend
+ */
+(function () {
+  'use strict';
+
+  let currentRange = document.querySelector('.range-btn.active')?.getAttribute('data-range') || '7d';
+  let trendChart = null;
+
+  const $ = (sel) => document.querySelector(sel);
+  const $$ = (sel) => document.querySelectorAll(sel);
+
+  /* ─── Formatters ─── */
+  function fmt(n) {
+    if (n == null || isNaN(n)) return '\u2014';
+    if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+    if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+    return n.toLocaleString('en-US');
+  }
+  function fmtMoney(n) {
+    if (n == null || isNaN(n)) return '\u2014';
+    return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  function fmtPct(n) {
+    if (n == null || isNaN(n)) return '\u2014';
+    return n.toFixed(2) + '%';
+  }
+  function statusClass(s) {
+    s = (s || '').toLowerCase();
+    if (s === 'active' || s === 'enabled') return 'status-active';
+    if (s === 'paused') return 'status-paused';
+    return 'status-removed';
+  }
+  function changeHtml(pct, invert) {
+    if (pct == null || pct === 0) return '<span class="kpi-change neutral">\u2014</span>';
+    const isGood = invert ? pct < 0 : pct > 0;
+    const cls = isGood ? 'positive' : 'negative';
+    const arrow = pct > 0 ? '\u25B2' : '\u25BC';
+    return `<span class="kpi-change ${cls}">${arrow} ${Math.abs(pct).toFixed(1)}%</span>`;
+  }
+
+  /* ─── API ─── */
+  async function fetchApi(path) {
+    const resp = await fetch('/api' + path);
+    if (!resp.ok) throw new Error(resp.status);
+    return resp.json();
+  }
+
+  async function postApi(path, body) {
+    const resp = await fetch('/api' + path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!resp.ok) throw new Error(resp.status);
+    return resp.json();
+  }
+
+  /* ─── Render KPIs ─── */
+  function renderKPIs(data) {
+    const t = data.summary.total;
+    const m = data.summary.meta;
+    const g = data.summary.google;
+    const ch = (data.comparison && data.comparison.changes) || {};
+
+    $('#kpiSpend').textContent = fmtMoney(t.spend);
+    $('#kpiImpressions').textContent = fmt(t.impressions);
+    $('#kpiClicks').textContent = fmt(t.clicks);
+    $('#kpiCtr').textContent = fmtPct(t.ctr);
+    $('#kpiConversions').textContent = fmt(t.conversions);
+    $('#kpiCpa').textContent = fmtMoney(t.cpa);
+
+    // Changes
+    $('#kpiSpendChange').innerHTML = changeHtml(ch.spend, true);
+    $('#kpiImpressionsChange').innerHTML = changeHtml(ch.impressions);
+    $('#kpiClicksChange').innerHTML = changeHtml(ch.clicks);
+    $('#kpiCtrChange').innerHTML = '';
+    $('#kpiConversionsChange').innerHTML = changeHtml(ch.conversions);
+    $('#kpiCpaChange').innerHTML = '';
+
+    // Breakdown
+    if ($('#kpiMetaSpend')) {
+      $('#kpiMetaSpend').textContent = 'M: ' + fmtMoney(m.spend);
+      $('#kpiGoogleSpend').textContent = 'G: ' + fmtMoney(g.spend);
+      $('#kpiMetaImpressions').textContent = 'M: ' + fmt(m.impressions);
+      $('#kpiGoogleImpressions').textContent = 'G: ' + fmt(g.impressions);
+      $('#kpiMetaClicks').textContent = 'M: ' + fmt(m.clicks);
+      $('#kpiGoogleClicks').textContent = 'G: ' + fmt(g.clicks);
+    }
+  }
+
+  /* ─── Render Trend Chart ─── */
+  function renderTrendChart(trend) {
+    const canvas = $('#trendChart');
+    if (!canvas) return;
+
+    if (trendChart) trendChart.destroy();
+
+    const labels = trend.map(d => {
+      const parts = d.date.split('-');
+      return parts[1] + '/' + parts[2];
+    });
+    const metaSpend = trend.map(d => d.meta_spend || 0);
+    const googleSpend = trend.map(d => d.google_spend || 0);
+    const metaConv = trend.map(d => d.meta_conversions || 0);
+    const googleConv = trend.map(d => d.google_conversions || 0);
+
+    trendChart = new Chart(canvas, {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            label: 'Meta Spend',
+            data: metaSpend,
+            backgroundColor: 'rgba(37, 99, 235, 0.8)',
+            borderRadius: 3,
+            order: 2,
+          },
+          {
+            label: 'Google Spend',
+            data: googleSpend,
+            backgroundColor: 'rgba(245, 158, 11, 0.8)',
+            borderRadius: 3,
+            order: 3,
+          },
+          {
+            label: 'Meta Conv.',
+            data: metaConv,
+            type: 'line',
+            borderColor: '#2563eb',
+            backgroundColor: 'transparent',
+            borderWidth: 2,
+            pointRadius: 3,
+            pointBackgroundColor: '#2563eb',
+            yAxisID: 'y1',
+            order: 1,
+          },
+          {
+            label: 'Google Conv.',
+            data: googleConv,
+            type: 'line',
+            borderColor: '#f59e0b',
+            backgroundColor: 'transparent',
+            borderWidth: 2,
+            pointRadius: 3,
+            pointBackgroundColor: '#f59e0b',
+            yAxisID: 'y1',
+            order: 0,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { position: 'bottom', labels: { usePointStyle: true, padding: 16, font: { size: 11, family: 'Inter' } } },
+          tooltip: {
+            callbacks: {
+              label: function (ctx) {
+                if (ctx.dataset.yAxisID === 'y1') return ctx.dataset.label + ': ' + ctx.parsed.y;
+                return ctx.dataset.label + ': $' + ctx.parsed.y.toFixed(2);
+              }
+            }
+          }
+        },
+        scales: {
+          x: { grid: { display: false }, ticks: { font: { size: 11, family: 'Inter' } } },
+          y: {
+            position: 'left',
+            title: { display: true, text: 'Spend ($)', font: { size: 11, family: 'Inter' } },
+            grid: { color: '#f0f0f0' },
+            ticks: { font: { size: 11 }, callback: v => '$' + v },
+          },
+          y1: {
+            position: 'right',
+            title: { display: true, text: 'Conversions', font: { size: 11, family: 'Inter' } },
+            grid: { display: false },
+            ticks: { font: { size: 11 }, stepSize: 1 },
+          },
+        },
+      },
+    });
+  }
+
+  /* ─── Render Campaign Table ─── */
+  function renderCampaignTable(campaigns, tbodyId, showActions) {
+    const tbody = document.getElementById(tbodyId);
+    if (!campaigns || campaigns.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:20px">No campaigns</td></tr>';
+      return;
+    }
+    let html = '';
+    campaigns.forEach(c => {
+      const sc = statusClass(c.status);
+      const isActive = (c.status || '').toUpperCase() === 'ACTIVE';
+      html += '<tr>' +
+        '<td style="font-weight:600">' + c.name + '</td>' +
+        '<td><span class="status-badge ' + sc + '">' + c.status + '</span></td>' +
+        '<td>' + fmtMoney(c.spend) + '</td>' +
+        '<td>' + fmt(c.clicks) + '</td>' +
+        '<td>' + fmtPct(c.ctr) + '</td>' +
+        '<td>' + fmt(c.conversions) + '</td>' +
+        '<td>' + fmtMoney(c.cpa) + '</td>';
+      if (showActions) {
+        if (isActive) {
+          html += '<td><button class="btn-action pause" onclick="toggleCampaign(\'' + c.id + '\',\'PAUSED\')" title="Pause">&#x23F8;</button></td>';
+        } else {
+          html += '<td><button class="btn-action activate" onclick="toggleCampaign(\'' + c.id + '\',\'ACTIVE\')" title="Activate">&#x25B6;</button></td>';
+        }
+      } else {
+        html += '<td></td>';
+      }
+      html += '</tr>';
+    });
+    tbody.innerHTML = html;
+  }
+
+  /* ─── Toggle Campaign Status ─── */
+  window.toggleCampaign = async function (campaignId, newStatus) {
+    if (!confirm('Change campaign status to ' + newStatus + '?')) return;
+    try {
+      await postApi('/campaigns/' + campaignId + '/status', { status: newStatus });
+      load(currentRange);
+    } catch (e) {
+      alert('Error: ' + e.message);
+    }
+  };
+
+  /* ─── Platform Status ─── */
+  async function loadPlatformStatus() {
+    try {
+      const data = await fetchApi('/platforms');
+      const el = $('#platformStatus');
+      el.innerHTML =
+        '<span class="platform-dot ' + (data.meta ? 'connected' : 'disconnected') + '">&#x25CF; Meta</span>' +
+        '<span class="platform-dot ' + (data.google ? 'connected' : 'disconnected') + '">&#x25CF; Google</span>';
+    } catch (e) { /* ignore */ }
+  }
+
+  /* ─── Table Sorting ─── */
+  function setupTableSort(tableId, campaigns, tbodyId, showActions) {
+    const table = document.getElementById(tableId);
+    if (!table) return;
+    const headers = table.querySelectorAll('th[data-key]');
+    let sortKey = null, sortAsc = true;
+    headers.forEach(th => {
+      th.addEventListener('click', () => {
+        const key = th.getAttribute('data-key');
+        if (sortKey === key) { sortAsc = !sortAsc; } else { sortKey = key; sortAsc = true; }
+        headers.forEach(h => { h.classList.remove('sorted'); h.querySelector('.sort-arrow').textContent = '\u25B2'; });
+        th.classList.add('sorted');
+        th.querySelector('.sort-arrow').textContent = sortAsc ? '\u25B2' : '\u25BC';
+        const sorted = campaigns.slice().sort((a, b) => {
+          const va = a[key], vb = b[key];
+          if (typeof va === 'string') return sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+          return sortAsc ? (va - vb) : (vb - va);
+        });
+        renderCampaignTable(sorted, tbodyId, showActions);
+      });
+    });
+  }
+
+  /* ─── Master Render ─── */
+  function render(data) {
+    // Demo banner
+    if (data.demo) { $('#demoBanner').classList.add('visible'); }
+    else { $('#demoBanner').classList.remove('visible'); }
+
+    // Hide Google section if no data
+    const gs = $('#googleSection');
+    if (gs) {
+      const hasGoogle = data.campaigns.google && data.campaigns.google.length > 0;
+      gs.style.display = hasGoogle ? '' : 'none';
+    }
+
+    // Show content
+    $('#loadingState').style.display = 'none';
+    $('#kpiGrid').style.display = '';
+    $('#sectionsContainer').style.display = '';
+
+    renderKPIs(data);
+    renderTrendChart(data.daily_trend || []);
+    renderCampaignTable(data.campaigns.meta, 'metaTableBody', true);
+    renderCampaignTable(data.campaigns.google, 'googleTableBody', false);
+    setupTableSort('metaTable', data.campaigns.meta, 'metaTableBody', true);
+    setupTableSort('googleTable', data.campaigns.google, 'googleTableBody', false);
+
+    // Footer
+    const dt = data.generated_at ? new Date(data.generated_at) : new Date();
+    $('#footer').textContent = 'Last updated: ' + dt.toLocaleString('en-US', {
+      month: 'short', day: 'numeric', year: 'numeric',
+      hour: 'numeric', minute: '2-digit', hour12: true
+    }) + (data.demo ? ' (Demo Data)' : '') + (data.source === 'database' ? ' (Cached)' : '');
+  }
+
+  /* ─── Load Data ─── */
+  async function load(range) {
+    $('#loadingState').style.display = '';
+    $('#kpiGrid').style.display = 'none';
+    $('#sectionsContainer').style.display = 'none';
+
+    try {
+      const data = await fetchApi('/dashboard/' + range);
+      render(data);
+    } catch (e) {
+      $('#loadingState').innerHTML = 'Error loading data. Check if the server is running.';
+    }
+  }
+
+  /* ─── Range Switcher ─── */
+  $$('.range-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      $$('.range-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentRange = btn.getAttribute('data-range');
+      load(currentRange);
+    });
+  });
+
+  /* ─── Refresh Button ─── */
+  const refreshBtn = $('#btnRefresh');
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', async () => {
+      refreshBtn.classList.add('spinning');
+      try {
+        await postApi('/dashboard/refresh', {});
+        await load(currentRange);
+      } finally {
+        refreshBtn.classList.remove('spinning');
+      }
+    });
+  }
+
+  /* ─── Auto Refresh ─── */
+  let autoRefreshTimer = null;
+  const AUTO_REFRESH_MS = 5 * 60 * 1000; // 5 minutes
+
+  function startAutoRefresh() {
+    stopAutoRefresh();
+    autoRefreshTimer = setInterval(() => load(currentRange), AUTO_REFRESH_MS);
+  }
+
+  function stopAutoRefresh() {
+    if (autoRefreshTimer) {
+      clearInterval(autoRefreshTimer);
+      autoRefreshTimer = null;
+    }
+  }
+
+  /* ─── Budget Intelligence ─── */
+  let budgetChart = null;
+
+  async function loadBudget() {
+    var loading = document.getElementById('budgetLoading');
+    var content = document.getElementById('budgetContent');
+    var empty = document.getElementById('budgetEmpty');
+    if (!loading) return;
+
+    loading.style.display = '';
+    content.style.display = 'none';
+    empty.style.display = 'none';
+
+    try {
+      var data = await fetchApi('/budget/summary?days=7');
+      loading.style.display = 'none';
+
+      if (data.error || data.total_spend === 0) {
+        empty.style.display = '';
+        return;
+      }
+
+      content.style.display = '';
+      renderBudgetScore(data);
+      renderBudgetChart(data);
+      renderBudgetLists(data);
+    } catch (e) {
+      loading.style.display = 'none';
+      empty.style.display = '';
+    }
+  }
+
+  function renderBudgetScore(data) {
+    var el = document.getElementById('budgetScoreValue');
+    if (!el) return;
+    var score = data.efficiency_score || 0;
+    el.textContent = score;
+    el.className = 'budget-score-value ' +
+      (score >= 70 ? 'score-high' : (score >= 40 ? 'score-mid' : 'score-low'));
+  }
+
+  function renderBudgetChart(data) {
+    var canvas = document.getElementById('budgetChart');
+    if (!canvas) return;
+    if (budgetChart) budgetChart.destroy();
+
+    var ratios = data.ratios || {};
+    budgetChart = new Chart(canvas, {
+      type: 'doughnut',
+      data: {
+        labels: ['Efficient', 'Waste', 'Neutral'],
+        datasets: [{
+          data: [ratios.efficient_pct || 0, ratios.waste_pct || 0, ratios.neutral_pct || 0],
+          backgroundColor: ['#10b981', '#ef4444', '#9ca3af'],
+          borderWidth: 2,
+          borderColor: '#fff',
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: '60%',
+        plugins: {
+          legend: { position: 'right', labels: { font: { size: 11, family: 'Inter' }, padding: 12, usePointStyle: true } },
+          tooltip: {
+            callbacks: {
+              label: function(ctx) { return ctx.label + ': ' + ctx.parsed.toFixed(1) + '%'; }
+            }
+          }
+        }
+      }
+    });
+  }
+
+  function renderBudgetLists(data) {
+    var el = document.getElementById('budgetLists');
+    if (!el) return;
+    var html = '';
+
+    // Waste campaigns
+    var waste = data.waste_campaigns || [];
+    html += '<div class="budget-list"><div class="budget-list-header waste">Waste Spend ($' +
+      (data.waste_spend || 0).toFixed(2) + ')</div>';
+    if (waste.length === 0) {
+      html += '<div class="budget-list-item" style="color:var(--text-muted)">No waste detected</div>';
+    } else {
+      waste.forEach(function(w) {
+        html += '<div class="budget-list-item">' +
+          '<div class="budget-list-item-name">' + w.name + '</div>' +
+          '<div class="budget-list-item-spend">$' + (w.spend || 0).toFixed(2) + '</div>' +
+          '<div class="budget-list-item-reason">' + (w.reason || '') + '</div>' +
+        '</div>';
+      });
+    }
+    html += '</div>';
+
+    // Scaling opportunities
+    var opps = data.efficient_campaigns || [];
+    html += '<div class="budget-list"><div class="budget-list-header opportunity">Efficient Spend ($' +
+      (data.efficient_spend || 0).toFixed(2) + ')</div>';
+    if (opps.length === 0) {
+      html += '<div class="budget-list-item" style="color:var(--text-muted)">No efficient campaigns yet</div>';
+    } else {
+      opps.forEach(function(o) {
+        html += '<div class="budget-list-item">' +
+          '<div class="budget-list-item-name">' + o.name + '</div>' +
+          '<div class="budget-list-item-spend">$' + (o.spend || 0).toFixed(2) +
+            (o.conversions ? ' | ' + o.conversions + ' conv' : '') + '</div>' +
+          '<div class="budget-list-item-reason">' + (o.reason || '') + '</div>' +
+        '</div>';
+      });
+    }
+    html += '</div>';
+
+    el.innerHTML = html;
+  }
+
+  /* ─── Alerts Center ─── */
+  async function loadAlerts() {
+    var list = document.getElementById('alertsList');
+    var empty = document.getElementById('alertsEmpty');
+    if (!list) return;
+
+    try {
+      var data = await fetchApi('/alerts?limit=20');
+      var alerts = data.alerts || [];
+      if (alerts.length === 0) {
+        list.innerHTML = '';
+        empty.style.display = '';
+        return;
+      }
+      empty.style.display = 'none';
+      renderAlerts(list, alerts);
+    } catch (e) {
+      list.innerHTML = '';
+      empty.style.display = '';
+    }
+  }
+
+  function renderAlerts(container, alerts) {
+    var html = '<div class="alerts-list">';
+    alerts.forEach(function(a) {
+      var ts = a.created_at ? new Date(a.created_at).toLocaleString('en-US', {
+        month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true
+      }) : '';
+      html += '<div class="alert-card severity-' + a.severity + '">' +
+        '<div class="alert-body">' +
+          '<div class="alert-header">' +
+            '<span class="alert-severity severity-badge-' + a.severity + '">' + a.severity + '</span>' +
+            '<span class="alert-title">' + a.title + '</span>' +
+          '</div>' +
+          '<div class="alert-message">' + a.message + '</div>' +
+          '<div class="alert-meta">' + (a.entity_type || '') + ': ' + (a.entity_name || '') + ' | ' + ts + '</div>' +
+        '</div>' +
+        '<button class="alert-resolve" onclick="resolveAlert(' + a.id + ')" title="Resolve">Resolve</button>' +
+      '</div>';
+    });
+    html += '</div>';
+    container.innerHTML = html;
+  }
+
+  window.resolveAlert = async function(id) {
+    try {
+      await postApi('/alerts/' + id + '/resolve', {});
+      await loadAlerts();
+    } catch (e) {
+      alert('Error: ' + e.message);
+    }
+  };
+
+  window.refreshAlerts = async function() {
+    try {
+      await postApi('/alerts/refresh', {});
+      await loadAlerts();
+    } catch (e) {
+      alert('Error refreshing alerts: ' + e.message);
+    }
+  };
+
+  /* ─── AI Coach ─── */
+  async function loadCoach() {
+    const loading = document.getElementById('coachLoading');
+    const content = document.getElementById('coachContent');
+    const empty = document.getElementById('coachEmpty');
+    if (!loading) return;
+
+    loading.style.display = '';
+    content.style.display = 'none';
+    empty.style.display = 'none';
+
+    try {
+      const [briefing, recsData, healthData] = await Promise.all([
+        fetchApi('/ai-coach/briefing?days=7'),
+        fetchApi('/ai-coach/recommendations?days=7'),
+        fetchApi('/ai-coach/health?days=7'),
+      ]);
+
+      loading.style.display = 'none';
+
+      if (briefing.error && !briefing.headline) {
+        empty.style.display = '';
+        return;
+      }
+
+      content.style.display = '';
+      renderCoachHealth(healthData);
+      renderCoachHeadline(briefing);
+      renderCoachBullets(briefing.summary_bullets || []);
+      renderCoachHighlights(briefing);
+      renderCoachRecs(recsData.recommendations || []);
+    } catch (e) {
+      loading.style.display = 'none';
+      empty.style.display = '';
+    }
+  }
+
+  function renderCoachHealth(h) {
+    const badge = document.getElementById('healthBadge');
+    const label = document.getElementById('healthLabel');
+    const score = document.getElementById('healthScore');
+    if (!badge) return;
+
+    badge.textContent = h.score;
+    badge.className = 'health-badge ' + (h.label || 'stable');
+    label.textContent = (h.label || 'unknown').replace('_', ' ');
+    label.className = 'health-label ' + (h.label || 'stable');
+    score.textContent = 'Health Score: ' + h.score + '/100';
+  }
+
+  function renderCoachHeadline(b) {
+    var el = document.getElementById('coachHeadline');
+    if (el) el.textContent = b.headline || '';
+  }
+
+  function renderCoachBullets(bullets) {
+    var el = document.getElementById('coachBullets');
+    if (!el) return;
+    el.innerHTML = bullets.map(function(b) { return '<li>' + b + '</li>'; }).join('');
+  }
+
+  function renderCoachHighlights(b) {
+    var el = document.getElementById('coachHighlights');
+    if (!el) return;
+    var html = '';
+
+    var tc = b.top_campaign;
+    if (tc) {
+      html += '<div class="coach-highlight-card">' +
+        '<div class="coach-highlight-label">Top Campaign</div>' +
+        '<div class="coach-highlight-value">' + tc.name + '</div>' +
+        '<div class="coach-highlight-sub">' + tc.conversions + ' conv | $' + (tc.cpa || 0).toFixed(2) + ' CPA</div>' +
+      '</div>';
+    }
+
+    var tr = b.top_creative;
+    if (tr) {
+      html += '<div class="coach-highlight-card">' +
+        '<div class="coach-highlight-label">Top Creative</div>' +
+        '<div class="coach-highlight-value">' + tr.name + '</div>' +
+        '<div class="coach-highlight-sub">Score: ' + tr.score + '/100 | ' + tr.conversions + ' conv</div>' +
+      '</div>';
+    }
+
+    var opp = b.top_opportunity;
+    if (opp) {
+      html += '<div class="coach-highlight-card">' +
+        '<div class="coach-highlight-label">Top Opportunity</div>' +
+        '<div class="coach-highlight-value">' + opp.title + '</div>' +
+        '<div class="coach-highlight-sub">' + (opp.entity_name || '') + '</div>' +
+      '</div>';
+    }
+
+    var risk = b.top_risk;
+    if (risk) {
+      html += '<div class="coach-highlight-card">' +
+        '<div class="coach-highlight-label">Top Risk</div>' +
+        '<div class="coach-highlight-value">' + risk.title + '</div>' +
+        '<div class="coach-highlight-sub">' + (risk.entity_name || '') + '</div>' +
+      '</div>';
+    }
+
+    el.innerHTML = html;
+  }
+
+  function renderCoachRecs(recs) {
+    var el = document.getElementById('coachRecs');
+    if (!el) return;
+    if (recs.length === 0) {
+      el.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:12px;font-size:13px">No specific recommendations at this time.</div>';
+      return;
+    }
+
+    // Show max 6 recommendations
+    var shown = recs.slice(0, 6);
+    var html = '';
+    shown.forEach(function(r) {
+      html += '<div class="coach-rec-card severity-' + r.severity + '">' +
+        '<div class="coach-rec-header">' +
+          '<span class="coach-rec-severity severity-badge-' + r.severity + '">' + r.severity + '</span>' +
+          '<span class="coach-rec-title">' + r.title + '</span>' +
+        '</div>' +
+        '<div class="coach-rec-message">' + r.message + '</div>' +
+        '<div class="coach-rec-action">' + r.recommendation + '</div>' +
+        '<div class="coach-rec-entity">' + (r.entity_type || '') + ': ' + (r.entity_name || '') + '</div>' +
+      '</div>';
+    });
+    el.innerHTML = html;
+  }
+
+  window.refreshCoach = async function() {
+    try {
+      await postApi('/ai-coach/refresh', {});
+      await loadCoach();
+    } catch (e) {
+      alert('Error refreshing AI Coach: ' + e.message);
+    }
+  };
+
+  /* ─── Creative Intelligence ─── */
+  async function loadCreatives() {
+    try {
+      const [summaryData, creativesData] = await Promise.all([
+        fetchApi('/creatives/summary?days=7'),
+        fetchApi('/creatives?days=7'),
+      ]);
+
+      renderCreativeSummary(summaryData);
+      renderCreativeGrid(creativesData.creatives || []);
+    } catch (e) {
+      // Silently handle - creative section shows empty state
+      const emptyEl = document.getElementById('creativeEmpty');
+      if (emptyEl) emptyEl.style.display = '';
+    }
+  }
+
+  function renderCreativeSummary(s) {
+    const el = document.getElementById('creativeSummary');
+    if (!el || s.total_creatives === 0) {
+      if (el) el.style.display = 'none';
+      const emptyEl = document.getElementById('creativeEmpty');
+      if (emptyEl) emptyEl.style.display = '';
+      return;
+    }
+
+    el.style.display = '';
+    document.getElementById('creativeEmpty').style.display = 'none';
+
+    el.innerHTML =
+      '<div class="creative-stat"><div class="creative-stat-value">' + s.total_creatives + '</div><div class="creative-stat-label">Total Creatives</div></div>' +
+      '<div class="creative-stat"><div class="creative-stat-value">' + s.avg_score + '</div><div class="creative-stat-label">Avg Score</div></div>' +
+      '<div class="creative-stat"><div class="creative-stat-value">' + s.fatigued_count + '</div><div class="creative-stat-label">Fatigued</div></div>' +
+      '<div class="creative-stat"><div class="creative-stat-value">' + fmtMoney(s.total_spend) + '</div><div class="creative-stat-label">Total Spend</div></div>';
+  }
+
+  function renderCreativeGrid(creatives) {
+    const grid = document.getElementById('creativeGrid');
+    if (!grid || creatives.length === 0) return;
+
+    let html = '';
+    creatives.forEach(c => {
+      const scoreClass = c.score >= 70 ? 'score-high' : (c.score >= 40 ? 'score-mid' : 'score-low');
+      const fatigueClass = 'fatigue-' + c.fatigue_status;
+      const thumbHtml = c.thumbnail_url
+        ? '<img src="' + c.thumbnail_url + '" alt="' + c.name + '">'
+        : '<span>No preview</span>';
+
+      html += '<div class="creative-card">' +
+        '<div class="creative-card-thumb">' + thumbHtml + '</div>' +
+        '<div class="creative-card-body">' +
+          '<div class="creative-card-name">' + c.name + '</div>' +
+          '<div class="creative-card-campaign">' + c.campaign + ' &rarr; ' + c.adset + '</div>' +
+          '<div class="creative-card-metrics">' +
+            '<div class="creative-metric"><div class="creative-metric-value">' + fmtPct(c.ctr) + '</div><div class="creative-metric-label">CTR</div></div>' +
+            '<div class="creative-metric"><div class="creative-metric-value">' + c.conversions + '</div><div class="creative-metric-label">Conv</div></div>' +
+            '<div class="creative-metric"><div class="creative-metric-value">' + fmtMoney(c.cpa) + '</div><div class="creative-metric-label">CPA</div></div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="creative-card-footer">' +
+          '<span class="creative-score ' + scoreClass + '">' + c.score + '/100</span>' +
+          '<span class="fatigue-badge ' + fatigueClass + '">' + c.fatigue_status + '</span>' +
+        '</div>' +
+      '</div>';
+    });
+    grid.innerHTML = html;
+  }
+
+  window.collectCreatives = async function () {
+    try {
+      await postApi('/creatives/collect', {});
+      await loadCreatives();
+    } catch (e) {
+      alert('Error collecting creatives: ' + e.message);
+    }
+  };
+
+  /* ─── Init ─── */
+  loadPlatformStatus();
+  load(currentRange);
+  loadCoach();
+  loadBudget();
+  loadAlerts();
+  loadCreatives();
+  startAutoRefresh();
+
+})();

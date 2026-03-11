@@ -2,6 +2,7 @@
 A7 Lavanderia - Facebook Ads Automation
 Agendador de Otimizações
 Roda otimizações em intervalos definidos (cron job ou loop).
+Integrado com sistema de alertas.
 """
 
 import time
@@ -23,10 +24,23 @@ class OptimizationScheduler:
         self.interval_minutes = interval_minutes
         self.dry_run = dry_run
         self.optimizer = CampaignOptimizer()
+        self.alert_manager = None
         self.history = []
+        self._init_alerts()
+
+    def _init_alerts(self):
+        """Inicializa sistema de alertas se configurado."""
+        try:
+            from config import ALERT_CONFIG
+            if ALERT_CONFIG.get("enabled", False):
+                from alerts import AlertManager
+                self.alert_manager = AlertManager(ALERT_CONFIG)
+                print("✅ Sistema de alertas ativo")
+        except (ImportError, AttributeError):
+            pass  # ALERT_CONFIG não definido — alertas desativados
 
     def run_once(self) -> dict:
-        """Executa uma única rodada de otimização."""
+        """Executa uma única rodada de otimização + alertas."""
         print(f"\n{'=' * 60}")
         print(f"⏰ Execução: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
         print(f"   Modo: {'SIMULAÇÃO' if self.dry_run else 'EXECUÇÃO'}")
@@ -42,17 +56,48 @@ class OptimizationScheduler:
                 f.write(json.dumps(result, ensure_ascii=False) + "\n")
 
             print(f"\n📝 Log salvo em: {log_file}")
+
+            # Sistema de alertas
+            if self.alert_manager:
+                self._run_alerts()
+
             return result
 
         except Exception as e:
             print(f"\n❌ Erro na otimização: {e}")
             return {"error": str(e), "timestamp": datetime.now().isoformat()}
 
+    def _run_alerts(self):
+        """Executa verificação de alertas e envia notificações."""
+        try:
+            ad_sets_data = self.optimizer.analyze_ad_sets()
+
+            # Verificar alertas
+            alerts = self.alert_manager.check_metrics(ad_sets_data)
+            if alerts:
+                print(f"\n🔔 {len(alerts)} alerta(s) detectado(s):")
+                self.alert_manager.send_alerts(alerts)
+            else:
+                print(f"\n✅ Sem alertas — métricas dentro dos limites")
+
+            # Sumário diário
+            try:
+                from config import ALERT_CONFIG
+                if ALERT_CONFIG.get("daily_summary", False):
+                    summary = self.alert_manager.generate_daily_summary(ad_sets_data)
+                    self.alert_manager.send_summary(summary)
+            except (ImportError, AttributeError):
+                pass
+
+        except Exception as e:
+            print(f"⚠️ Erro no sistema de alertas: {e}")
+
     def run_loop(self):
         """Executa em loop contínuo com intervalo definido."""
         print(f"\n🔄 Iniciando scheduler em loop")
         print(f"   Intervalo: {self.interval_minutes} minutos")
         print(f"   Modo: {'SIMULAÇÃO' if self.dry_run else 'EXECUÇÃO'}")
+        print(f"   Alertas: {'ATIVO' if self.alert_manager else 'DESATIVADO'}")
         print(f"   Pressione Ctrl+C para parar\n")
 
         while True:

@@ -249,10 +249,24 @@ def cmd_create_lookalike(client: MetaAdsClient):
 
 def main():
     """Loop principal do CLI."""
+    # Comandos de linha de comando diretos
+    if "--check-token" in sys.argv:
+        client = MetaAdsClient()
+        client.check_token_validity()
+        return
+
+    if "--refresh-token" in sys.argv:
+        client = MetaAdsClient()
+        client.refresh_long_lived_token()
+        return
+
     print_header()
 
     client = MetaAdsClient()
     optimizer = CampaignOptimizer()
+
+    # Verificação de token na inicialização
+    client.check_token_validity()
 
     while True:
         print_menu()

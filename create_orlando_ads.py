@@ -6,11 +6,7 @@ Usage: python3 create_orlando_ads.py
        python3 create_orlando_ads.py --dry-run   (preview only)
 """
 import sys
-from meta_client import MetaAdsClient
 from config import META_CONFIG
-
-client = MetaAdsClient()
-dry_run = "--dry-run" in sys.argv
 
 # Image hashes (already uploaded to Meta)
 IMAGES = {
@@ -195,6 +191,8 @@ def create_ad(ad_config):
     """Create a single ad via Meta API."""
     import requests, json
 
+    headers = {"Authorization": f"Bearer {META_CONFIG['access_token']}"}
+
     # Step 1: Create creative
     creative_payload = {
         "name": f"Creative - {ad_config['name']}",
@@ -212,12 +210,12 @@ def create_ad(ad_config):
                 "image_hash": ad_config["image"],
             },
         }),
-        "access_token": META_CONFIG["access_token"],
     }
 
     r = requests.post(
         f"https://graph.facebook.com/v21.0/{META_CONFIG['ad_account_id']}/adcreatives",
         data=creative_payload,
+        headers=headers,
     )
     resp = r.json()
     if "error" in resp:
@@ -231,12 +229,12 @@ def create_ad(ad_config):
         "adset_id": ad_config["ad_set_id"],
         "creative": json.dumps({"creative_id": creative_id}),
         "status": "ACTIVE",
-        "access_token": META_CONFIG["access_token"],
     }
 
     r2 = requests.post(
         f"https://graph.facebook.com/v21.0/{META_CONFIG['ad_account_id']}/ads",
         data=ad_payload,
+        headers=headers,
     )
     resp2 = r2.json()
     if "error" in resp2:
@@ -245,45 +243,50 @@ def create_ad(ad_config):
     return resp2["id"], None
 
 
-# ============================================================
-# EXECUTE
-# ============================================================
-print("=" * 60)
-print("A7 Orlando — Ad Creation Script")
-print(f"Mode: {'DRY RUN (preview)' if dry_run else 'LIVE (creating ads)'}")
-print(f"Total ads to create: {len(ADS)}")
-print("=" * 60)
+def main():
+    """Ponto de entrada do script de criação de ads Orlando."""
+    dry_run = "--dry-run" in sys.argv
 
-ad_sets_summary = {}
-for ad in ADS:
-    asid = ad["ad_set_id"]
-    if asid not in ad_sets_summary:
-        ad_sets_summary[asid] = []
-    ad_sets_summary[asid].append(ad["name"])
+    print("=" * 60)
+    print("A7 Orlando — Ad Creation Script")
+    print(f"Mode: {'DRY RUN (preview)' if dry_run else 'LIVE (creating ads)'}")
+    print(f"Total ads to create: {len(ADS)}")
+    print("=" * 60)
 
-print("\nPlan:")
-for asid, names in ad_sets_summary.items():
-    print(f"\n  Ad Set {asid}:")
-    for n in names:
-        print(f"    → {n}")
+    ad_sets_summary = {}
+    for ad in ADS:
+        asid = ad["ad_set_id"]
+        if asid not in ad_sets_summary:
+            ad_sets_summary[asid] = []
+        ad_sets_summary[asid].append(ad["name"])
 
-if dry_run:
-    print("\n✅ Dry run complete. Remove --dry-run to create ads.")
-    sys.exit(0)
+    print("\nPlan:")
+    for asid, names in ad_sets_summary.items():
+        print(f"\n  Ad Set {asid}:")
+        for n in names:
+            print(f"    → {n}")
 
-print("\nCreating ads...\n")
-success = 0
-failed = 0
+    if dry_run:
+        print("\n✅ Dry run complete. Remove --dry-run to create ads.")
+        sys.exit(0)
 
-for ad in ADS:
-    ad_id, error = create_ad(ad)
-    if ad_id:
-        print(f"  ✓ {ad['name']} → Ad ID: {ad_id}")
-        success += 1
-    else:
-        print(f"  ✗ {ad['name']} → {error}")
-        failed += 1
+    print("\nCreating ads...\n")
+    success = 0
+    failed = 0
 
-print(f"\n{'=' * 60}")
-print(f"Done: {success} created, {failed} failed")
-print(f"{'=' * 60}")
+    for ad in ADS:
+        ad_id, error = create_ad(ad)
+        if ad_id:
+            print(f"  ✓ {ad['name']} → Ad ID: {ad_id}")
+            success += 1
+        else:
+            print(f"  ✗ {ad['name']} → {error}")
+            failed += 1
+
+    print(f"\n{'=' * 60}")
+    print(f"Done: {success} created, {failed} failed")
+    print(f"{'=' * 60}")
+
+
+if __name__ == "__main__":
+    main()

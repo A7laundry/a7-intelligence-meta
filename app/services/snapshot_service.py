@@ -1,0 +1,154 @@
+"""Snapshot Service — Stores and retrieves daily metrics snapshots."""
+
+from datetime import datetime, timedelta
+from app.db.init_db import get_connection
+
+
+class SnapshotService:
+    """Persists daily metrics to SQLite for historical analysis."""
+
+    @staticmethod
+    def save_daily_snapshot(date: str, platform: str, metrics: dict):
+        """Save or update an account-level daily snapshot."""
+        conn = get_connection()
+        try:
+            conn.execute(
+                """INSERT INTO daily_snapshots (date, platform, spend, impressions, clicks, ctr, cpc, conversions, cpa, roas)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(date, platform) DO UPDATE SET
+                     spend=excluded.spend, impressions=excluded.impressions,
+                     clicks=excluded.clicks, ctr=excluded.ctr, cpc=excluded.cpc,
+                     conversions=excluded.conversions, cpa=excluded.cpa, roas=excluded.roas""",
+                (date, platform,
+                 metrics.get("spend", 0), metrics.get("impressions", 0),
+                 metrics.get("clicks", 0), metrics.get("ctr", 0),
+                 metrics.get("cpc", 0), metrics.get("conversions", 0),
+                 metrics.get("cpa", 0), metrics.get("roas", 0)),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    @staticmethod
+    def save_campaign_snapshot(date: str, platform: str, campaign: dict):
+        """Save or update a campaign-level daily snapshot."""
+        conn = get_connection()
+        try:
+            conn.execute(
+                """INSERT INTO campaign_snapshots
+                   (date, platform, campaign_id, campaign_name, status, spend, impressions, clicks, ctr, conversions, cpa, roas)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(date, platform, campaign_id) DO UPDATE SET
+                     campaign_name=excluded.campaign_name, status=excluded.status,
+                     spend=excluded.spend, impressions=excluded.impressions,
+                     clicks=excluded.clicks, ctr=excluded.ctr,
+                     conversions=excluded.conversions, cpa=excluded.cpa, roas=excluded.roas""",
+                (date, platform, campaign.get("id", ""), campaign.get("name", ""),
+                 campaign.get("status", "UNKNOWN"), campaign.get("spend", 0),
+                 campaign.get("impressions", 0), campaign.get("clicks", 0),
+                 campaign.get("ctr", 0), campaign.get("conversions", 0),
+                 campaign.get("cpa", 0), campaign.get("roas", 0)),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    @staticmethod
+    def get_daily_snapshots(platform: str = None, days: int = 30) -> list:
+        """Get daily snapshots for the last N days."""
+        conn = get_connection()
+        try:
+            since = (datetime.utcnow() - timedelta(days=days)).strftime("%Y-%m-%d")
+            if platform:
+                rows = conn.execute(
+                    "SELECT * FROM daily_snapshots WHERE platform = ? AND date >= ? ORDER BY date",
+                    (platform, since),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM daily_snapshots WHERE date >= ? ORDER BY date",
+                    (since,),
+                ).fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            conn.close()
+
+    @staticmethod
+    def get_campaign_history(campaign_id: str, days: int = 30) -> list:
+        """Get historical snapshots for a specific campaign."""
+        conn = get_connection()
+        try:
+            since = (datetime.utcnow() - timedelta(days=days)).strftime("%Y-%m-%d")
+            rows = conn.execute(
+                "SELECT * FROM campaign_snapshots WHERE campaign_id = ? AND date >= ? ORDER BY date",
+                (campaign_id, since),
+            ).fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            conn.close()
+
+    @staticmethod
+    def get_all_campaigns_latest() -> list:
+        """Get the most recent snapshot for each campaign."""
+        conn = get_connection()
+        try:
+            rows = conn.execute(
+                """SELECT cs.* FROM campaign_snapshots cs
+                   INNER JOIN (
+                     SELECT campaign_id, MAX(date) as max_date
+                     FROM campaign_snapshots GROUP BY campaign_id
+                   ) latest ON cs.campaign_id = latest.campaign_id AND cs.date = latest.max_date
+                   ORDER BY cs.spend DESC""",
+            ).fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            conn.close()
+
+    @staticmethod
+    def get_period_comparison(days_current: int = 7) -> dict:
+        """Compare current period vs previous period of same length."""
+        conn = get_connection()
+        try:
+            now = datetime.utcnow()
+            current_start = (now - timedelta(days=days_current)).strftime("%Y-%m-%d")
+            prev_start = (now - timedelta(days=days_current * 2)).strftime("%Y-%m-%d")
+            prev_end = current_start
+
+            def sum_period(start, end=None):
+                if end:
+                    rows = conn.execute(
+                        "SELECT SUM(spend) as spend, SUM(impressions) as impressions, "
+                        "SUM(clicks) as clicks, SUM(conversions) as conversions "
+                        "FROM daily_snapshots WHERE date >= ? AND date < ?",
+                        (start, end),
+                    ).fetchone()
+                else:
+                    rows = conn.execute(
+                        "SELECT SUM(spend) as spend, SUM(impressions) as impressions, "
+                        "SUM(clicks) as clicks, SUM(conversions) as conversions "
+                        "FROM daily_snapshots WHERE date >= ?",
+                        (start,),
+                    ).fetchone()
+                r = dict(rows) if rows else {}
+                return {k: (v or 0) for k, v in r.items()}
+
+            current = sum_period(current_start)
+            previous = sum_period(prev_start, prev_end)
+
+            def pct_change(curr, prev):
+                if prev == 0:
+                    return 100.0 if curr > 0 else 0.0
+                return round((curr - prev) / prev * 100, 1)
+
+            return {
+                "current": current,
+                "previous": previous,
+                "changes": {
+                    "spend": pct_change(current["spend"], previous["spend"]),
+                    "impressions": pct_change(current["impressions"], previous["impressions"]),
+                    "clicks": pct_change(current["clicks"], previous["clicks"]),
+                    "conversions": pct_change(current["conversions"], previous["conversions"]),
+                },
+            }
+        finally:
+            conn.close()

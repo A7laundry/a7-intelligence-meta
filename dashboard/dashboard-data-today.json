@@ -1,0 +1,62 @@
+{
+  "generated_at": "2026-03-11T04:30:10Z",
+  "date_range": "today",
+  "demo": false,
+  "partial": true,
+  "summary": {
+    "meta": {
+      "spend": 5.01,
+      "impressions": 224,
+      "clicks": 1,
+      "ctr": 0.45,
+      "cpc": 5.01,
+      "conversions": 0,
+      "cpa": 0,
+      "roas": 0
+    },
+    "google": {
+      "spend": 0,
+      "impressions": 0,
+      "clicks": 0,
+      "ctr": 0,
+      "cpc": 0,
+      "conversions": 0,
+      "cpa": 0,
+      "roas": 0
+    },
+    "total": {
+      "spend": 5.01,
+      "impressions": 224,
+      "clicks": 1,
+      "ctr": 0.45,
+      "conversions": 0,
+      "cpa": 0,
+      "roas": 0.0
+    }
+  },
+  "campaigns": {
+    "meta": [
+      {
+        "id": "120240887071020261",
+        "name": "A7 Orlando - Carpet Cleaning",
+        "status": "ACTIVE",
+        "spend": 2.76,
+        "clicks": 0,
+        "ctr": 0.0,
+        "conversions": 0,
+        "cpa": 0,
+        "roas": 0
+      }
+    ],
+    "google": []
+  },
+  "daily_trend": [
+    {
+      "date": "2026-03-10",
+      "meta_spend": 5.01,
+      "google_spend": 0,
+      "meta_conversions": 0,
+      "google_conversions": 0
+    }
+  ]
+}
