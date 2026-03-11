@@ -391,6 +391,24 @@
     </div>
   </div>
 
+  <!-- AI Marketing Copilot -->
+  <div class="section" id="copilotSection">
+    <div class="section-header">
+      <span class="section-title">AI Marketing Copilot</span>
+      <span class="section-subtitle" id="copilotProvider"></span>
+    </div>
+    <div class="section-body">
+      <div class="copilot-suggestions" id="copilotSuggestions"></div>
+      <div class="copilot-input-row">
+        <input class="copilot-input" id="copilotInput" type="text"
+               placeholder="Ask anything about your marketing performance…"
+               autocomplete="off" />
+        <button class="copilot-send-btn" id="copilotSendBtn" onclick="copilotAsk()">Ask</button>
+      </div>
+      <div id="copilotHistory" class="copilot-history"></div>
+    </div>
+  </div>
+
 </div><!-- /sectionsContainer -->
 {% endblock %}
 

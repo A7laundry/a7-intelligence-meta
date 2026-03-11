@@ -909,3 +909,103 @@ tr:last-child td{border-bottom:none}
 .health-score-badge.good { background: rgba(16,185,129,.15); color: #10b981; }
 .health-score-badge.mid  { background: rgba(251,191,36,.15);  color: #f59e0b; }
 .health-score-badge.bad  { background: rgba(239,68,68,.15);   color: #ef4444; }
+
+/* ── AI Marketing Copilot ────────────────────────── */
+.copilot-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.copilot-chip {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  border-radius: 16px;
+  padding: 4px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.copilot-chip:hover { background: var(--primary); color: #fff; border-color: var(--primary); }
+.copilot-input-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.copilot-input {
+  flex: 1;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  color: var(--text-primary);
+  font-size: 14px;
+  outline: none;
+  transition: border-color .15s;
+}
+.copilot-input:focus { border-color: var(--primary); }
+.copilot-send-btn {
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity .15s;
+  white-space: nowrap;
+}
+.copilot-send-btn:disabled { opacity: .5; cursor: not-allowed; }
+.copilot-history { display: flex; flex-direction: column; gap: 14px; }
+.copilot-entry {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+.cop-question {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.cop-answer {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+.cop-loading { color: var(--text-muted); font-style: italic; }
+.cop-findings, .cop-actions {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+.cop-findings ul, .cop-actions ul {
+  margin: 4px 0 0 16px;
+  padding: 0;
+}
+.cop-findings li, .cop-actions li { margin-bottom: 2px; }
+.cop-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+  font-size: 11px;
+  flex-wrap: wrap;
+}
+.cop-confidence {
+  padding: 1px 7px;
+  border-radius: 8px;
+  font-weight: 600;
+  background: var(--surface);
+  color: var(--text-muted);
+}
+.cop-confidence.good { background: rgba(16,185,129,.15); color: #10b981; }
+.cop-confidence.mid  { background: rgba(251,191,36,.15);  color: #f59e0b; }
+.cop-confidence.bad  { background: rgba(239,68,68,.15);   color: #ef4444; }
+.cop-sources { color: var(--text-muted); }

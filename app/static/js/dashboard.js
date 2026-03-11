@@ -1619,6 +1619,130 @@
     }
   }
 
+  /* ─── AI Marketing Copilot ─── */
+  (function initCopilot() {
+    var history = [];
+
+    // Load suggestion chips
+    fetchApi('/copilot/suggestions').then(function(qs) {
+      var el = document.getElementById('copilotSuggestions');
+      if (!el || !Array.isArray(qs)) return;
+      el.innerHTML = qs.map(function(q) {
+        return '<button class="copilot-chip" onclick="copilotAskQuestion(' +
+          JSON.stringify(q) + ')">' + q + '</button>';
+      }).join('');
+    }).catch(function() {});
+
+    // Enter key submits
+    var input = document.getElementById('copilotInput');
+    if (input) {
+      input.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') copilotAsk();
+      });
+    }
+
+    window.copilotAskQuestion = function(q) {
+      var inp = document.getElementById('copilotInput');
+      if (inp) inp.value = q;
+      copilotAsk();
+    };
+
+    window.copilotAsk = async function() {
+      var inp = document.getElementById('copilotInput');
+      var btn = document.getElementById('copilotSendBtn');
+      if (!inp) return;
+      var question = inp.value.trim();
+      if (!question) return;
+
+      inp.value = '';
+      if (btn) { btn.disabled = true; btn.textContent = '…'; }
+
+      var period = currentRange === 'today' ? 'today' : (currentRange === '30d' ? '30d' : '7d');
+      var body = { question: question, period: period };
+      if (currentAccountId) body.account_id = currentAccountId;
+
+      // Optimistic: add loading entry
+      var entryId = 'cop-' + Date.now();
+      _appendCopilotEntry(entryId, question, null);
+
+      try {
+        var result = await postApi('/copilot/ask', body);
+        _updateCopilotEntry(entryId, result);
+
+        var provEl = document.getElementById('copilotProvider');
+        if (provEl && result.provider) {
+          provEl.textContent = 'via ' + result.provider.replace('_', ' ');
+        }
+      } catch (e) {
+        _updateCopilotEntry(entryId, {
+          answer: 'Error: ' + e.message,
+          key_findings: [], suggested_actions: [], confidence: 'low'
+        });
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Ask'; }
+      }
+    };
+
+    function _appendCopilotEntry(id, question, result) {
+      var histEl = document.getElementById('copilotHistory');
+      if (!histEl) return;
+      var div = document.createElement('div');
+      div.className = 'copilot-entry';
+      div.id = id;
+      div.innerHTML = '<div class="cop-question">' + _esc(question) + '</div>' +
+        '<div class="cop-answer cop-loading">Thinking…</div>';
+      histEl.insertBefore(div, histEl.firstChild);
+    }
+
+    function _updateCopilotEntry(id, result) {
+      var div = document.getElementById(id);
+      if (!div) return;
+      var confidence = result.confidence || 'medium';
+      var confClass = confidence === 'high' ? 'good' : confidence === 'low' ? 'bad' : 'mid';
+
+      var html = '<div class="cop-answer">' + _md(result.answer || '') + '</div>';
+
+      if ((result.key_findings || []).length) {
+        html += '<div class="cop-findings"><strong>Key findings:</strong><ul>' +
+          result.key_findings.map(function(f) { return '<li>' + _esc(f) + '</li>'; }).join('') +
+          '</ul></div>';
+      }
+      if ((result.suggested_actions || []).length) {
+        html += '<div class="cop-actions"><strong>Suggested actions:</strong><ul>' +
+          result.suggested_actions.map(function(a) { return '<li>' + _esc(a) + '</li>'; }).join('') +
+          '</ul></div>';
+      }
+      html += '<div class="cop-meta">' +
+        '<span class="cop-confidence ' + confClass + '">' + confidence + ' confidence</span>' +
+        (result.sources && result.sources.length
+          ? '<span class="cop-sources">Sources: ' + result.sources.join(', ') + '</span>'
+          : '') +
+      '</div>';
+
+      div.querySelector('.cop-answer').outerHTML = html;
+
+      // Remove old findings/actions if re-rendered
+      div.querySelectorAll('.cop-findings, .cop-actions, .cop-meta').forEach(function(el) {
+        if (el !== div.querySelector('.cop-meta')) {
+          // keep only latest injected block
+        }
+      });
+      // Actually replace entire inner content
+      div.innerHTML = '<div class="cop-question">' + div.querySelector('.cop-question').innerHTML + '</div>' + html;
+    }
+
+    function _esc(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    function _md(s) {
+      // Minimal markdown: **bold**, bullet lists, newlines
+      return _esc(s)
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\n/g, '<br>');
+    }
+  })();
+
   /* ─── Init ─── */
   loadPlatformStatus();
   initAccountSelector();

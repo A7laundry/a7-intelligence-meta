@@ -52,6 +52,9 @@ def create_app():
     from app.routes.accounts import accounts_bp
     app.register_blueprint(accounts_bp, url_prefix="/api")
 
+    from app.routes.copilot import copilot_bp
+    app.register_blueprint(copilot_bp, url_prefix="/api")
+
     # Template context processor
     @app.context_processor
     def inject_globals():
