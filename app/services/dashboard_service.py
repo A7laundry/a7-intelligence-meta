@@ -30,7 +30,7 @@ class DashboardService:
     def _init_clients(self):
         """Initialize API clients (reuses existing modules)."""
         try:
-            from config import META_CONFIG
+            from config_default import META_CONFIG
             if META_CONFIG.get("access_token") and META_CONFIG["access_token"] != "SEU_ACCESS_TOKEN_LONGO_PRAZO":
                 from meta_client import MetaAdsClient
                 self.meta_client = MetaAdsClient()
@@ -39,7 +39,7 @@ class DashboardService:
             pass
 
         try:
-            from config import GOOGLE_ADS_CONFIG
+            from config_default import GOOGLE_ADS_CONFIG
             if GOOGLE_ADS_CONFIG.get("developer_token") and GOOGLE_ADS_CONFIG["developer_token"] not in ("", "SEU_DEVELOPER_TOKEN"):
                 from google_client import GoogleAdsApiClient
                 self.google_client = GoogleAdsApiClient()

@@ -16,7 +16,7 @@ class MetricsService:
 
     def _init(self):
         try:
-            from config import META_CONFIG
+            from config_default import META_CONFIG
             if META_CONFIG.get("access_token") and META_CONFIG["access_token"] != "SEU_ACCESS_TOKEN_LONGO_PRAZO":
                 from meta_client import MetaAdsClient
                 self.meta_client = MetaAdsClient()
