@@ -104,6 +104,9 @@ def create_app():
         from app.services.scheduler_loop_service import start_publishing_scheduler
         start_publishing_scheduler(app)
 
+        from app.services.jobs_scheduler_service import start_jobs_scheduler
+        start_jobs_scheduler()
+
     env_label = os.environ.get("RAILWAY_ENVIRONMENT", os.environ.get("FLASK_ENV", "development"))
     print(
         f"[A7] v{VERSION} started | env={env_label} | "
