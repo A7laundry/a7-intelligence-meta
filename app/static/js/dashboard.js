@@ -15,16 +15,17 @@
   /* ─── Toast Notification System ─── */
   function showToast(message, type) {
     type = type || 'info';
+    var icons = { success: '✓', error: '✕', warning: '⚠', info: 'ℹ' };
     var container = document.getElementById('toastContainer');
     if (!container) return;
-
-    var icons = { info: 'ℹ', success: '✓', error: '✕', warning: '⚠' };
 
     var toast = document.createElement('div');
     toast.className = 'a7-toast ' + type;
     toast.innerHTML =
       '<span class="a7-toast-icon">' + (icons[type] || 'ℹ') + '</span>' +
-      '<span class="a7-toast-msg">' + String(message).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</span>' +
+      '<div class="a7-toast-body">' +
+        '<span class="a7-toast-msg">' + String(message).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</span>' +
+      '</div>' +
       '<button class="a7-toast-close" aria-label="Close">\u00D7</button>';
 
     toast.querySelector('.a7-toast-close').addEventListener('click', function() {
@@ -48,25 +49,94 @@
     }, 300);
   }
 
+  /* ─── Button Loading States ─── */
+  function setButtonLoading(btn, loading, originalText) {
+    if (!btn) return;
+    if (loading) {
+      btn._originalText = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="btn-spinner"></span>' + (originalText || 'Loading...');
+      btn.style.opacity = '0.75';
+    } else {
+      btn.disabled = false;
+      btn.innerHTML = btn._originalText || originalText || btn.innerHTML;
+      btn.style.opacity = '';
+    }
+  }
+
+  /* ─── Number Animation ─── */
+  function animateNumber(el, target, suffix, duration) {
+    suffix = suffix || '';
+    duration = duration || 600;
+    var start = 0;
+    var startTime = null;
+    var isFloat = String(target).indexOf('.') !== -1;
+
+    function step(timestamp) {
+      if (!startTime) startTime = timestamp;
+      var progress = Math.min((timestamp - startTime) / duration, 1);
+      // Ease out cubic
+      var eased = 1 - Math.pow(1 - progress, 3);
+      var current = start + (target - start) * eased;
+      el.textContent = (isFloat ? current.toFixed(2) : Math.floor(current)) + suffix;
+      if (progress < 1) requestAnimationFrame(step);
+      else el.textContent = target + suffix;
+    }
+    requestAnimationFrame(step);
+  }
+
   /* ─── Confirmation Modal ─── */
-  function confirmAction(message, onConfirm) {
+  function confirmAction(message, onConfirm, options) {
+    options = options || {};
     var modal = document.getElementById('confirmModal');
     var msgEl = document.getElementById('confirmMsg');
+    var titleEl = document.getElementById('confirmTitle');
+    var iconEl = document.getElementById('confirmIcon');
     var okBtn = document.getElementById('confirmOk');
     var cancelBtn = document.getElementById('confirmCancel');
-    if (!modal) return;
 
-    msgEl.textContent = message;
-    modal.style.display = 'flex';
-
-    function _close() {
-      modal.style.display = 'none';
-      okBtn.onclick = null;
-      cancelBtn.onclick = null;
+    if (!modal) {
+      if (window.confirm(message)) onConfirm();
+      return;
     }
 
-    okBtn.onclick = function() { _close(); onConfirm(); };
-    cancelBtn.onclick = _close;
+    if (titleEl) titleEl.textContent = options.title || 'Confirm Action';
+    if (msgEl) msgEl.textContent = message;
+    if (iconEl) iconEl.textContent = options.icon || '⚠️';
+    if (okBtn) okBtn.textContent = options.okLabel || 'Confirm';
+
+    // Destructive actions get red button styling
+    if (okBtn) {
+      if (options.destructive) {
+        okBtn.style.background = 'linear-gradient(135deg, #f43f5e, #e11d48)';
+        okBtn.style.boxShadow = '0 2px 8px rgba(244,63,94,.3)';
+      } else {
+        okBtn.style.background = '';
+        okBtn.style.boxShadow = '';
+      }
+    }
+
+    modal.style.display = 'flex';
+
+    var cleanup = function() {
+      modal.style.display = 'none';
+      // Clone buttons to remove all listeners
+      var newOk = okBtn ? okBtn.cloneNode(true) : null;
+      var newCancel = cancelBtn ? cancelBtn.cloneNode(true) : null;
+      if (okBtn && newOk) okBtn.parentNode.replaceChild(newOk, okBtn);
+      if (cancelBtn && newCancel) cancelBtn.parentNode.replaceChild(newCancel, cancelBtn);
+    };
+
+    document.getElementById('confirmOk').addEventListener('click', function() {
+      cleanup();
+      onConfirm();
+    }, { once: true });
+
+    document.getElementById('confirmCancel').addEventListener('click', cleanup, { once: true });
+
+    modal.addEventListener('click', function(e) {
+      if (e.target === modal) cleanup();
+    }, { once: true });
   }
 
   /* ─── Tab Cache ─── */
@@ -166,7 +236,11 @@
         if (acc) {
           const badge = $('#accountPlatformBadge');
           if (badge) badge.textContent = acc.platform === 'google' ? 'Google' : 'Meta';
+          showToast('Switched to ' + acc.account_name, 'success');
         }
+        // Brief visual transition: dim content area while loading
+        document.body.classList.add('a7-account-switching');
+        setTimeout(function() { document.body.classList.remove('a7-account-switching'); }, 400);
         loadAccountStatus(currentAccountId);
         load(currentRange);
         loadAllSections();
@@ -245,18 +319,35 @@
   }
 
   /* ─── Render KPIs ─── */
+  function _animateKpiEl(el, rawValue, formatter) {
+    if (!el || rawValue == null || isNaN(rawValue)) {
+      if (el) el.textContent = '—';
+      return;
+    }
+    // Use animateNumber for whole integers; set directly for formatted strings
+    var num = parseFloat(rawValue);
+    if (!isNaN(num)) {
+      var isFloat = (num !== Math.floor(num)) || formatter === fmtMoney;
+      animateNumber(el, num, '', 600);
+      // After animation, set formatted value
+      setTimeout(function() { el.textContent = formatter(num); }, 650);
+    } else {
+      el.textContent = formatter(rawValue);
+    }
+  }
+
   function renderKPIs(data) {
     const t = data.summary.total;
     const m = data.summary.meta;
     const g = data.summary.google;
     const ch = (data.comparison && data.comparison.changes) || {};
 
-    $('#kpiSpend').textContent = fmtMoney(t.spend);
-    $('#kpiImpressions').textContent = fmt(t.impressions);
-    $('#kpiClicks').textContent = fmt(t.clicks);
-    $('#kpiCtr').textContent = fmtPct(t.ctr);
-    $('#kpiConversions').textContent = fmt(t.conversions);
-    $('#kpiCpa').textContent = fmtMoney(t.cpa);
+    _animateKpiEl($('#kpiSpend'),       t.spend,       fmtMoney);
+    _animateKpiEl($('#kpiImpressions'), t.impressions, fmt);
+    _animateKpiEl($('#kpiClicks'),      t.clicks,      fmt);
+    _animateKpiEl($('#kpiCtr'),         t.ctr,         fmtPct);
+    _animateKpiEl($('#kpiConversions'), t.conversions, fmt);
+    _animateKpiEl($('#kpiCpa'),         t.cpa,         fmtMoney);
 
     // Changes
     $('#kpiSpendChange').innerHTML = changeHtml(ch.spend, true);
@@ -376,7 +467,10 @@
   function renderCampaignTable(campaigns, tbodyId, showActions) {
     const tbody = document.getElementById(tbodyId);
     if (!campaigns || campaigns.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state"><p>No campaigns found.</p><p class="empty-hint">Connect a Meta or Google Ads account to see campaigns.</p></div></td></tr>';
+      tbody.innerHTML = '<tr><td colspan="20" style="text-align:center;padding:48px 24px">' +
+        '<div style="color:#5d7499;font-size:14px;font-weight:600">No campaigns found.</div>' +
+        '<div style="color:#2e4060;font-size:13px;margin-top:6px">Connect a Meta or Google Ads account to see campaigns.</div>' +
+        '</td></tr>';
       return;
     }
     let html = '';
@@ -407,15 +501,24 @@
 
   /* ─── Toggle Campaign Status ─── */
   window.toggleCampaign = function (campaignId, newStatus) {
-    confirmAction('Change campaign status to ' + newStatus + '?', async function() {
-      try {
-        await postApi('/campaigns/' + campaignId + '/status', { status: newStatus });
-        _invalidateTabCache('campaigns');
-        load(currentRange);
-      } catch (e) {
-        showToast('Error: ' + e.message, 'error');
-      }
-    });
+    var isPause = newStatus === 'PAUSED';
+    confirmAction(
+      'Change campaign status to ' + newStatus + '?',
+      async function() {
+        var btn = document.querySelector('[onclick*="toggleCampaign(\'' + campaignId + '\'"]');
+        setButtonLoading(btn, true);
+        try {
+          await postApi('/campaigns/' + campaignId + '/status', { status: newStatus });
+          _invalidateTabCache('campaigns');
+          load(currentRange);
+          showToast('Campaign ' + (isPause ? 'paused' : 'activated'), isPause ? 'warning' : 'success');
+        } catch (e) {
+          showToast('Error: ' + e.message, 'error');
+          setButtonLoading(btn, false);
+        }
+      },
+      { destructive: isPause, title: isPause ? 'Pause Campaign' : 'Activate Campaign' }
+    );
   };
 
   /* ─── Platform Status ─── */
@@ -489,9 +592,10 @@
   function _showKpiSkeletons() {
     var grid = $('#kpiGrid');
     if (!grid) return;
-    var skeletonCard = '<div class="kpi-card">' +
-      '<div class="skeleton skeleton-text" style="width:60%;height:28px;margin-bottom:6px"></div>' +
-      '<div class="skeleton skeleton-text" style="width:40%"></div>' +
+    var skeletonCard = '<div class="kpi-card" style="pointer-events:none">' +
+      '<div class="skeleton skeleton-text" style="width:50%;height:11px;margin-bottom:16px"></div>' +
+      '<div class="skeleton" style="width:70%;height:32px;margin-bottom:8px"></div>' +
+      '<div class="skeleton skeleton-text" style="width:40%;height:10px"></div>' +
     '</div>';
     grid.innerHTML = skeletonCard.repeat(6);
     grid.style.display = '';
@@ -505,6 +609,22 @@
       '<div class="skeleton skeleton-card" style="margin:0 auto;max-width:400px"></div>';
   }
 
+  /* ─── Status Indicator Helpers ─── */
+  function _setSysStatus(state) {
+    var dot   = document.getElementById('sysDot');
+    var label = document.getElementById('sysLabel');
+    if (state === 'live') {
+      if (dot)   { dot.style.background   = '#10b981'; dot.style.boxShadow = '0 0 6px #10b981'; }
+      if (label) { label.textContent = 'Live'; label.style.color = '#10b981'; }
+    } else if (state === 'degraded') {
+      if (dot)   { dot.style.background   = '#f59e0b'; dot.style.boxShadow = '0 0 6px #f59e0b'; }
+      if (label) { label.textContent = 'Degraded'; label.style.color = '#f59e0b'; }
+    } else {
+      if (dot)   { dot.style.background   = '#5d7499'; dot.style.boxShadow = 'none'; }
+      if (label) { label.textContent = 'Offline'; label.style.color = '#5d7499'; }
+    }
+  }
+
   /* ─── Load Data ─── */
   async function load(range) {
     $('#loadingState').style.display = '';
@@ -514,9 +634,11 @@
     try {
       const data = await fetchApi('/dashboard/' + range + (currentAccountId ? '?account_id=' + currentAccountId : ''));
       render(data);
+      _setSysStatus('live');
     } catch (e) {
       $('#loadingState').innerHTML = 'Error loading data. Check if the server is running.';
       $('#kpiGrid').style.display = 'none';
+      _setSysStatus('degraded');
     }
   }
 
@@ -538,6 +660,9 @@
       try {
         await postApi('/dashboard/refresh', {});
         await load(currentRange);
+        showToast('Data refreshed', 'success');
+      } catch (e) {
+        showToast('Refresh failed: ' + e.message, 'error');
       } finally {
         refreshBtn.classList.remove('spinning');
       }
@@ -776,6 +901,9 @@
   };
 
   window.refreshAlerts = async function() {
+    var btn = document.getElementById('btnRefreshAlerts') ||
+              document.querySelector('[onclick*="refreshAlerts"]');
+    setButtonLoading(btn, true, 'Refreshing...');
     try {
       await postApi('/alerts/refresh', {});
       _invalidateTabCache('alerts');
@@ -783,6 +911,8 @@
       showToast('Alerts refreshed', 'success');
     } catch (e) {
       showToast('Error refreshing alerts: ' + e.message, 'error');
+    } finally {
+      setButtonLoading(btn, false);
     }
   };
 
@@ -921,6 +1051,9 @@
   }
 
   window.refreshCoach = async function() {
+    var btn = document.getElementById('btnRefreshCoach') ||
+              document.querySelector('[onclick*="refreshCoach"]');
+    setButtonLoading(btn, true, 'Refreshing...');
     try {
       await postApi('/ai-coach/refresh', {});
       _invalidateTabCache('coach');
@@ -928,6 +1061,8 @@
       showToast('AI Coach refreshed', 'success');
     } catch (e) {
       showToast('Error refreshing AI Coach: ' + e.message, 'error');
+    } finally {
+      setButtonLoading(btn, false);
     }
   };
 
@@ -1455,41 +1590,53 @@
   };
 
   window.executeAction = function(id) {
-    confirmAction('Execute this automation action?', async function() {
-      try {
-        var result = await postApi('/automation/' + id + '/execute', {});
-        showToast(result.message || 'Action executed', 'success');
-        _invalidateTabCache('automation');
-        await loadAutomation();
-      } catch (e) { showToast('Error: ' + e.message, 'error'); }
-    });
+    confirmAction(
+      'Execute this automation action? This will apply real changes to the campaign.',
+      async function() {
+        try {
+          var result = await postApi('/automation/' + id + '/execute', {});
+          showToast(result.message || 'Action executed', 'success');
+          _invalidateTabCache('automation');
+          await loadAutomation();
+        } catch (e) { showToast('Error: ' + e.message, 'error'); }
+      },
+      { destructive: true, title: 'Execute Action', okLabel: 'Execute' }
+    );
   };
 
   window.generateAutomation = async function() {
+    var btn = document.getElementById('btnGenerateAutomation') ||
+              document.querySelector('[onclick*="generateAutomation"]');
+    setButtonLoading(btn, true, 'Generating...');
     try {
       var result = await postApi('/automation/generate', {});
       showToast('Generated ' + (result.queued_count || 0) + ' proposals (' + (result.blocked_count || 0) + ' blocked)', 'info');
       _invalidateTabCache('automation');
       await loadAutomation();
     } catch (e) { showToast('Error: ' + e.message, 'error'); }
+    finally { setButtonLoading(btn, false); }
   };
 
   window.runAutomation = function() {
-    confirmAction('Execute all approved automation actions?', async function() {
-      try {
-        // Execute each approved action
-        var pending = await fetchApi('/automation/actions?status=approved' + acctParam());
-        var actions = pending.actions || [];
-        var executed = 0;
-        for (var i = 0; i < actions.length; i++) {
-          await postApi('/automation/' + actions[i].id + '/execute', {});
-          executed++;
-        }
-        showToast('Executed ' + executed + ' actions', 'success');
-        _invalidateTabCache('automation');
-        await loadAutomation();
-      } catch (e) { showToast('Error: ' + e.message, 'error'); }
-    });
+    confirmAction(
+      'Execute all approved automation actions? This will apply real changes to your campaigns.',
+      async function() {
+        try {
+          // Execute each approved action
+          var pending = await fetchApi('/automation/actions?status=approved' + acctParam());
+          var actions = pending.actions || [];
+          var executed = 0;
+          for (var i = 0; i < actions.length; i++) {
+            await postApi('/automation/' + actions[i].id + '/execute', {});
+            executed++;
+          }
+          showToast('Executed ' + executed + ' actions', 'success');
+          _invalidateTabCache('automation');
+          await loadAutomation();
+        } catch (e) { showToast('Error: ' + e.message, 'error'); }
+      },
+      { destructive: true, title: 'Run All Automation', okLabel: 'Run All' }
+    );
   };
 
   /* ─── Creative Intelligence ─── */
@@ -1561,6 +1708,9 @@
   }
 
   window.collectCreatives = async function () {
+    var btn = document.getElementById('btnCollectCreatives') ||
+              document.querySelector('[onclick*="collectCreatives"]');
+    setButtonLoading(btn, true, 'Syncing...');
     try {
       await postApi('/creatives/collect', {});
       _invalidateTabCache('creatives');
@@ -1568,6 +1718,8 @@
       showToast('Creatives synced', 'success');
     } catch (e) {
       showToast('Error collecting creatives: ' + e.message, 'error');
+    } finally {
+      setButtonLoading(btn, false);
     }
   };
 
@@ -1968,7 +2120,7 @@
       if (!question) return;
 
       inp.value = '';
-      if (btn) { btn.disabled = true; btn.textContent = '…'; }
+      setButtonLoading(btn, true, '...');
 
       var period = currentRange === 'today' ? 'today' : (currentRange === '30d' ? '30d' : '7d');
       var body = {
@@ -2014,7 +2166,7 @@
           sources: [],
         });
       } finally {
-        if (btn) { btn.disabled = false; btn.textContent = 'Ask'; }
+        setButtonLoading(btn, false);
       }
     };
 
@@ -2455,6 +2607,9 @@
   }
 
   window.saveBrandKit = async function() {
+    var btn = document.getElementById('btnSaveBrandKit') ||
+              document.querySelector('[onclick*="saveBrandKit"]');
+    setButtonLoading(btn, true, 'Saving...');
     try {
       var payload = {
         account_id: currentAccountId || 1,
@@ -2471,7 +2626,12 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-    } catch (e) { /* silently skip */ }
+      showToast('Brand kit saved', 'success');
+    } catch (e) {
+      showToast('Error saving brand kit', 'error');
+    } finally {
+      setButtonLoading(btn, false);
+    }
   };
 
   window.csApproveIdea = async function(id) {
@@ -2571,6 +2731,9 @@
     var igUser   = ($('#pubConnIgUser')   || {}).value || '';
     var pageId   = ($('#pubConnPageId')   || {}).value || '';
     if (!token) { showToast('Access token is required.', 'warning'); return; }
+    var btn = document.getElementById('btnPubSaveConnector') ||
+              document.querySelector('[onclick*="pubSaveConnector"]');
+    setButtonLoading(btn, true, 'Saving...');
     try {
       var resp = await fetch('/api/content/connectors', {
         method: 'POST',
@@ -2589,11 +2752,18 @@
       } else {
         showToast('Error: ' + (data.error || 'Unknown'), 'error');
       }
-    } catch (e) { /* silently skip */ }
+    } catch (e) {
+      showToast('Failed to save connector.', 'error');
+    } finally {
+      setButtonLoading(btn, false);
+    }
   };
 
   window.pubValidateConnector = async function() {
     var platform = ($('#pubConnPlatform') || {}).value || 'instagram';
+    var btn = document.getElementById('btnPubValidateConnector') ||
+              document.querySelector('[onclick*="pubValidateConnector"]');
+    setButtonLoading(btn, true, 'Validating...');
     try {
       var resp = await fetch('/api/content/connectors/validate', {
         method: 'POST',
@@ -2607,7 +2777,11 @@
         showToast('Validation failed: ' + (data.error || 'Unknown error'), 'error');
       }
       await _pubLoadConnectors();
-    } catch (e) { /* silently skip */ }
+    } catch (e) {
+      showToast('Validation request failed.', 'error');
+    } finally {
+      setButtonLoading(btn, false);
+    }
   };
 
   async function _pubLoadPosts() {
@@ -2728,17 +2902,21 @@
   };
 
   window.pubPublishNow = function(postId) {
-    confirmAction('Publish this post now?', async function() {
-      try {
-        await fetch('/api/content/posts/' + postId + '/publish', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ account_id: currentAccountId || 1 }),
-        });
-        showToast('Post publishing started', 'success');
-        await _pubLoad();
-      } catch (e) { showToast('Publish failed: ' + e.message, 'error'); }
-    });
+    confirmAction(
+      'Publish this post now? It will be immediately sent to the connected platform.',
+      async function() {
+        try {
+          await fetch('/api/content/posts/' + postId + '/publish', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ account_id: currentAccountId || 1 }),
+          });
+          showToast('Post publishing started', 'success');
+          await _pubLoad();
+        } catch (e) { showToast('Publish failed: ' + e.message, 'error'); }
+      },
+      { title: 'Publish Post', okLabel: 'Publish Now' }
+    );
   };
 
   window.pubSchedule = async function(postId) {
@@ -2755,23 +2933,27 @@
   };
 
   window.pubArchive = function(postId) {
-    confirmAction('Archive this post draft? This cannot be undone.', async function() {
-      try {
-        await fetch('/api/content/posts/' + postId + '/status', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ account_id: currentAccountId || 1, status: 'archived' }),
-        });
-        showToast('Post archived', 'info');
-        await _pubLoadPosts();
-      } catch (e) { /* silently skip */ }
-    });
+    confirmAction(
+      'Archive this post draft? This cannot be undone.',
+      async function() {
+        try {
+          await fetch('/api/content/posts/' + postId + '/status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ account_id: currentAccountId || 1, status: 'archived' }),
+          });
+          showToast('Post archived', 'info');
+          await _pubLoadPosts();
+        } catch (e) { /* silently skip */ }
+      },
+      { destructive: true, title: 'Archive Post', okLabel: 'Archive' }
+    );
   };
 
   async function _csGenerateIdeas() {
     var btn = $('#csGenerateBtn');
     var loading = $('#csIdeasLoading');
-    if (btn) { btn.disabled = true; btn.textContent = 'Generating…'; }
+    setButtonLoading(btn, true, 'Generating...');
     if (loading) loading.style.display = '';
     try {
       await fetch('/api/content/generate-ideas', {
@@ -2780,9 +2962,11 @@
         body: JSON.stringify({ account_id: currentAccountId || 1 }),
       });
       await _csLoadIdeas();
-    } catch (e) { /* silently skip */ }
-    finally {
-      if (btn) { btn.disabled = false; btn.textContent = '✨ Generate Ideas from Insights'; }
+      showToast('Ideas generated successfully', 'success');
+    } catch (e) {
+      showToast('Error generating ideas', 'error');
+    } finally {
+      setButtonLoading(btn, false);
       if (loading) loading.style.display = 'none';
     }
   }
