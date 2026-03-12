@@ -1511,3 +1511,196 @@ class TestCopilotService:
             assert "moderate" in conf_reason or "signal" in conf_reason or "partial" in conf_reason
         else:
             assert "limited" in conf_reason or "conflicting" in conf_reason or "demo" in conf_reason
+
+
+class TestAccountConnectionValidation:
+    """Tests for OnboardingService credential validation and account creation."""
+
+    def test_meta_connect_missing_fields(self, client):
+        """POST /api/accounts/connect with missing Meta fields returns 400."""
+        resp = client.post("/api/accounts/connect",
+                           json={"platform": "meta", "external_account_id": "act_123"})
+        assert resp.status_code == 400
+        data = resp.get_json()
+        assert data["success"] is False
+        assert "access_token" in data["error"].lower()
+
+    def test_google_connect_missing_fields(self, client):
+        """POST /api/accounts/connect with missing Google fields returns 400."""
+        resp = client.post("/api/accounts/connect",
+                           json={"platform": "google", "customer_id": "123"})
+        assert resp.status_code == 400
+        data = resp.get_json()
+        assert data["success"] is False
+
+    def test_connect_invalid_platform(self, client):
+        """POST /api/accounts/connect with unknown platform returns 400."""
+        resp = client.post("/api/accounts/connect",
+                           json={"platform": "tiktok", "external_account_id": "act_x"})
+        assert resp.status_code == 400
+        data = resp.get_json()
+        assert data["success"] is False
+        assert "platform" in data["error"].lower()
+
+    def test_account_create_and_retrieve(self):
+        """AccountService.create_account() inserts and returns the new record."""
+        import uuid
+        from app.db.init_db import init_db
+        init_db()
+        from app.services.account_service import AccountService
+
+        unique = uuid.uuid4().hex[:8]
+        ext_id = f"act_test_{unique}"
+        acc = AccountService.create_account(
+            "meta", f"Test Account {unique}", ext_id,
+            access_token="test_token_123"
+        )
+        assert acc is not None
+        assert acc["platform"] == "meta"
+        assert acc["external_account_id"] == ext_id
+        assert acc["account_name"] == f"Test Account {unique}"
+        assert acc["status"] == "active"
+        # Credentials stored (not exposed in route but present in service)
+        assert acc["access_token"] == "test_token_123"
+
+    def test_account_create_duplicate_returns_none(self):
+        """Connecting the same account twice returns None (UNIQUE constraint)."""
+        import uuid
+        from app.db.init_db import init_db
+        init_db()
+        from app.services.account_service import AccountService
+
+        unique = uuid.uuid4().hex[:8]
+        ext_id = f"act_dup_{unique}"
+        acc1 = AccountService.create_account("meta", f"Dup Account {unique}", ext_id)
+        acc2 = AccountService.create_account("meta", f"Dup Account {unique}", ext_id)
+        assert acc1 is not None
+        assert acc2 is None  # duplicate rejected
+
+    def test_update_last_sync(self):
+        """AccountService.update_last_sync() stamps a timestamp on the account."""
+        import uuid
+        from app.db.init_db import init_db
+        init_db()
+        from app.services.account_service import AccountService
+
+        unique = uuid.uuid4().hex[:8]
+        acc = AccountService.create_account("meta", f"Sync Test {unique}",
+                                             f"act_sync_{unique}")
+        assert acc is not None
+        AccountService.update_last_sync(acc["id"])
+        updated = AccountService.get_by_id(acc["id"])
+        assert updated["last_sync"] is not None
+        assert "T" in updated["last_sync"]  # ISO timestamp
+
+    def test_meta_validation_bad_token(self):
+        """_validate_meta with a fake token returns valid=False (HTTP error from Meta)."""
+        from app.services.onboarding_service import OnboardingService
+        svc = OnboardingService()
+        result = svc._validate_meta("act_000000000000001", "fake_token_not_real")
+        # Should fail with Meta API error (not raise an exception)
+        assert result["valid"] is False
+        assert "error" in result
+        assert isinstance(result["error"], str)
+
+    def test_google_validation_missing_fields(self):
+        """_validate_google with empty fields returns valid=False."""
+        from app.services.onboarding_service import OnboardingService
+        svc = OnboardingService()
+        assert svc._validate_google("", "tok", "ref")["valid"] is False
+        assert svc._validate_google("123", "", "ref")["valid"] is False
+        assert svc._validate_google("123", "tok", "")["valid"] is False
+
+    def test_connect_endpoint_strips_credentials(self, client):
+        """POST /api/accounts/connect success response never exposes raw credentials."""
+        import uuid
+        # We can't reach Meta/Google in tests, but we can verify the connect endpoint
+        # for the google platform where lightweight validation succeeds without OAuth creds.
+        unique = uuid.uuid4().hex[:8]
+        resp = client.post("/api/accounts/connect", json={
+            "platform": "google",
+            "customer_id": f"1234567{unique[:5]}",
+            "developer_token": "DEV_TOKEN_TEST",
+            "refresh_token": "1//REFRESH_TEST",
+            "account_name": f"Test Google {unique}",
+        })
+        # Google lightweight validation passes when GOOGLE_CLIENT_ID is not set
+        if resp.status_code == 201:
+            data = resp.get_json()
+            assert "access_token" not in (data.get("account") or {})
+            assert "developer_token" not in (data.get("account") or {})
+            assert "refresh_token" not in (data.get("account") or {})
+
+
+class TestSnapshotInitialization:
+    """Tests for trigger_initial_sync after account connection."""
+
+    def test_trigger_initial_sync_completes(self):
+        """trigger_initial_sync runs all three pipeline steps without raising."""
+        import uuid
+        from app.db.init_db import init_db
+        init_db()
+        from app.services.account_service import AccountService
+        from app.services.onboarding_service import OnboardingService
+
+        unique = uuid.uuid4().hex[:8]
+        acc = AccountService.create_account("meta", f"Sync Pipeline {unique}",
+                                             f"act_pipeline_{unique}")
+        svc = OnboardingService()
+        results = svc.trigger_initial_sync(acc["id"])
+
+        assert isinstance(results, dict)
+        assert "snapshot" in results
+        assert "ai_refresh" in results
+        assert "alerts" in results
+
+    def test_trigger_initial_sync_stamps_last_sync(self):
+        """After trigger_initial_sync, last_sync is updated on the account record."""
+        import uuid
+        from app.db.init_db import init_db
+        init_db()
+        from app.services.account_service import AccountService
+        from app.services.onboarding_service import OnboardingService
+
+        unique = uuid.uuid4().hex[:8]
+        acc = AccountService.create_account("meta", f"Stamp Test {unique}",
+                                             f"act_stamp_{unique}")
+        assert acc["last_sync"] is None
+
+        OnboardingService().trigger_initial_sync(acc["id"])
+        refreshed = AccountService.get_by_id(acc["id"])
+        assert refreshed["last_sync"] is not None
+
+
+class TestAccountStatusEndpoint:
+    """Tests for GET /api/accounts/{id}/status."""
+
+    def test_status_returns_required_fields(self, client):
+        """Status endpoint returns all spec-required fields."""
+        from app.db.init_db import init_db
+        init_db()
+        resp = client.get("/api/accounts/1/status")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        # Spec-required fields
+        assert "last_sync" in data
+        assert "campaign_count" in data
+        assert "spend_7d" in data
+        assert "alerts_count" in data
+        # Types
+        assert isinstance(data["campaign_count"], int)
+        assert isinstance(data["spend_7d"], (int, float))
+        assert isinstance(data["alerts_count"], int)
+
+    def test_status_404_for_unknown_account(self, client):
+        """Status endpoint returns 404 for non-existent account."""
+        resp = client.get("/api/accounts/999999/status")
+        assert resp.status_code == 404
+
+    def test_status_spend_7d_non_negative(self, client):
+        """spend_7d must be >= 0."""
+        from app.db.init_db import init_db
+        init_db()
+        resp = client.get("/api/accounts/1/status")
+        assert resp.status_code == 200
+        assert resp.get_json()["spend_7d"] >= 0

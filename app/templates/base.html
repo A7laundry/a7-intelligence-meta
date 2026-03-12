@@ -28,6 +28,9 @@
         <span id="accountStatusText"></span>
       </div>
     </div>
+    <!-- Add Account button (always visible) -->
+    <button class="add-account-btn" id="addAccountBtn" title="Connect a new ad account"
+            onclick="window.openAccountWizard && window.openAccountWizard()">+ Add Account</button>
   </div>
   <div class="header-right">
     {% block header_actions %}{% endblock %}

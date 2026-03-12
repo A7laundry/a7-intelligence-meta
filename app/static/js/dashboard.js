@@ -1911,6 +1911,131 @@
     }
   })();
 
+  /* ─── Account Connection Wizard ─── */
+  (function initAccountWizard() {
+    var _activePlatform = null;
+
+    window.openAccountWizard = function() {
+      _showStep('wizardStep1');
+      var overlay = document.getElementById('accountWizardOverlay');
+      if (overlay) overlay.style.display = 'flex';
+    };
+
+    window.closeAccountWizard = function() {
+      var overlay = document.getElementById('accountWizardOverlay');
+      if (overlay) overlay.style.display = 'none';
+      _clearForms();
+    };
+
+    window.wizardSelectPlatform = function(platform) {
+      _activePlatform = platform;
+      _showStep(platform === 'meta' ? 'wizardStepMeta' : 'wizardStepGoogle');
+    };
+
+    window.wizardGoBack = function() {
+      _activePlatform = null;
+      _showStep('wizardStep1');
+    };
+
+    window.wizardConnect = async function(platform) {
+      // Collect form values
+      var body = { platform: platform };
+      if (platform === 'meta') {
+        var extId = (document.getElementById('metaExtId') || {}).value || '';
+        var token = (document.getElementById('metaToken') || {}).value || '';
+        var name  = (document.getElementById('metaName')  || {}).value || '';
+        if (!extId.trim() || !token.trim()) {
+          _showError(platform, 'Account ID and Access Token are required.');
+          return;
+        }
+        body.external_account_id = extId.trim();
+        body.access_token        = token.trim();
+        if (name.trim()) body.account_name = name.trim();
+      } else {
+        var cid     = (document.getElementById('googleCid')      || {}).value || '';
+        var devTok  = (document.getElementById('googleDevToken') || {}).value || '';
+        var refTok  = (document.getElementById('googleRefToken') || {}).value || '';
+        var gName   = (document.getElementById('googleName')     || {}).value || '';
+        if (!cid.trim() || !devTok.trim() || !refTok.trim()) {
+          _showError(platform, 'Customer ID, Developer Token, and Refresh Token are required.');
+          return;
+        }
+        body.customer_id      = cid.trim();
+        body.developer_token  = devTok.trim();
+        body.refresh_token    = refTok.trim();
+        if (gName.trim()) body.account_name = gName.trim();
+      }
+
+      _showStep('wizardStepConnecting');
+
+      try {
+        var result = await postApi('/accounts/connect', body);
+        if (result.success) {
+          _showResult(true,
+            '✓ Account Connected',
+            'Your ' + platform.charAt(0).toUpperCase() + platform.slice(1) +
+            ' account <strong>' + _wEsc(result.account && result.account.account_name || '') +
+            '</strong> has been connected and initial sync started.',
+            'Refresh Dashboard',
+            function() { window.closeAccountWizard(); location.reload(); }
+          );
+        } else {
+          _showResult(false, 'Connection Failed', result.error || 'Unknown error', 'Try Again',
+            function() { _showStep(_activePlatform === 'meta' ? 'wizardStepMeta' : 'wizardStepGoogle'); });
+        }
+      } catch (err) {
+        _showResult(false, 'Connection Failed', err.message || 'Request failed', 'Try Again',
+          function() { _showStep(_activePlatform === 'meta' ? 'wizardStepMeta' : 'wizardStepGoogle'); });
+      }
+    };
+
+    // ── Helpers ──────────────────────────────────────────────
+    function _showStep(stepId) {
+      var steps = ['wizardStep1', 'wizardStepMeta', 'wizardStepGoogle',
+                   'wizardStepConnecting', 'wizardStepResult'];
+      steps.forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) el.style.display = id === stepId ? 'block' : 'none';
+      });
+    }
+
+    function _showError(platform, msg) {
+      var elId = platform === 'meta' ? 'metaError' : 'googleError';
+      var el = document.getElementById(elId);
+      if (el) { el.textContent = msg; el.style.display = 'block'; }
+    }
+
+    function _showResult(success, title, msgHtml, btnLabel, btnAction) {
+      _showStep('wizardStepResult');
+      var icon  = document.getElementById('wizardResultIcon');
+      var ttl   = document.getElementById('wizardResultTitle');
+      var msg   = document.getElementById('wizardResultMsg');
+      var btn   = document.getElementById('wizardResultPrimary');
+      if (icon)  { icon.textContent = success ? '✓' : '✕'; icon.className = 'wizard-result-icon ' + (success ? 'wizard-result-ok' : 'wizard-result-err'); }
+      if (ttl)   ttl.textContent = title;
+      if (msg)   msg.innerHTML   = msgHtml;
+      if (btn)   { btn.textContent = btnLabel; btn.onclick = btnAction || window.closeAccountWizard; }
+    }
+
+    function _clearForms() {
+      ['metaExtId', 'metaToken', 'metaName', 'metaError',
+       'googleCid', 'googleDevToken', 'googleRefToken', 'googleName', 'googleError']
+        .forEach(function(id) {
+          var el = document.getElementById(id);
+          if (!el) return;
+          if (el.tagName === 'INPUT') el.value = '';
+          else { el.textContent = ''; el.style.display = 'none'; }
+        });
+      _activePlatform = null;
+    }
+
+    function _wEsc(s) {
+      return String(s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+  })();
+
   /* ─── Init ─── */
   loadPlatformStatus();
   initAccountSelector();

@@ -7,8 +7,15 @@ CREATE TABLE IF NOT EXISTS ad_accounts (
     platform TEXT NOT NULL DEFAULT 'meta' CHECK(platform IN ('meta', 'google')),
     account_name TEXT NOT NULL,
     external_account_id TEXT NOT NULL,
-    status TEXT DEFAULT 'active' CHECK(status IN ('active', 'inactive', 'paused')),
+    status TEXT DEFAULT 'active' CHECK(status IN ('active', 'inactive', 'paused', 'pending')),
     is_default INTEGER DEFAULT 0,
+    -- Connection credentials (stored; rotate regularly)
+    access_token TEXT,
+    developer_token TEXT,
+    refresh_token TEXT,
+    customer_id TEXT,
+    -- Sync tracking
+    last_sync TEXT,
     created_at TEXT DEFAULT (datetime('now')),
     UNIQUE(platform, external_account_id)
 );

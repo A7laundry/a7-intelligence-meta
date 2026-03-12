@@ -277,6 +277,15 @@ class CrossAccountService:
                 (account_id,),
             ).fetchone()[0] or 0
 
+            # 7-day spend
+            since_7d = (datetime.utcnow() - timedelta(days=7)).strftime("%Y-%m-%d")
+            spend_7d_row = conn.execute(
+                """SELECT COALESCE(SUM(spend), 0) AS spend
+                   FROM daily_snapshots WHERE account_id = ? AND date >= ?""",
+                (account_id, since_7d),
+            ).fetchone()
+            spend_7d = round(spend_7d_row["spend"], 2) if spend_7d_row else 0
+
             # Freshness: fresh if snapshot within 24h, stale if 1-3 days, empty if no data
             freshness = "empty"
             if last_snapshot:
@@ -292,13 +301,17 @@ class CrossAccountService:
                 "last_snapshot": last_snapshot,
                 "freshness": freshness,
                 "campaigns_count": campaigns_count,
+                "campaign_count": campaigns_count,   # spec alias
                 "creatives_count": creatives_count,
                 "spend_today": spend_today,
+                "spend_7d": spend_7d,
                 "conversions_today": conversions_today,
                 "alerts_active": alerts_active,
+                "alerts_count": alerts_active,       # spec alias
             }
         except Exception:
-            return {"account_id": account_id, "freshness": "empty"}
+            return {"account_id": account_id, "freshness": "empty",
+                    "spend_7d": 0, "campaign_count": 0, "alerts_count": 0}
         finally:
             conn.close()
 

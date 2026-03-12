@@ -133,6 +133,19 @@ def _run_migrations(conn):
         conn.execute("CREATE INDEX IF NOT EXISTS idx_automation_runs_started ON automation_runs(started_at)")
         conn.commit()
 
+    # Migration 6: Add credential + sync columns to ad_accounts
+    for col_def in [
+        ("access_token",    "TEXT"),
+        ("developer_token", "TEXT"),
+        ("refresh_token",   "TEXT"),
+        ("customer_id",     "TEXT"),
+        ("last_sync",       "TEXT"),
+    ]:
+        col, col_type = col_def
+        if _table_exists(conn, "ad_accounts") and not _column_exists(conn, "ad_accounts", col):
+            conn.execute(f"ALTER TABLE ad_accounts ADD COLUMN {col} {col_type}")
+    conn.commit()
+
     _migrate_snapshots_table(conn, "creatives",
         """CREATE TABLE creatives_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

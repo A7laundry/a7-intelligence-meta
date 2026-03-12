@@ -1,5 +1,8 @@
 """Account Service — Manages ad accounts registry for multi-account support."""
 
+import sqlite3
+from datetime import datetime
+
 from app.db.init_db import get_connection
 
 
@@ -70,3 +73,54 @@ class AccountService:
         """Return the external_account_id (e.g. act_xxxx) for a given account."""
         acc = AccountService.get_by_id(account_id)
         return acc["external_account_id"] if acc else None
+
+    @staticmethod
+    def create_account(platform: str, account_name: str, external_account_id: str,
+                       access_token: str = None, developer_token: str = None,
+                       refresh_token: str = None, customer_id: str = None) -> dict:
+        """Insert a new account and return its record.
+
+        Returns None if the account already exists (UNIQUE constraint on platform+external_id).
+        """
+        conn = get_connection()
+        try:
+            cursor = conn.execute(
+                """INSERT INTO ad_accounts
+                   (platform, account_name, external_account_id, status, is_default,
+                    access_token, developer_token, refresh_token, customer_id)
+                   VALUES (?, ?, ?, 'active', 0, ?, ?, ?, ?)""",
+                (platform, account_name, external_account_id,
+                 access_token, developer_token, refresh_token, customer_id),
+            )
+            conn.commit()
+            return AccountService.get_by_id(cursor.lastrowid)
+        except sqlite3.IntegrityError:
+            conn.rollback()
+            return None
+        finally:
+            conn.close()
+
+    @staticmethod
+    def update_last_sync(account_id: int) -> None:
+        """Stamp last_sync = utcnow on the account record."""
+        conn = get_connection()
+        try:
+            now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+            conn.execute(
+                "UPDATE ad_accounts SET last_sync = ? WHERE id = ?", (now, account_id)
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    @staticmethod
+    def update_status(account_id: int, status: str) -> None:
+        """Update account status (active / inactive / paused / pending)."""
+        conn = get_connection()
+        try:
+            conn.execute(
+                "UPDATE ad_accounts SET status = ? WHERE id = ?", (status, account_id)
+            )
+            conn.commit()
+        finally:
+            conn.close()

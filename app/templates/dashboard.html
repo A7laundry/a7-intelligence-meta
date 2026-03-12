@@ -410,6 +410,104 @@
   </div>
 
 </div><!-- /sectionsContainer -->
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- Account Connection Wizard Modal                        -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div id="accountWizardOverlay" class="wizard-overlay" style="display:none" onclick="if(event.target===this)window.closeAccountWizard()">
+  <div class="wizard-box" role="dialog" aria-modal="true" aria-labelledby="wizardTitle">
+
+    <!-- Step 1: Choose platform -->
+    <div id="wizardStep1" class="wizard-step">
+      <button class="wizard-close" onclick="window.closeAccountWizard()" aria-label="Close">✕</button>
+      <h3 class="wizard-title" id="wizardTitle">Connect Ad Account</h3>
+      <p class="wizard-sub">Select the platform you want to connect</p>
+      <div class="wizard-platforms">
+        <button class="platform-card" onclick="window.wizardSelectPlatform('meta')">
+          <span class="platform-card-icon platform-icon-meta">f</span>
+          <span class="platform-card-name">Meta Ads</span>
+          <span class="platform-card-desc">Facebook &amp; Instagram</span>
+        </button>
+        <button class="platform-card" onclick="window.wizardSelectPlatform('google')">
+          <span class="platform-card-icon platform-icon-google">G</span>
+          <span class="platform-card-name">Google Ads</span>
+          <span class="platform-card-desc">Search, Display &amp; YouTube</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Step 2a: Meta credentials -->
+    <div id="wizardStepMeta" class="wizard-step" style="display:none">
+      <button class="wizard-close" onclick="window.closeAccountWizard()" aria-label="Close">✕</button>
+      <button class="wizard-back" onclick="window.wizardGoBack()">← Back</button>
+      <h3 class="wizard-title">Connect Meta Ads</h3>
+      <p class="wizard-sub">Provide your Meta Ads account credentials</p>
+      <div class="wizard-form">
+        <label class="wizard-label">Account ID <span class="wizard-hint">(act_xxxxx)</span>
+          <input id="metaExtId" class="wizard-input" type="text" placeholder="act_123456789"
+                 autocomplete="off" />
+        </label>
+        <label class="wizard-label">Access Token
+          <input id="metaToken" class="wizard-input" type="password" placeholder="EAAxxxxx…"
+                 autocomplete="off" />
+        </label>
+        <label class="wizard-label">Display Name <span class="wizard-hint">(optional)</span>
+          <input id="metaName" class="wizard-input" type="text" placeholder="My Meta Account"
+                 autocomplete="off" />
+        </label>
+        <div id="metaError" class="wizard-error" style="display:none"></div>
+        <button class="wizard-submit" onclick="window.wizardConnect('meta')">Connect Account</button>
+      </div>
+    </div>
+
+    <!-- Step 2b: Google credentials -->
+    <div id="wizardStepGoogle" class="wizard-step" style="display:none">
+      <button class="wizard-close" onclick="window.closeAccountWizard()" aria-label="Close">✕</button>
+      <button class="wizard-back" onclick="window.wizardGoBack()">← Back</button>
+      <h3 class="wizard-title">Connect Google Ads</h3>
+      <p class="wizard-sub">Provide your Google Ads API credentials</p>
+      <div class="wizard-form">
+        <label class="wizard-label">Customer ID <span class="wizard-hint">(digits only)</span>
+          <input id="googleCid" class="wizard-input" type="text" placeholder="123-456-7890"
+                 autocomplete="off" />
+        </label>
+        <label class="wizard-label">Developer Token
+          <input id="googleDevToken" class="wizard-input" type="password"
+                 placeholder="ABcd1234…" autocomplete="off" />
+        </label>
+        <label class="wizard-label">Refresh Token
+          <input id="googleRefToken" class="wizard-input" type="password"
+                 placeholder="1//0xxx…" autocomplete="off" />
+        </label>
+        <label class="wizard-label">Display Name <span class="wizard-hint">(optional)</span>
+          <input id="googleName" class="wizard-input" type="text"
+                 placeholder="My Google Account" autocomplete="off" />
+        </label>
+        <div id="googleError" class="wizard-error" style="display:none"></div>
+        <button class="wizard-submit" onclick="window.wizardConnect('google')">Connect Account</button>
+      </div>
+    </div>
+
+    <!-- Step 3: Connecting spinner -->
+    <div id="wizardStepConnecting" class="wizard-step wizard-step-center" style="display:none">
+      <div class="wizard-spinner"></div>
+      <p class="wizard-connecting-msg">Validating credentials and initializing sync…</p>
+      <p class="wizard-connecting-sub">This may take a few seconds</p>
+    </div>
+
+    <!-- Step 4: Result -->
+    <div id="wizardStepResult" class="wizard-step wizard-step-center" style="display:none">
+      <div id="wizardResultIcon" class="wizard-result-icon"></div>
+      <h3 id="wizardResultTitle" class="wizard-title"></h3>
+      <p id="wizardResultMsg" class="wizard-sub"></p>
+      <div class="wizard-result-actions">
+        <button id="wizardResultPrimary" class="wizard-submit"></button>
+        <button class="wizard-btn-secondary" onclick="window.closeAccountWizard()">Close</button>
+      </div>
+    </div>
+
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
