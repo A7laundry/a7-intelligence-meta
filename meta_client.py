@@ -8,7 +8,13 @@ import json
 import time
 from datetime import datetime, timedelta
 from typing import Optional
-from config import META_CONFIG, CAMPAIGN_TEMPLATES, AUDIENCES, AD_COPY_TEMPLATES
+try:
+    from config import META_CONFIG, CAMPAIGN_TEMPLATES, AUDIENCES, AD_COPY_TEMPLATES
+except ImportError:
+    from config_default import META_CONFIG
+    CAMPAIGN_TEMPLATES = {}
+    AUDIENCES = {}
+    AD_COPY_TEMPLATES = {}
 
 
 class MetaAdsClient:
