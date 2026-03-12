@@ -23,9 +23,16 @@
     <div class="account-selector" id="accountSelectorWrap" style="display:none">
       <span class="account-platform-badge" id="accountPlatformBadge">Meta</span>
       <select class="account-select" id="accountSelect" title="Switch account"></select>
-      <div class="account-status-pill" id="accountStatusPill">
-        <div class="account-status-dot" id="accountStatusDot"></div>
-        <span id="accountStatusText"></span>
+      <div class="account-search-wrap" id="accountSearchWrap">
+        <input class="account-search-input" id="accountSearchInput"
+               placeholder="Search accounts…" type="text" autocomplete="off">
+      </div>
+      <div class="account-context-panel" id="accountContextPanel" style="display:none">
+        <span class="acp-sync"    id="acpSync"></span>
+        <span class="acp-divider">·</span>
+        <span class="acp-spend"   id="acpSpend"></span>
+        <span class="acp-divider">·</span>
+        <span class="acp-alerts"  id="acpAlerts"></span>
       </div>
     </div>
     <!-- Add Account button (always visible) -->

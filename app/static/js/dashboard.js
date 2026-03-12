@@ -10,6 +10,7 @@
 
   /* ─── Account Context ─── */
   let currentAccountId = null;
+  let _accountsCache = [];
 
   function getAccountIdFromUrl() {
     return new URLSearchParams(window.location.search).get('account_id');
@@ -28,17 +29,23 @@
   async function initAccountSelector() {
     try {
       const accounts = await fetchApi('/accounts');
-      if (!accounts || accounts.length <= 1) return; // hide if only one account
+      if (!accounts || accounts.length === 0) return;
+      _accountsCache = accounts;
       const select = $('#accountSelect');
       const wrap = $('#accountSelectorWrap');
       if (!select || !wrap) return;
-      select.innerHTML = '';
-      accounts.forEach(acc => {
-        const opt = document.createElement('option');
-        opt.value = acc.id;
-        opt.textContent = acc.account_name;
-        select.appendChild(opt);
-      });
+
+      function _populateSelect(list) {
+        select.innerHTML = '';
+        list.forEach(acc => {
+          const opt = document.createElement('option');
+          opt.value = acc.id;
+          opt.textContent = acc.account_name;
+          select.appendChild(opt);
+        });
+      }
+      _populateSelect(accounts);
+
       // Restore from URL or localStorage
       const fromUrl = getAccountIdFromUrl();
       const fromStorage = localStorage.getItem('a7_account_id');
@@ -47,21 +54,42 @@
         select.value = initial;
         currentAccountId = parseInt(initial, 10);
       }
-      wrap.style.display = 'flex';
+
+      if (accounts.length > 1) wrap.style.display = 'flex';
+
       // Update badge for selected account platform
       const selected = accounts.find(a => a.id == currentAccountId);
       if (selected) {
         const badge = $('#accountPlatformBadge');
         if (badge) badge.textContent = selected.platform === 'google' ? 'Google' : 'Meta';
       }
-      // Load status pill for initial account
+
+      // Show search input for 3+ accounts
+      if (accounts.length >= 3) {
+        var sw = document.getElementById('accountSearchWrap');
+        if (sw) sw.classList.add('visible');
+        var si = document.getElementById('accountSearchInput');
+        if (si) {
+          si.addEventListener('input', function() {
+            var q = this.value.toLowerCase().trim();
+            var filtered = q ? _accountsCache.filter(a => a.account_name.toLowerCase().includes(q)) : _accountsCache;
+            _populateSelect(filtered);
+            if (filtered.length > 0) {
+              select.value = filtered.find(a => a.id == currentAccountId) ? currentAccountId : filtered[0].id;
+            }
+          });
+        }
+      }
+
+      // Load context panel for initial account
       if (currentAccountId) loadAccountStatus(currentAccountId);
+
       // Listen for changes
       select.addEventListener('change', function () {
         currentAccountId = parseInt(this.value, 10);
         localStorage.setItem('a7_account_id', currentAccountId);
         setAccountIdInUrl(currentAccountId);
-        const acc = accounts.find(a => a.id == currentAccountId);
+        const acc = _accountsCache.find(a => a.id == currentAccountId);
         if (acc) {
           const badge = $('#accountPlatformBadge');
           if (badge) badge.textContent = acc.platform === 'google' ? 'Google' : 'Meta';
@@ -74,6 +102,14 @@
       // silently skip if accounts endpoint unavailable
     }
   }
+
+  // Alt+A shortcut to focus account search
+  document.addEventListener('keydown', function(e) {
+    if (e.altKey && (e.key === 'a' || e.key === 'A')) {
+      var si = document.getElementById('accountSearchInput');
+      if (si && si.offsetParent !== null) { si.focus(); si.select(); e.preventDefault(); }
+    }
+  });
 
   function loadAllSections() {
     loadGrowthScore();
@@ -1465,7 +1501,12 @@
       accounts.forEach(function(a) {
         var scoreClass = a.growth_score >= 70 ? 'good' : a.growth_score >= 40 ? 'mid' : 'bad';
         var alertClass = a.active_alerts > 0 ? 'has-alerts' : '';
-        html += '<tr>' +
+        var score = a.growth_score || 0;
+        var ac = a.active_alerts || 0;
+        var healthRowCls = (score < 40 || ac > 5) ? 'ca-health-red'
+                         : (score >= 70 && ac <= 1) ? 'ca-health-green'
+                         : 'ca-health-yellow';
+        html += '<tr class="' + healthRowCls + '">' +
           '<td><span class="ca-account-name">' + a.account_name + '</span></td>' +
           '<td><span class="health-score-badge ' + scoreClass + '">' + a.growth_score + ' <small>' + a.growth_label + '</small></span></td>' +
           '<td class="' + alertClass + '">' + a.active_alerts + '</td>' +
@@ -1566,12 +1607,33 @@
   function renderCATable(accounts) {
     var tbody = document.getElementById('crossAccountTableBody');
     if (!tbody) return;
+
+    // Identify best performer (highest growth_score) and highest alert account
+    var bestId = null, alertId = null, maxScore = -1, maxAlerts = -1;
+    accounts.forEach(function(a) {
+      if ((a.growth_score || 0) > maxScore) { maxScore = a.growth_score || 0; bestId = a.id; }
+      if ((a.alerts_count || 0) > maxAlerts) { maxAlerts = a.alerts_count || 0; alertId = a.id; }
+    });
+
     var html = '';
     accounts.forEach(function(a) {
       var effCls = a.efficiency_score >= 70 ? 'high' : (a.efficiency_score >= 40 ? 'mid' : 'low');
       var alertCls = a.alerts_count > 0 ? 'has-alerts' : 'no-alerts';
       var platCls = a.platform === 'google' ? 'google' : 'meta';
-      html += '<tr>' +
+
+      // Health color class: red > yellow > green (risk takes priority)
+      var score = a.growth_score || 0;
+      var ac = a.alerts_count || 0;
+      var healthCls = (score < 40 || ac > 5) ? 'ca-health-red'
+                    : (score >= 70 && ac <= 1) ? 'ca-health-green'
+                    : 'ca-health-yellow';
+
+      // Border highlight: red (most alerts) takes priority over green (best score)
+      var borderStyle = '';
+      if (a.id === alertId && maxAlerts > 0) borderStyle = ' ca-row-risky';
+      else if (a.id === bestId) borderStyle = ' ca-row-best';
+
+      html += '<tr class="' + healthCls + borderStyle + '">' +
         '<td><div class="ca-account-name">' + a.account_name + '</div>' +
           '<div class="ca-account-link" onclick="switchToAccount(' + a.id + ')">View account &rarr;</div></td>' +
         '<td><span class="ca-platform-badge ' + platCls + '">' + a.platform + '</span></td>' +
@@ -1597,26 +1659,55 @@
     loadAllSections();
   };
 
-  /* ─── Account Status Pill ─── */
+  /* ─── Account Context Panel ─── */
   async function loadAccountStatus(accountId) {
     if (!accountId) return;
-    var pill = document.getElementById('accountStatusPill');
-    var dot = document.getElementById('accountStatusDot');
-    var text = document.getElementById('accountStatusText');
-    if (!pill || !dot || !text) return;
+    var panel = document.getElementById('accountContextPanel');
     try {
       var data = await fetchApi('/accounts/' + accountId + '/status');
-      var freshness = data.freshness || 'empty';
-      dot.className = 'account-status-dot ' + freshness;
-      var parts = [];
-      if (data.spend_today > 0) parts.push('$' + data.spend_today.toFixed(0) + ' today');
-      if (data.alerts_active > 0) parts.push(data.alerts_active + ' alert' + (data.alerts_active !== 1 ? 's' : ''));
-      if (data.last_snapshot) parts.push('snap: ' + data.last_snapshot);
-      text.textContent = parts.join(' · ');
-      pill.style.display = parts.length > 0 ? 'flex' : 'none';
+      if (panel) {
+        var syncEl   = document.getElementById('acpSync');
+        var spendEl  = document.getElementById('acpSpend');
+        var alertsEl = document.getElementById('acpAlerts');
+        if (syncEl)  syncEl.textContent  = data.last_sync ? 'Sync: ' + data.last_sync : 'No sync';
+        if (spendEl) spendEl.textContent = data.spend_today > 0
+          ? '$' + Number(data.spend_today).toFixed(0) + ' today'
+          : '$0 today';
+        var ac = data.alerts_count || data.alerts_active || 0;
+        if (alertsEl) {
+          alertsEl.textContent = ac > 0
+            ? ac + ' alert' + (ac !== 1 ? 's' : '')
+            : '0 alerts';
+          alertsEl.className = 'acp-alerts' + (ac > 0 ? '' : ' none');
+        }
+        panel.style.display = 'flex';
+      }
+      renderAccountSummaryCards(data);
     } catch (e) {
-      pill.style.display = 'none';
+      if (panel) panel.style.display = 'none';
     }
+  }
+
+  function renderAccountSummaryCards(data) {
+    var wrap = document.getElementById('accountSummaryCards');
+    if (!wrap) return;
+    var spendToday = data.spend_today || 0;
+    var convToday  = data.conversions_today || 0;
+    var spend7d    = data.spend_7d || 0;
+    var cpaToday   = (spendToday > 0 && convToday > 0) ? spendToday / convToday : 0;
+    var cards = [
+      { label: 'Spend Today',        value: fmtMoney(spendToday) },
+      { label: 'Conversions Today',  value: fmt(convToday) },
+      { label: 'CPA Today',          value: cpaToday > 0 ? fmtMoney(cpaToday) : '\u2014' },
+      { label: 'Spend 7d',           value: fmtMoney(spend7d) },
+    ];
+    wrap.innerHTML = cards.map(function(c) {
+      return '<div class="acct-summary-card">' +
+        '<div class="asc-value">' + c.value + '</div>' +
+        '<div class="asc-label">' + c.label + '</div>' +
+      '</div>';
+    }).join('');
+    wrap.style.display = 'grid';
   }
 
   /* ─── AI Marketing Copilot ─── */

@@ -1704,3 +1704,82 @@ class TestAccountStatusEndpoint:
         resp = client.get("/api/accounts/1/status")
         assert resp.status_code == 200
         assert resp.get_json()["spend_7d"] >= 0
+
+
+class TestMultiAccountUX:
+    """Multi Account UX — selector persistence, context panel, cross-account data integrity."""
+
+    def test_accounts_list_returns_array(self, client):
+        """GET /api/accounts returns a list."""
+        from app.db.init_db import init_db
+        init_db()
+        resp = client.get("/api/accounts")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert isinstance(data, list)
+
+    def test_accounts_list_no_credentials_in_response(self, client):
+        """Credential fields are never exposed in the accounts list."""
+        import uuid
+        from app.db.init_db import init_db
+        init_db()
+        from app.services.account_service import AccountService
+        unique = uuid.uuid4().hex[:8]
+        AccountService.create_account(
+            "meta", f"UX Test {unique}", f"act_ux_{unique}",
+            access_token="secret_tok"
+        )
+        resp = client.get("/api/accounts")
+        assert resp.status_code == 200
+        for acct in resp.get_json():
+            assert "access_token" not in acct
+            assert "developer_token" not in acct
+            assert "refresh_token" not in acct
+
+    def test_account_status_context_panel_fields(self, client):
+        """Status endpoint returns fields needed by the context panel."""
+        from app.db.init_db import init_db
+        init_db()
+        resp = client.get("/api/accounts/1/status")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        # Context panel needs: last_sync, spend_today, alerts_count
+        assert "spend_today" in data or "spend_7d" in data
+        assert "alerts_count" in data or "alerts_active" in data
+
+    def test_cross_account_overview_structure(self, client):
+        """Cross-account overview returns accounts, totals, insights, spend_share."""
+        from app.db.init_db import init_db
+        init_db()
+        resp = client.get("/api/accounts/overview")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "accounts" in data
+        assert "totals" in data
+        assert "insights" in data
+        assert "spend_share" in data
+
+    def test_cross_account_table_growth_score_field(self, client):
+        """Each account in overview has growth_score for row highlighting."""
+        from app.db.init_db import init_db
+        init_db()
+        resp = client.get("/api/accounts/overview")
+        assert resp.status_code == 200
+        accounts = resp.get_json().get("accounts", [])
+        for a in accounts:
+            assert "growth_score" in a
+            assert isinstance(a["growth_score"], (int, float))
+            assert "alerts_count" in a
+
+    def test_account_health_endpoint_structure(self, client):
+        """Health endpoint returns accounts with growth_score and active_alerts."""
+        from app.db.init_db import init_db
+        init_db()
+        resp = client.get("/api/accounts/health")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "accounts" in data
+        for a in data["accounts"]:
+            assert "growth_score" in a
+            assert "active_alerts" in a
+            assert "spend_last_7_days" in a

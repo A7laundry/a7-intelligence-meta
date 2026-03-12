@@ -1307,3 +1307,73 @@ tr:last-child td{border-bottom:none}
 }
 .wizard-result-ok  { color: #10b981; }
 .wizard-result-err { color: #ef4444; }
+
+/* ─── Account Context Panel ─── */
+.account-context-panel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.acp-sync  { color: var(--text-muted); }
+.acp-spend { font-weight: 600; color: var(--text); }
+.acp-alerts { font-weight: 600; color: var(--red); }
+.acp-alerts.none { color: var(--text-muted); font-weight: 400; }
+.acp-divider { color: var(--border); }
+
+/* ─── Account Search ─── */
+.account-search-wrap { display: none; }
+.account-search-wrap.visible { display: flex; align-items: center; }
+.account-search-input {
+  padding: 4px 9px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font-family: inherit;
+  font-size: 12px;
+  background: var(--surface);
+  color: var(--text);
+  width: 150px;
+  outline: none;
+}
+.account-search-input:focus { border-color: var(--meta); }
+
+/* ─── Cross-Account Table Row Health ─── */
+.ca-row-best  { border-left: 3px solid var(--green) !important; }
+.ca-row-risky { border-left: 3px solid var(--red)   !important; }
+tr.ca-health-green td:first-child { background: rgba(16,185,129,.04); }
+tr.ca-health-yellow td:first-child { background: rgba(245,158,11,.04); }
+tr.ca-health-red td:first-child { background: rgba(239,68,68,.04); }
+
+/* ─── Account Summary Cards ─── */
+.acct-summary-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.acct-summary-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 20px;
+}
+.asc-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.2;
+  margin-bottom: 4px;
+}
+.asc-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+@media (max-width: 768px) {
+  .acct-summary-row { grid-template-columns: repeat(2, 1fr); }
+}
