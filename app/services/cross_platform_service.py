@@ -35,9 +35,9 @@ class CrossPlatformService:
     # PUBLIC API
     # ══════════════════════════════════════════════════════════
 
-    def get_platform_summary(self, days=7):
+    def get_platform_summary(self, days=7, account_id=None):
         """Get aggregated metrics per platform with share of spend."""
-        data = self._get_dashboard_data(days)
+        data = self._get_dashboard_data(days, account_id=account_id)
         summaries = data.get("summary", {})
 
         meta = summaries.get("meta", {})
@@ -67,9 +67,9 @@ class CrossPlatformService:
             "generated_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
 
-    def get_channel_efficiency(self, days=7):
+    def get_channel_efficiency(self, days=7, account_id=None):
         """Compute efficiency metrics per platform for comparison."""
-        summary = self.get_platform_summary(days)
+        summary = self.get_platform_summary(days, account_id=account_id)
         platforms = summary["platforms"]
 
         # Compute efficiency score per platform
@@ -111,9 +111,9 @@ class CrossPlatformService:
             "generated_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
 
-    def detect_channel_opportunities(self, days=7):
+    def detect_channel_opportunities(self, days=7, account_id=None):
         """Detect cross-platform optimization opportunities."""
-        summary = self.get_platform_summary(days)
+        summary = self.get_platform_summary(days, account_id=account_id)
         platforms = {p["platform"]: p for p in summary["platforms"]}
         opportunities = []
 
@@ -216,9 +216,9 @@ class CrossPlatformService:
             "generated_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
 
-    def get_spend_share(self, days=7):
+    def get_spend_share(self, days=7, account_id=None):
         """Get platform budget distribution for chart visualization."""
-        summary = self.get_platform_summary(days)
+        summary = self.get_platform_summary(days, account_id=account_id)
         platforms = summary["platforms"]
 
         return {
@@ -230,9 +230,9 @@ class CrossPlatformService:
             "generated_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
 
-    def evaluate_cross_platform_budget(self, days=7):
+    def evaluate_cross_platform_budget(self, days=7, account_id=None):
         """Evaluate budget allocation across channels and suggest reallocations."""
-        summary = self.get_platform_summary(days)
+        summary = self.get_platform_summary(days, account_id=account_id)
         platforms = {p["platform"]: p for p in summary["platforms"]}
         efficiency = self.get_channel_efficiency(days)
         eff_map = {p["platform"]: p for p in efficiency["platforms"]}
@@ -288,7 +288,7 @@ class CrossPlatformService:
     # HELPERS
     # ══════════════════════════════════════════════════════════
 
-    def _get_dashboard_data(self, days):
+    def _get_dashboard_data(self, days, account_id=None):
         if not self.dashboard_service:
             return {
                 "summary": {
@@ -300,7 +300,7 @@ class CrossPlatformService:
             }
         range_key = "today" if days <= 1 else ("7d" if days <= 7 else "30d")
         try:
-            return self.dashboard_service.get_dashboard_data(range_key)
+            return self.dashboard_service.get_dashboard_data(range_key, account_id=account_id)
         except Exception:
             return {
                 "summary": {

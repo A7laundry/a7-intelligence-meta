@@ -169,6 +169,19 @@
     return currentAccountId ? '&account_id=' + currentAccountId : '';
   }
 
+  function _showEmptyState(el, reason) {
+    if (!el) return;
+    var acc = _accountsCache.find(function(a) { return a.id == currentAccountId; });
+    var accLabel = acc ? acc.account_name : (currentAccountId ? 'Account #' + currentAccountId : 'All accounts');
+    var rangeLabel = {'today': 'Today', '7d': 'Last 7 days', '30d': 'Last 30 days'}[currentRange] || currentRange;
+    var hint = reason || 'No data available for this period.';
+    el.innerHTML = '<div class="empty-state">' +
+      '<p>' + hint + '</p>' +
+      '<p class="empty-hint">' + accLabel + ' &bull; ' + rangeLabel + '</p>' +
+      '</div>';
+    el.style.display = '';
+  }
+
   async function initAccountSelector() {
     try {
       const accounts = await fetchApi('/accounts');
@@ -767,7 +780,7 @@
       loading.style.display = 'none';
 
       if (data.error || data.total_spend === 0) {
-        empty.style.display = '';
+        _showEmptyState(empty, 'No budget data found for this account and period.');
         return;
       }
 
@@ -778,7 +791,7 @@
       renderBudgetPacing(data);
     } catch (e) {
       loading.style.display = 'none';
-      empty.style.display = '';
+      _showEmptyState(empty, 'Could not load budget data.');
     }
   }
 
@@ -920,17 +933,14 @@
       var alerts = data.alerts || [];
       if (alerts.length === 0) {
         list.innerHTML = '';
-        if (empty) {
-          empty.innerHTML = '<div class="empty-state"><p>No active alerts.</p><p class="empty-hint">System is operating normally. Alerts appear here when thresholds are breached.</p></div>';
-          empty.style.display = '';
-        }
+        _showEmptyState(empty, 'No active alerts. System is operating normally.');
         return;
       }
       if (empty) empty.style.display = 'none';
       renderAlerts(list, alerts);
     } catch (e) {
       list.innerHTML = '';
-      if (empty) empty.style.display = '';
+      _showEmptyState(empty, 'Could not load alerts.');
     }
   }
 
@@ -1007,7 +1017,7 @@
       loading.style.display = 'none';
 
       if (briefing.error && !briefing.headline) {
-        empty.style.display = '';
+        _showEmptyState(empty, 'No campaign data available to generate AI insights.');
         return;
       }
 
@@ -1223,7 +1233,7 @@
       }
 
       if (!hasData) {
-        empty.style.display = '';
+        _showEmptyState(empty, 'Not enough historical data to generate forecasts. Run more campaigns and check back later.');
         return;
       }
 
@@ -1231,7 +1241,7 @@
       renderForecasts(forecasts);
     } catch (e) {
       loading.style.display = 'none';
-      empty.style.display = '';
+      _showEmptyState(empty, 'Could not load forecast data.');
     }
   }
 
@@ -1801,7 +1811,7 @@
       _applyCreativeFilter('all');
       _initCreativeFilters();
     } catch (e) {
-      if (emptyEl) emptyEl.style.display = '';
+      _showEmptyState(emptyEl, 'Could not load creative data.');
     }
   }
 
@@ -1813,7 +1823,7 @@
 
     if (!summary || summary.total_creatives === 0) {
       if (heroEl)  heroEl.style.display  = 'none';
-      if (emptyEl) emptyEl.style.display = '';
+      _showEmptyState(emptyEl, 'No creatives found for this account and period.');
       if (gridEl)  gridEl.innerHTML      = '';
       if (noResEl) noResEl.style.display = 'none';
       return;

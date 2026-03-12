@@ -2,7 +2,7 @@
 
 import sys
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Add project root to path for importing existing modules
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -234,7 +234,13 @@ class DashboardService:
             except Exception:
                 pass
 
-        all_dates = sorted(set(list(meta_daily.keys()) + list(google_daily.keys())))
+        # Build complete date range — fill missing dates with zeros so charts
+        # always render a full window (30 bars for 30d, not just days with spend)
+        days = cfg.get("days", 7)
+        end = datetime.utcnow().date()
+        start = end - timedelta(days=days - 1)
+        all_dates = [(start + timedelta(i)).strftime("%Y-%m-%d") for i in range(days)]
+
         return [
             {
                 "date": d,
@@ -251,6 +257,12 @@ class DashboardService:
         snapshots = SnapshotService.get_daily_snapshots(days=days, account_id=account_id)
         if not snapshots:
             return None
+
+        # Build full date range so trend always has `days` entries (zeros for missing dates)
+        end = datetime.utcnow().date()
+        start = end - timedelta(days=days - 1)
+        full_dates = [(start + timedelta(i)).strftime("%Y-%m-%d") for i in range(days)]
+        snap_by_date_plat = {(s["date"], s["platform"]): s for s in snapshots}
 
         meta_rows = [s for s in snapshots if s["platform"] == "meta"]
         google_rows = [s for s in snapshots if s["platform"] == "google"]
@@ -293,13 +305,13 @@ class DashboardService:
             },
             "daily_trend": [
                 {
-                    "date": s["date"],
-                    "meta_spend": s["spend"] if s["platform"] == "meta" else 0,
-                    "google_spend": s["spend"] if s["platform"] == "google" else 0,
-                    "meta_conversions": s["conversions"] if s["platform"] == "meta" else 0,
-                    "google_conversions": s["conversions"] if s["platform"] == "google" else 0,
+                    "date": d,
+                    "meta_spend": snap_by_date_plat.get((d, "meta"), {}).get("spend", 0),
+                    "google_spend": snap_by_date_plat.get((d, "google"), {}).get("spend", 0),
+                    "meta_conversions": snap_by_date_plat.get((d, "meta"), {}).get("conversions", 0),
+                    "google_conversions": snap_by_date_plat.get((d, "google"), {}).get("conversions", 0),
                 }
-                for s in snapshots
+                for d in full_dates
             ],
             "comparison": SnapshotService.get_period_comparison(
                 RANGES.get(range_key, {}).get("days", 7), account_id=account_id
