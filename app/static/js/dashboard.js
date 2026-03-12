@@ -473,11 +473,12 @@
         '</td></tr>';
       return;
     }
+    var platform = tbodyId === 'googleTableBody' ? 'google' : 'meta';
     let html = '';
     campaigns.forEach(c => {
       const sc = statusClass(c.status);
       const isActive = (c.status || '').toUpperCase() === 'ACTIVE';
-      html += '<tr data-campaign-id="' + (c.campaign_id || c.id || '') + '">' +
+      html += '<tr data-campaign-id="' + (c.campaign_id || c.id || '') + '" data-platform="' + platform + '">' +
         '<td style="font-weight:600">' + c.name + '</td>' +
         '<td><span class="status-badge ' + sc + '">' + c.status + '</span></td>' +
         '<td>' + fmtMoney(c.spend) + '</td>' +
@@ -497,6 +498,20 @@
       html += '</tr>';
     });
     tbody.innerHTML = html;
+
+    // Attach drill-down click handlers
+    tbody.querySelectorAll('tr[data-campaign-id]').forEach(function(row, idx) {
+      row.addEventListener('click', function(e) {
+        if (e.target.closest('button')) return; // let action buttons work normally
+        var camp = campaigns[idx];
+        if (!camp) return;
+        document.querySelectorAll('#metaTable tbody tr.selected, #googleTable tbody tr.selected').forEach(function(r) {
+          r.classList.remove('selected');
+        });
+        row.classList.add('selected');
+        _openCampaignDrill(camp, platform);
+      });
+    });
   }
 
   /* ─── Toggle Campaign Status ─── */
@@ -574,10 +589,20 @@
 
     renderKPIs(data);
     renderTrendChart(data.daily_trend || []);
+    // Cache campaign data for filter system
+    _campData.meta   = data.campaigns.meta   || [];
+    _campData.google = data.campaigns.google || [];
+
     renderCampaignTable(data.campaigns.meta, 'metaTableBody', true);
     renderCampaignTable(data.campaigns.google, 'googleTableBody', false);
     setupTableSort('metaTable', data.campaigns.meta, 'metaTableBody', true);
     setupTableSort('googleTable', data.campaigns.google, 'googleTableBody', false);
+
+    // Init filters + update count
+    _initCampaignFilters();
+    var countEl = document.getElementById('campFilterCount');
+    var total   = _campData.meta.length + _campData.google.length;
+    if (countEl) countEl.textContent = total + ' campaign' + (total !== 1 ? 's' : '');
 
     // Footer
     const dt = data.generated_at ? new Date(data.generated_at) : new Date();
@@ -750,6 +775,7 @@
       renderBudgetScore(data);
       renderBudgetChart(data);
       renderBudgetLists(data);
+      renderBudgetPacing(data);
     } catch (e) {
       loading.style.display = 'none';
       empty.style.display = '';
@@ -839,6 +865,48 @@
     html += '</div>';
 
     el.innerHTML = html;
+  }
+
+  function renderBudgetPacing(data) {
+    var section = document.getElementById('budgetPacingSection');
+    var list    = document.getElementById('budgetPacingList');
+    if (!section || !list) return;
+
+    var campaigns = (data.efficient_campaigns || []).concat(data.waste_campaigns || []);
+    if (campaigns.length === 0) { section.style.display = 'none'; return; }
+
+    // Build pacing from spend ratio (spend / (spend + remaining_budget))
+    // Use total_spend and waste_spend ratios as proxy for pacing where direct data unavailable
+    var totalSpend   = data.total_spend   || 0;
+    var wasteSpend   = data.waste_spend   || 0;
+    var effSpend     = data.efficient_spend || 0;
+    var dayOfMonth   = new Date().getDate();
+    var daysInMonth  = new Date(new Date().getFullYear(), new Date().getMonth()+1, 0).getDate();
+    var expectedPct  = dayOfMonth / daysInMonth;
+
+    var items = [];
+    campaigns.slice(0, 6).forEach(function(c) {
+      var spend = c.spend || 0;
+      if (spend === 0) return;
+      // Derive pacing: compare spend ratio to expected monthly percentage
+      var spendRatio = totalSpend > 0 ? spend / totalSpend : 0;
+      var barPct = Math.min(spendRatio * 100 * (1 / Math.max(expectedPct, 0.01)), 100).toFixed(0);
+      var pacingDiff = spendRatio / Math.max(expectedPct, 0.01);
+      var statusClass = pacingDiff > 1.2 ? 'overspend' : pacingDiff > 1.05 ? 'ahead' : pacingDiff > 0.9 ? 'on-pace' : 'behind';
+      var statusLabel = statusClass === 'overspend' ? 'Over' : statusClass === 'ahead' ? 'Ahead' : statusClass === 'on-pace' ? 'On Pace' : 'Behind';
+      items.push(
+        '<div class="budget-pacing-item">' +
+          '<div class="budget-pacing-name" title="' + c.name + '">' + c.name + '</div>' +
+          '<div class="budget-pacing-bar-wrap"><div class="budget-pacing-bar ' + statusClass + '" style="width:' + barPct + '%"></div></div>' +
+          '<div class="budget-pacing-val">$' + Number(spend).toFixed(0) + '</div>' +
+          '<div class="budget-pacing-status ' + statusClass + '">' + statusLabel + '</div>' +
+        '</div>'
+      );
+    });
+
+    if (items.length === 0) { section.style.display = 'none'; return; }
+    list.innerHTML = items.join('');
+    section.style.display = '';
   }
 
   /* ─── Alerts Center ─── */
@@ -947,8 +1015,12 @@
       renderCoachHealth(healthData);
       renderCoachHeadline(briefing);
       renderCoachBullets(briefing.summary_bullets || []);
-      renderCoachHighlights(briefing);
-      renderCoachRecs(recsData.recommendations || []);
+      // Enrich briefing with risk recs for the risks column
+      var allRecs = recsData.recommendations || [];
+      var riskRecs = allRecs.filter(function(r) { return r.severity === 'critical' || r.severity === 'warning'; });
+      if (!briefing.top_risk && riskRecs.length > 0) briefing.top_risk = riskRecs[0];
+      renderCoachHighlights(briefing, riskRecs);
+      renderCoachRecs(allRecs);
     } catch (e) {
       loading.style.display = 'none';
       empty.style.display = '';
@@ -956,16 +1028,32 @@
   }
 
   function renderCoachHealth(h) {
-    const badge = document.getElementById('healthBadge');
-    const label = document.getElementById('healthLabel');
-    const score = document.getElementById('healthScore');
-    if (!badge) return;
+    var bar = document.getElementById('coachHealthBar');
+    if (!bar) return;
+    var score = Math.round(h.score || 0);
+    var label = (h.label || 'unknown').replace('_', ' ');
+    var tier  = score >= 80 ? 'elite' : score >= 65 ? 'strong' : score >= 50 ? 'stable' : score >= 35 ? 'weak' : 'critical';
+    var tierLabel = { elite: 'Elite', strong: 'Strong', stable: 'Stable', weak: 'Needs Work', critical: 'Critical' }[tier] || label;
+    var pct = Math.min(100, Math.max(0, score));
 
-    badge.textContent = h.score;
-    badge.className = 'health-badge ' + (h.label || 'stable');
-    label.textContent = (h.label || 'unknown').replace('_', ' ');
-    label.className = 'health-label ' + (h.label || 'stable');
-    score.textContent = 'Health Score: ' + h.score + '/100';
+    bar.innerHTML = [
+      '<div class="coach-hb-left">',
+        '<div class="coach-hb-score ' + tier + '">' + score + '</div>',
+        '<div class="coach-hb-meta">',
+          '<div class="coach-hb-tier">' + tierLabel + '</div>',
+          '<div class="coach-hb-label">Growth Score</div>',
+        '</div>',
+      '</div>',
+      '<div class="coach-hb-bar-wrap">',
+        '<div class="coach-hb-bar"><div class="coach-hb-fill ' + tier + '" style="width:' + pct + '%"></div></div>',
+        '<div class="coach-hb-legend">',
+          '<span>0</span><span>50</span><span>100</span>',
+        '</div>',
+      '</div>',
+      '<button class="coach-hb-cta" onclick="window.a7Navigate&&window.a7Navigate(\'ai-coach\')">',
+        'Full Analysis →',
+      '</button>',
+    ].join('');
   }
 
   function renderCoachHeadline(b) {
@@ -976,74 +1064,123 @@
   function renderCoachBullets(bullets) {
     var el = document.getElementById('coachBullets');
     if (!el) return;
-    el.innerHTML = bullets.map(function(b) { return '<li>' + b + '</li>'; }).join('');
+    el.innerHTML = bullets.map(function(b) { return '<li>' + _escCC(b) + '</li>'; }).join('');
   }
 
-  function renderCoachHighlights(b) {
-    var el = document.getElementById('coachHighlights');
-    if (!el) return;
-    var html = '';
+  function renderCoachHighlights(b, riskRecs) {
+    // Opportunities column
+    var oppEl = document.getElementById('coachOpportunities');
+    // Risks column
+    var riskEl = document.getElementById('coachRisks');
 
-    var tc = b.top_campaign;
-    if (tc) {
-      html += '<div class="coach-highlight-card">' +
-        '<div class="coach-highlight-label">Top Campaign</div>' +
-        '<div class="coach-highlight-value">' + tc.name + '</div>' +
-        '<div class="coach-highlight-sub">' + tc.conversions + ' conv | $' + (tc.cpa || 0).toFixed(2) + ' CPA</div>' +
-      '</div>';
+    if (oppEl) {
+      var oppHtml = '';
+      var tc = b.top_campaign;
+      if (tc) {
+        oppHtml += '<div class="coach-intel-item opp" onclick="window.a7Navigate&&window.a7Navigate(\'campaigns\')">' +
+          '<div class="coach-intel-item-icon">◫</div>' +
+          '<div class="coach-intel-item-body">' +
+            '<div class="coach-intel-item-title">' + _escCC(tc.name || '') + '</div>' +
+            '<div class="coach-intel-item-sub">Top campaign · ' + (tc.conversions || 0) + ' conv · $' + (tc.cpa || 0).toFixed(2) + ' CPA</div>' +
+          '</div>' +
+          '<div class="coach-intel-item-arrow">›</div>' +
+        '</div>';
+      }
+      var opp = b.top_opportunity;
+      if (opp) {
+        oppHtml += '<div class="coach-intel-item opp" onclick="window.a7Navigate&&window.a7Navigate(\'budget\')">' +
+          '<div class="coach-intel-item-icon">◈</div>' +
+          '<div class="coach-intel-item-body">' +
+            '<div class="coach-intel-item-title">' + _escCC(opp.title || '') + '</div>' +
+            '<div class="coach-intel-item-sub">' + _escCC(opp.entity_name || '') + '</div>' +
+          '</div>' +
+          '<div class="coach-intel-item-arrow">›</div>' +
+        '</div>';
+      }
+      var tr = b.top_creative;
+      if (tr) {
+        oppHtml += '<div class="coach-intel-item opp" onclick="window.a7Navigate&&window.a7Navigate(\'creative\')">' +
+          '<div class="coach-intel-item-icon">◱</div>' +
+          '<div class="coach-intel-item-body">' +
+            '<div class="coach-intel-item-title">' + _escCC(tr.name || '') + '</div>' +
+            '<div class="coach-intel-item-sub">Top creative · Score: ' + (tr.score || 0) + '/100</div>' +
+          '</div>' +
+          '<div class="coach-intel-item-arrow">›</div>' +
+        '</div>';
+      }
+      if (!oppHtml) oppHtml = '<div class="coach-intel-empty">No opportunities detected yet.</div>';
+      oppEl.innerHTML = oppHtml;
     }
 
-    var tr = b.top_creative;
-    if (tr) {
-      html += '<div class="coach-highlight-card">' +
-        '<div class="coach-highlight-label">Top Creative</div>' +
-        '<div class="coach-highlight-value">' + tr.name + '</div>' +
-        '<div class="coach-highlight-sub">Score: ' + tr.score + '/100 | ' + tr.conversions + ' conv</div>' +
-      '</div>';
+    if (riskEl) {
+      var riskHtml = '';
+      // Show top_risk from briefing + up to 2 more from riskRecs
+      var riskList = [];
+      if (b.top_risk) riskList.push(b.top_risk);
+      if (riskRecs) {
+        riskRecs.forEach(function(r) {
+          if (riskList.length < 3 && (!b.top_risk || r.title !== b.top_risk.title)) riskList.push(r);
+        });
+      }
+      riskList.forEach(function(risk) {
+        var sev = risk.severity || 'warning';
+        var destR = risk.entity_type ? ({'campaign': 'campaigns', 'creative': 'creative'}[risk.entity_type.toLowerCase()] || 'alerts') : 'alerts';
+        riskHtml += '<div class="coach-intel-item risk sev-' + _escCC(sev) + '" onclick="window.a7Navigate&&window.a7Navigate(\'' + _escCC(destR) + '\')">' +
+          '<div class="coach-intel-item-icon">◬</div>' +
+          '<div class="coach-intel-item-body">' +
+            '<div class="coach-intel-item-title">' + _escCC(risk.title || '') + '</div>' +
+            '<div class="coach-intel-item-sub">' + _escCC(risk.entity_name || risk.message || '') + '</div>' +
+          '</div>' +
+          '<span class="coach-intel-sev-badge ' + _escCC(sev) + '">' + _escCC(sev) + '</span>' +
+        '</div>';
+      });
+      if (!riskHtml) riskHtml = '<div class="coach-intel-empty">✓ No critical risks detected.</div>';
+      riskEl.innerHTML = riskHtml;
     }
-
-    var opp = b.top_opportunity;
-    if (opp) {
-      html += '<div class="coach-highlight-card">' +
-        '<div class="coach-highlight-label">Top Opportunity</div>' +
-        '<div class="coach-highlight-value">' + opp.title + '</div>' +
-        '<div class="coach-highlight-sub">' + (opp.entity_name || '') + '</div>' +
-      '</div>';
-    }
-
-    var risk = b.top_risk;
-    if (risk) {
-      html += '<div class="coach-highlight-card">' +
-        '<div class="coach-highlight-label">Top Risk</div>' +
-        '<div class="coach-highlight-value">' + risk.title + '</div>' +
-        '<div class="coach-highlight-sub">' + (risk.entity_name || '') + '</div>' +
-      '</div>';
-    }
-
-    el.innerHTML = html;
   }
 
   function renderCoachRecs(recs) {
     var el = document.getElementById('coachRecs');
     if (!el) return;
     if (recs.length === 0) {
-      el.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:12px;font-size:13px">No specific recommendations at this time.</div>';
+      el.innerHTML = '<div class="coach-recs-empty">No specific recommendations at this time.</div>';
       return;
     }
 
-    // Show max 6 recommendations
+    var destMap = {
+      campaign:  'campaigns',
+      creative:  'creative',
+      budget:    'budget',
+      alert:     'alerts',
+      automation: 'automation',
+    };
+
     var shown = recs.slice(0, 6);
     var html = '';
     shown.forEach(function(r) {
-      html += '<div class="coach-rec-card severity-' + r.severity + '">' +
-        '<div class="coach-rec-header">' +
-          '<span class="coach-rec-severity severity-badge-' + r.severity + '">' + r.severity + '</span>' +
-          '<span class="coach-rec-title">' + r.title + '</span>' +
-        '</div>' +
-        '<div class="coach-rec-message">' + r.message + '</div>' +
-        '<div class="coach-rec-action">' + r.recommendation + '</div>' +
-        '<div class="coach-rec-entity">' + (r.entity_type || '') + ': ' + (r.entity_name || '') + '</div>' +
-      '</div>';
+      var conf = (r.metrics && r.metrics.confidence) ? r.metrics.confidence : null;
+      var dest = destMap[(r.entity_type || '').toLowerCase()] || 'ai-coach';
+      var confHtml = conf
+        ? '<span class="coach-rec-conf conf-' + _escCC(conf) + '">' + _escCC(conf) + ' confidence</span>'
+        : '';
+      var entityHtml = r.entity_name
+        ? '<div class="coach-rec-entity">' + _escCC(r.entity_type || '') + ': <strong>' + _escCC(r.entity_name) + '</strong></div>'
+        : '';
+      html += [
+        '<div class="coach-rec-card severity-' + _escCC(r.severity) + '">',
+          '<div class="coach-rec-header">',
+            '<span class="coach-rec-severity severity-badge-' + _escCC(r.severity) + '">' + _escCC(r.severity) + '</span>',
+            '<span class="coach-rec-title">' + _escCC(r.title) + '</span>',
+            confHtml,
+          '</div>',
+          '<div class="coach-rec-message">' + _escCC(r.message) + '</div>',
+          '<div class="coach-rec-action">' + _escCC(r.recommendation) + '</div>',
+          entityHtml,
+          '<button class="coach-rec-nav-btn" onclick="window.a7Navigate&&window.a7Navigate(\'' + _escCC(dest) + '\')">',
+            'Open ' + _escCC(dest.replace('-', ' ').replace(/\b\w/g, function(c){ return c.toUpperCase(); })) + ' →',
+          '</button>',
+        '</div>',
+      ].join('');
     });
     el.innerHTML = html;
   }
@@ -1450,6 +1587,20 @@
       '<div class="auto-stat-label">Total</div>' +
     '</div>';
     el.innerHTML = html;
+
+    // Also populate the top stats bar
+    var bar = document.getElementById('autoStatsBar');
+    if (bar) {
+      var pending  = document.getElementById('autoStPending');
+      var approved = document.getElementById('autoStApproved');
+      var executed = document.getElementById('autoStExecuted');
+      var failed   = document.getElementById('autoStFailed');
+      if (pending)  pending.textContent  = s.proposed  || 0;
+      if (approved) approved.textContent = s.approved  || 0;
+      if (executed) executed.textContent = s.executed  || 0;
+      if (failed)   failed.textContent   = s.failed    || 0;
+      bar.style.display = '';
+    }
   }
 
   function renderAutoActions(actions, tab) {
@@ -1639,70 +1790,197 @@
 
   /* ─── Creative Intelligence ─── */
   async function loadCreatives() {
+    var emptyEl = document.getElementById('creativeEmpty');
     try {
       const [summaryData, creativesData] = await Promise.all([
         fetchApi('/creatives/summary?days=7' + acctParam()),
         fetchApi('/creatives?days=7' + acctParam()),
       ]);
-
-      renderCreativeSummary(summaryData);
-      renderCreativeGrid(creativesData.creatives || []);
+      _creativeData = creativesData.creatives || [];
+      renderCreativeHero(summaryData, _creativeData);
+      _applyCreativeFilter('all');
+      _initCreativeFilters();
     } catch (e) {
-      // Silently handle - creative section shows empty state
-      const emptyEl = document.getElementById('creativeEmpty');
       if (emptyEl) emptyEl.style.display = '';
     }
   }
 
-  function renderCreativeSummary(s) {
-    const el = document.getElementById('creativeSummary');
-    if (!el || s.total_creatives === 0) {
-      if (el) el.style.display = 'none';
-      const emptyEl = document.getElementById('creativeEmpty');
+  function renderCreativeHero(summary, creatives) {
+    var heroEl  = document.getElementById('creativeHero');
+    var emptyEl = document.getElementById('creativeEmpty');
+    var gridEl  = document.getElementById('creativeGrid');
+    var noResEl = document.getElementById('creativeNoResults');
+
+    if (!summary || summary.total_creatives === 0) {
+      if (heroEl)  heroEl.style.display  = 'none';
       if (emptyEl) emptyEl.style.display = '';
+      if (gridEl)  gridEl.innerHTML      = '';
+      if (noResEl) noResEl.style.display = 'none';
       return;
     }
+    if (emptyEl) emptyEl.style.display = 'none';
+    if (!heroEl)  return;
+    heroEl.style.display = '';
 
-    el.style.display = '';
-    document.getElementById('creativeEmpty').style.display = 'none';
+    // ── Stats strip ──────────────────────────────────────────────────────────
+    var warnClass = summary.fatigued_count > 0 ? ' cre-hero-stat-warn' : '';
+    var statsHtml =
+      '<div class="cre-hero-stats">' +
+        '<div class="cre-hero-stat"><div class="cre-hero-stat-val">' + summary.total_creatives + '</div><div class="cre-hero-stat-lbl">Total</div></div>' +
+        '<div class="cre-hero-stat"><div class="cre-hero-stat-val">' + (summary.active_creatives || 0) + '</div><div class="cre-hero-stat-lbl">Active</div></div>' +
+        '<div class="cre-hero-stat"><div class="cre-hero-stat-val">' + summary.avg_score + '</div><div class="cre-hero-stat-lbl">Avg Score</div></div>' +
+        '<div class="cre-hero-stat' + warnClass + '"><div class="cre-hero-stat-val">' + summary.fatigued_count + '</div><div class="cre-hero-stat-lbl">Fatigued</div></div>' +
+      '</div>';
 
-    el.innerHTML =
-      '<div class="creative-stat"><div class="creative-stat-value">' + s.total_creatives + '</div><div class="creative-stat-label">Total Creatives</div></div>' +
-      '<div class="creative-stat"><div class="creative-stat-value">' + s.avg_score + '</div><div class="creative-stat-label">Avg Score</div></div>' +
-      '<div class="creative-stat"><div class="creative-stat-value">' + s.fatigued_count + '</div><div class="creative-stat-label">Fatigued</div></div>' +
-      '<div class="creative-stat"><div class="creative-stat-value">' + fmtMoney(s.total_spend) + '</div><div class="creative-stat-label">Total Spend</div></div>';
+    // ── Top creative spotlight ────────────────────────────────────────────────
+    var spotlightsHtml = '';
+    var top = summary.top_performer;
+    if (top) {
+      var thumb = top.thumbnail_url
+        ? '<img src="' + _escCC(top.thumbnail_url) + '" class="cre-hero-thumb" loading="lazy" onerror="this.style.display=\'none\'">'
+        : '<div class="cre-hero-thumb cre-hero-thumb-empty">◻</div>';
+      var sc = top.score >= 70 ? 'score-high' : (top.score >= 40 ? 'score-mid' : 'score-low');
+      spotlightsHtml +=
+        '<div class="cre-hero-spotlight">' +
+          '<div class="cre-hero-spotlight-label cre-label-top">★ Top Creative</div>' +
+          '<div class="cre-hero-spotlight-inner">' +
+            thumb +
+            '<div class="cre-hero-spotlight-meta">' +
+              '<div class="cre-hero-spotlight-name" title="' + _escCC(top.name || '') + '">' + _escCC(top.name || 'Untitled') + '</div>' +
+              '<div class="cre-hero-spotlight-camp">' + _escCC(top.campaign || '') + '</div>' +
+              '<div class="cre-hero-spotlight-metrics">' +
+                '<span>CTR ' + fmtPct(top.ctr) + '</span>' +
+                '<span>Conv. ' + fmt(top.conversions) + '</span>' +
+                '<span class="creative-score ' + sc + '">' + top.score + '/100</span>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+    }
+
+    // ── Most fatigued ─────────────────────────────────────────────────────────
+    var worst = creatives
+      .filter(function(c) { return c.fatigue_status === 'fatigued' || c.fatigue_status === 'critical'; })
+      .sort(function(a, b) { return (b.frequency || 0) - (a.frequency || 0); })[0];
+    if (worst) {
+      var fsc = 'fatigue-' + worst.fatigue_status;
+      spotlightsHtml +=
+        '<div class="cre-hero-spotlight">' +
+          '<div class="cre-hero-spotlight-label cre-label-fatigue">⚠ Most Fatigued</div>' +
+          '<div class="cre-hero-spotlight-inner">' +
+            (worst.thumbnail_url
+              ? '<img src="' + _escCC(worst.thumbnail_url) + '" class="cre-hero-thumb" loading="lazy" onerror="this.style.display=\'none\'">'
+              : '<div class="cre-hero-thumb cre-hero-thumb-empty">◻</div>') +
+            '<div class="cre-hero-spotlight-meta">' +
+              '<div class="cre-hero-spotlight-name">' + _escCC(worst.name || 'Untitled') + '</div>' +
+              '<div class="cre-hero-spotlight-camp">' + _escCC(worst.campaign || '') + '</div>' +
+              '<div class="cre-hero-spotlight-metrics">' +
+                '<span>Frequency ' + (worst.frequency || 0).toFixed(1) + 'x</span>' +
+                '<span class="fatigue-badge ' + fsc + '">' + worst.fatigue_status + '</span>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+    }
+
+    heroEl.innerHTML = statsHtml + (spotlightsHtml ? '<div class="cre-hero-spotlights">' + spotlightsHtml + '</div>' : '');
   }
 
   function renderCreativeGrid(creatives) {
-    const grid = document.getElementById('creativeGrid');
-    if (!grid || creatives.length === 0) return;
+    var grid = document.getElementById('creativeGrid');
+    if (!grid) return;
+    if (!creatives || creatives.length === 0) {
+      grid.innerHTML = '';
+      return;
+    }
+    var html = '';
+    creatives.forEach(function(c) {
+      var scoreClass  = c.score >= 70 ? 'score-high' : (c.score >= 40 ? 'score-mid' : 'score-low');
+      var showFatigue = c.fatigue_status && c.fatigue_status !== 'healthy';
+      var thumb = c.thumbnail_url
+        ? '<img src="' + _escCC(c.thumbnail_url) + '" alt="" loading="lazy" onerror="this.parentNode.classList.add(\'cre-no-thumb\')">'
+        : '';
+      var stBadge = '<span class="status-badge ' + statusClass(c.status) + ' cre-status-overlay">' + (c.status || 'UNKNOWN') + '</span>';
+      var campLine = _escCC(c.campaign || '—') + (c.adset ? ' <span class="cre-adset-sep">›</span> ' + _escCC(c.adset) : '');
 
-    let html = '';
-    creatives.forEach(c => {
-      const scoreClass = c.score >= 70 ? 'score-high' : (c.score >= 40 ? 'score-mid' : 'score-low');
-      const fatigueClass = 'fatigue-' + c.fatigue_status;
-      const thumbHtml = c.thumbnail_url
-        ? '<img src="' + c.thumbnail_url + '" alt="' + c.name + '">'
-        : '<span>No preview</span>';
-
-      html += '<div class="creative-card">' +
-        '<div class="creative-card-thumb">' + thumbHtml + '</div>' +
-        '<div class="creative-card-body">' +
-          '<div class="creative-card-name">' + c.name + '</div>' +
-          '<div class="creative-card-campaign">' + c.campaign + ' &rarr; ' + c.adset + '</div>' +
-          '<div class="creative-card-metrics">' +
-            '<div class="creative-metric"><div class="creative-metric-value">' + fmtPct(c.ctr) + '</div><div class="creative-metric-label">CTR</div></div>' +
-            '<div class="creative-metric"><div class="creative-metric-value">' + c.conversions + '</div><div class="creative-metric-label">Conv</div></div>' +
-            '<div class="creative-metric"><div class="creative-metric-value">' + fmtMoney(c.cpa) + '</div><div class="creative-metric-label">CPA</div></div>' +
+      html +=
+        '<div class="creative-card">' +
+          '<div class="creative-card-thumb">' + thumb + stBadge + '</div>' +
+          '<div class="creative-card-body">' +
+            '<div class="creative-card-name" title="' + _escCC(c.name || '') + '">' + _escCC(c.name || 'Untitled') + '</div>' +
+            '<div class="creative-card-campaign">' + campLine + '</div>' +
+            '<div class="creative-card-metrics">' +
+              '<div class="creative-metric"><div class="creative-metric-value">' + fmtPct(c.ctr) + '</div><div class="creative-metric-label">CTR</div></div>' +
+              '<div class="creative-metric"><div class="creative-metric-value">' + fmt(c.conversions) + '</div><div class="creative-metric-label">Conv.</div></div>' +
+              '<div class="creative-metric"><div class="creative-metric-value">' + fmtMoney(c.cpa) + '</div><div class="creative-metric-label">CPA</div></div>' +
+            '</div>' +
           '</div>' +
-        '</div>' +
-        '<div class="creative-card-footer">' +
-          '<span class="creative-score ' + scoreClass + '">' + c.score + '/100</span>' +
-          '<span class="fatigue-badge ' + fatigueClass + '">' + c.fatigue_status + '</span>' +
-        '</div>' +
-      '</div>';
+          '<div class="creative-card-footer">' +
+            '<span class="creative-score ' + scoreClass + '">' + c.score + '/100</span>' +
+            (showFatigue ? '<span class="fatigue-badge fatigue-' + c.fatigue_status + '">' + c.fatigue_status + '</span>' : '') +
+          '</div>' +
+          '<div class="creative-card-actions">' +
+            '<button class="cre-action-btn" onclick="window.a7Navigate(\'campaigns\')" title="View campaign">Campaign</button>' +
+            '<button class="cre-action-btn" onclick="window.a7Navigate(\'content-studio\')" title="Send to Content Studio">Content Studio</button>' +
+          '</div>' +
+        '</div>';
     });
     grid.innerHTML = html;
+  }
+
+  function _initCreativeFilters() {
+    var group = document.getElementById('creativeStatusFilter');
+    if (!group || group.dataset.initialized) return;
+    group.dataset.initialized = '1';
+    group.querySelectorAll('[data-cre-filter]').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        group.querySelectorAll('[data-cre-filter]').forEach(function(b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        _applyCreativeFilter(btn.getAttribute('data-cre-filter'));
+      });
+    });
+  }
+
+  function _applyCreativeFilter(filter) {
+    var filtered;
+    if (filter === 'active') {
+      filtered = _creativeData.filter(function(c) { return (c.status || '').toUpperCase() === 'ACTIVE'; });
+    } else if (filter === 'fatigue') {
+      filtered = _creativeData.filter(function(c) { return c.fatigue_status && c.fatigue_status !== 'healthy'; });
+    } else if (filter === 'top') {
+      filtered = _creativeData.filter(function(c) { return c.score >= 70; });
+      // Fallback: show top 20% if nothing scores ≥70
+      if (filtered.length === 0 && _creativeData.length > 0) {
+        var sorted = _creativeData.slice().sort(function(a, b) { return b.score - a.score; });
+        filtered   = sorted.slice(0, Math.max(1, Math.ceil(sorted.length * 0.2)));
+      }
+    } else {
+      filtered = _creativeData;
+    }
+
+    var countEl = document.getElementById('creativeFilterCount');
+    if (countEl) countEl.textContent = filtered.length + ' creative' + (filtered.length !== 1 ? 's' : '');
+
+    var noResEl = document.getElementById('creativeNoResults');
+    if (filtered.length === 0) {
+      renderCreativeGrid([]);
+      if (noResEl) {
+        var msgs = {
+          active:  { icon: '◻', title: 'No Active Creatives',    hint: 'All creatives appear to be paused or archived.' },
+          fatigue: { icon: '✓', title: 'No Fatigue Signals',      hint: 'All creatives look healthy — no frequency or CTR-decline warnings.' },
+          top:     { icon: '◎', title: 'No Top Performers Yet',   hint: 'Keep running campaigns to build score data. Creatives scoring 70+ appear here.' },
+        };
+        var m = msgs[filter] || { icon: '◎', title: 'No Creatives Found', hint: '' };
+        noResEl.innerHTML =
+          '<div class="cre-no-results-icon">' + m.icon + '</div>' +
+          '<div class="cre-no-results-title">' + m.title + '</div>' +
+          (m.hint ? '<div class="cre-no-results-hint">' + m.hint + '</div>' : '');
+        noResEl.style.display = '';
+      }
+    } else {
+      if (noResEl) noResEl.style.display = 'none';
+      renderCreativeGrid(filtered);
+    }
   }
 
   window.collectCreatives = async function () {
@@ -3492,11 +3770,833 @@
     'billing':        { title: 'Billing',               subtitle: 'Plan usage & limits',               icon: '◐' },
   };
 
+  /* ─── Accounts Page ─── */
+  async function loadAccountsPage() {
+    var loading = document.getElementById('acctCardsLoading');
+    var list    = document.getElementById('acctCardsList');
+    var empty   = document.getElementById('acctCardsEmpty');
+    if (!loading) return;
+
+    try {
+      var accounts = _accountsCache.length ? _accountsCache : await fetchApi('/accounts');
+      if (!_accountsCache.length && accounts.length) _accountsCache = accounts;
+
+      loading.style.display = 'none';
+
+      if (!accounts || accounts.length === 0) {
+        if (empty) empty.style.display = '';
+        return;
+      }
+
+      // Fetch health data to get scores + alert counts
+      var health = [];
+      try { health = (await fetchApi('/accounts/health')).accounts || []; } catch(e) {}
+
+      var html = accounts.map(function(acc) {
+        var h = health.find(function(x) { return x.id == acc.id; }) || {};
+        var score    = h.growth_score || 0;
+        var alerts   = h.active_alerts || 0;
+        var spend7d  = h.spend_last_7_days || 0;
+        var scoreClass = score >= 70 ? 'good' : score >= 40 ? 'mid' : 'bad';
+        var statusDot  = acc.status === 'active' ? 'active' : acc.status === 'paused' ? 'paused' : 'inactive';
+        var platClass  = acc.platform === 'google' ? 'google' : '';
+        var alertsClass = alerts > 0 ? '' : ' none';
+        var syncText = acc.last_sync ? _relativeTime(acc.last_sync) : 'Never synced';
+
+        return [
+          '<div class="acct-card ' + platClass + '">',
+            '<div class="acct-card-top">',
+              '<span class="acct-card-plat ' + platClass + '">' + (acc.platform === 'google' ? 'Google' : 'Meta') + '</span>',
+              '<span class="acct-card-name" title="' + _escCC(acc.account_name) + '">' + _escCC(acc.account_name) + '</span>',
+              '<span class="acct-card-status-dot ' + statusDot + '"></span>',
+            '</div>',
+            '<div class="acct-card-stats">',
+              '<div><div class="acct-card-stat-val">' + score + '</div><div class="acct-card-stat-key">Growth Score</div></div>',
+              '<div><div class="acct-card-stat-val">' + alerts + '</div><div class="acct-card-stat-key">Active Alerts</div></div>',
+              '<div><div class="acct-card-stat-val">' + _fmtCCMoney(spend7d) + '</div><div class="acct-card-stat-key">Spend 7d</div></div>',
+              '<div><div class="acct-card-stat-val ' + scoreClass + '">' + (h.growth_label || '—') + '</div><div class="acct-card-stat-key">Status</div></div>',
+            '</div>',
+            '<div class="acct-card-footer">',
+              '<span class="acct-card-sync">Synced: ' + syncText + '</span>',
+              '<span class="acct-card-alerts' + alertsClass + '">' + alerts + ' alert' + (alerts !== 1 ? 's' : '') + '</span>',
+            '</div>',
+          '</div>',
+        ].join('');
+      }).join('');
+
+      if (list) { list.innerHTML = html; list.style.display = ''; }
+    } catch (e) {
+      if (loading) loading.style.display = 'none';
+      if (empty)   empty.style.display   = '';
+    }
+  }
+
+  function _relativeTime(isoStr) {
+    try {
+      var dt    = new Date(isoStr);
+      var now   = new Date();
+      var secs  = Math.floor((now - dt) / 1000);
+      if (secs < 60)   return secs + 's ago';
+      if (secs < 3600) return Math.floor(secs / 60) + 'm ago';
+      if (secs < 86400) return Math.floor(secs / 3600) + 'h ago';
+      return Math.floor(secs / 86400) + 'd ago';
+    } catch(e) { return isoStr; }
+  }
+
+  /* ─── Campaign Filters & Drill Panel ─── */
+  var _campData            = { meta: [], google: [] }; // local cache of rendered campaign data
+  var _creativeData        = [];                        // local cache for creative filter re-renders
+  var _currentDrillCampaign = null;                    // campaign object currently open in drill
+
+  /* Campaign Health Score — purely from campaign object fields, returns {score, tier, color} */
+  function _campHealthScore(campaign) {
+    var score = 0;
+    // CTR contribution (0-30)
+    var ctr = campaign.ctr || 0;
+    if      (ctr >= 2.0) score += 30;
+    else if (ctr >= 1.5) score += 24;
+    else if (ctr >= 1.0) score += 18;
+    else if (ctr >= 0.5) score += 10;
+    else                 score += 0;
+    // ROAS contribution (0-35)
+    var roas = campaign.roas || 0;
+    if      (roas >= 4.0) score += 35;
+    else if (roas >= 3.0) score += 30;
+    else if (roas >= 2.0) score += 22;
+    else if (roas >= 1.0) score += 12;
+    else                  score += 0;
+    // Conversions contribution (0-20)
+    var conv = campaign.conversions || 0;
+    if      (conv >= 20) score += 20;
+    else if (conv >= 5)  score += 14;
+    else if (conv > 0)   score += 8;
+    // Status contribution (0-15)
+    var st = (campaign.status || '').toUpperCase();
+    if      (st === 'ACTIVE') score += 15;
+    else if (st === 'PAUSED') score += 5;
+
+    score = Math.min(100, Math.max(0, score));
+    var tier, color;
+    if      (score >= 85) { tier = 'Elite';    color = '#10b981'; }
+    else if (score >= 65) { tier = 'Strong';   color = '#3b82f6'; }
+    else if (score >= 45) { tier = 'Stable';   color = '#f59e0b'; }
+    else if (score >= 25) { tier = 'Weak';     color = '#f97316'; }
+    else                  { tier = 'Critical'; color = '#ef4444'; }
+    return { score: score, tier: tier, color: color };
+  }
+
+  function _initCampaignFilters() {
+    var bar = document.getElementById('campFilterBar');
+    if (!bar || bar.dataset.initialized) return;
+    bar.dataset.initialized = '1';
+
+    var activePlatform = 'all';
+    var activeStatus   = 'all';
+
+    function _updateClearBtn() {
+      var clearBtn = document.getElementById('campFilterClear');
+      var searchEl = document.getElementById('campSearch');
+      if (!clearBtn) return;
+      var hasFilter = activePlatform !== 'all' || activeStatus !== 'all' || (searchEl && searchEl.value.trim() !== '');
+      clearBtn.style.display = hasFilter ? '' : 'none';
+    }
+
+    function _clear() {
+      activePlatform = 'all';
+      activeStatus   = 'all';
+      var searchEl = document.getElementById('campSearch');
+      if (searchEl) searchEl.value = '';
+      bar.querySelectorAll('[data-camp-platform]').forEach(function(b) {
+        b.classList.toggle('active', b.getAttribute('data-camp-platform') === 'all');
+      });
+      bar.querySelectorAll('[data-camp-status]').forEach(function(b) {
+        b.classList.toggle('active', b.getAttribute('data-camp-status') === 'all');
+      });
+      _applyFilters('all', 'all', '');
+      _updateClearBtn();
+    }
+
+    // Platform buttons
+    bar.querySelectorAll('[data-camp-platform]').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        bar.querySelectorAll('[data-camp-platform]').forEach(function(b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        activePlatform = btn.getAttribute('data-camp-platform');
+        var searchEl = document.getElementById('campSearch');
+        _applyFilters(activePlatform, activeStatus, searchEl ? searchEl.value.toLowerCase().trim() : '');
+        _updateClearBtn();
+      });
+    });
+
+    // Status buttons
+    bar.querySelectorAll('[data-camp-status]').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        bar.querySelectorAll('[data-camp-status]').forEach(function(b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        activeStatus = btn.getAttribute('data-camp-status');
+        var searchEl = document.getElementById('campSearch');
+        _applyFilters(activePlatform, activeStatus, searchEl ? searchEl.value.toLowerCase().trim() : '');
+        _updateClearBtn();
+      });
+    });
+
+    // Search
+    var search = document.getElementById('campSearch');
+    if (search) {
+      search.addEventListener('input', function() {
+        _applyFilters(activePlatform, activeStatus, this.value.toLowerCase().trim());
+        _updateClearBtn();
+      });
+    }
+
+    // Clear button
+    var clearBtn = document.getElementById('campFilterClear');
+    if (clearBtn) clearBtn.addEventListener('click', _clear);
+
+    // Expose globally so no-results CTA can call it
+    window._clearCampaignFilters = _clear;
+  }
+
+  function _applyFilters(platform, status, q) {
+    var googleSection = document.getElementById('googleSection');
+    var countEl       = document.getElementById('campFilterCount');
+    var noResults     = document.getElementById('campNoResults');
+    q = q || '';
+
+    function filterAndRender(data, tbodyId, showActions) {
+      var filtered = data.filter(function(c) {
+        var matchStatus = status === 'all' || (c.status || '').toUpperCase() === status;
+        var matchSearch = !q || c.name.toLowerCase().includes(q);
+        return matchStatus && matchSearch;
+      });
+      renderCampaignTable(filtered, tbodyId, showActions);
+      return filtered.length;
+    }
+
+    var metaCount   = 0;
+    var googleCount = 0;
+
+    if (platform === 'all' || platform === 'meta') {
+      metaCount = filterAndRender(_campData.meta, 'metaTableBody', true);
+    } else {
+      var metaTbody = document.getElementById('metaTableBody');
+      if (metaTbody) metaTbody.innerHTML = '';
+    }
+
+    if (platform === 'all' || platform === 'google') {
+      googleCount = filterAndRender(_campData.google, 'googleTableBody', false);
+      if (googleSection) googleSection.style.display = googleCount > 0 ? '' : 'none';
+    } else {
+      if (googleSection) googleSection.style.display = 'none';
+    }
+
+    var total = metaCount + googleCount;
+    if (countEl) countEl.textContent = total + ' campaign' + (total !== 1 ? 's' : '');
+    if (noResults) noResults.style.display = total === 0 ? '' : 'none';
+  }
+
+  // Expose drill close globally
+  window._closeCampaignDrill = function() {
+    var panel = document.getElementById('campDrillPanel');
+    if (panel) panel.style.display = 'none';
+    document.querySelectorAll('#metaTable tbody tr.selected, #googleTable tbody tr.selected').forEach(function(r) {
+      r.classList.remove('selected');
+    });
+  };
+
+  function _openCampaignDrill(campaign, platform) {
+    var panel = document.getElementById('campDrillPanel');
+    if (!panel) return;
+
+    // Store for lazy tab loads
+    _currentDrillCampaign = campaign;
+
+    // ── Header ────────────────────────────────────────────────────────────────
+    var platEl   = document.getElementById('campDrillPlatform');
+    var statusEl = document.getElementById('campDrillStatus');
+    var title    = document.getElementById('campDrillTitle');
+
+    if (platEl) {
+      platEl.textContent = platform === 'google' ? 'Google' : 'Meta';
+      platEl.className   = 'camp-drill-platform camp-drill-platform-' + platform;
+    }
+    if (statusEl) {
+      statusEl.textContent = (campaign.status || 'UNKNOWN').toUpperCase();
+      statusEl.className   = 'camp-drill-status-badge status-badge ' + statusClass(campaign.status);
+    }
+    if (title) title.textContent = campaign.name;
+
+    // ── Quick-action buttons ──────────────────────────────────────────────────
+    var coachBtn = document.getElementById('campDrillCoachBtn');
+    var autoBtn  = document.getElementById('campDrillAutoBtn');
+    if (coachBtn) coachBtn.onclick = function() { window.a7Navigate('ai-coach'); };
+    if (autoBtn)  autoBtn.onclick  = function() { window.a7Navigate('automation'); };
+
+    // ── KPI stats row ─────────────────────────────────────────────────────────
+    var stats = document.getElementById('campDrillStats');
+    if (stats) {
+      var roasVal = (campaign.roas != null && campaign.roas > 0)
+        ? campaign.roas.toFixed(2) + 'x' : '—';
+      stats.innerHTML = [
+        '<div class="camp-drill-stat"><div class="camp-drill-stat-val">' + fmtMoney(campaign.spend)  + '</div><div class="camp-drill-stat-key">Spend</div></div>',
+        '<div class="camp-drill-stat"><div class="camp-drill-stat-val">' + fmtPct(campaign.ctr)      + '</div><div class="camp-drill-stat-key">CTR</div></div>',
+        '<div class="camp-drill-stat"><div class="camp-drill-stat-val">' + fmt(campaign.conversions) + '</div><div class="camp-drill-stat-key">Conv.</div></div>',
+        '<div class="camp-drill-stat"><div class="camp-drill-stat-val">' + fmtMoney(campaign.cpa)    + '</div><div class="camp-drill-stat-key">CPA</div></div>',
+        '<div class="camp-drill-stat"><div class="camp-drill-stat-val">' + roasVal                   + '</div><div class="camp-drill-stat-key">ROAS</div></div>',
+      ].join('');
+    }
+
+    // ── Campaign Health Score band (initial — signal penalties applied later) ─
+    _renderDrillHealth(_campHealthScore(campaign), null, null);
+
+    // ── Recommended Actions block ─────────────────────────────────────────────
+    _renderDrillActions(campaign);
+
+    // ── Tab switching (bound once; depth tab triggers lazy load) ─────────────
+    var tabsEl   = document.getElementById('campDrillTabs');
+    var depthEl  = document.getElementById('campDrillDepth');
+    if (tabsEl && !tabsEl.dataset.bound) {
+      tabsEl.dataset.bound = '1';
+      tabsEl.querySelectorAll('.camp-drill-tab').forEach(function(tab) {
+        tab.addEventListener('click', function() {
+          tabsEl.querySelectorAll('.camp-drill-tab').forEach(function(t) { t.classList.remove('active'); });
+          tab.classList.add('active');
+          var target = tab.getAttribute('data-drill-tab');
+          document.querySelectorAll('.camp-drill-tab-body').forEach(function(b) {
+            b.classList.toggle('active', b.id === 'campDrill' + target.charAt(0).toUpperCase() + target.slice(1));
+          });
+          // Lazy-load Ad Depth on first click
+          if (target === 'depth') {
+            var de = document.getElementById('campDrillDepth');
+            if (de && !de.dataset.loaded && _currentDrillCampaign) {
+              _loadDrillDepth(_currentDrillCampaign);
+            }
+          }
+        });
+      });
+    }
+
+    // Reset to Signals tab; mark depth as unloaded for new campaign
+    if (tabsEl) {
+      tabsEl.querySelectorAll('.camp-drill-tab').forEach(function(t) {
+        t.classList.toggle('active', t.getAttribute('data-drill-tab') === 'signals');
+      });
+      document.querySelectorAll('.camp-drill-tab-body').forEach(function(b) {
+        b.classList.toggle('active', b.id === 'campDrillSignals');
+      });
+    }
+    if (depthEl) {
+      delete depthEl.dataset.loaded;
+      depthEl.innerHTML =
+        '<div class="camp-drill-depth-placeholder">' +
+          '<div class="camp-drill-depth-icon">◈</div>' +
+          '<div class="camp-drill-depth-title">Ad Sets &amp; Creatives</div>' +
+          '<div class="camp-drill-depth-note">Click this tab to load ad depth data.</div>' +
+        '</div>';
+    }
+
+    // ── Show panel ────────────────────────────────────────────────────────────
+    panel.style.display = '';
+    panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+    // ── Signals ───────────────────────────────────────────────────────────────
+    _loadDrillSignals(campaign);
+  }
+
+  /* Render health band — called once immediately (no signals) then again after signals load */
+  function _renderDrillHealth(hs, alertCount, proposalCount) {
+    var el = document.getElementById('campDrillHealth');
+    if (!el) return;
+
+    var pillsHtml = '';
+    if (alertCount !== null) {
+      var ac = alertCount > 0 ? '#ef4444' : '#10b981';
+      pillsHtml += '<span class="camp-drill-health-pill" style="background:' + ac + '1a;color:' + ac + '">' +
+        alertCount + ' alert' + (alertCount !== 1 ? 's' : '') + '</span>';
+    }
+    if (proposalCount !== null) {
+      var pc = proposalCount > 0 ? '#f59e0b' : '#5d7499';
+      pillsHtml += '<span class="camp-drill-health-pill" style="background:' + pc + '1a;color:' + pc + '">' +
+        proposalCount + ' proposal' + (proposalCount !== 1 ? 's' : '') + '</span>';
+    }
+
+    el.innerHTML =
+      '<div class="camp-drill-health-inner">' +
+        '<div class="camp-drill-health-left">' +
+          '<span class="camp-drill-health-score" style="color:' + hs.color + '">' + hs.score + '</span>' +
+          '<span class="camp-drill-health-label">/ 100</span>' +
+          '<span class="camp-drill-health-tier" style="background:' + hs.color + '22;color:' + hs.color + '">' + hs.tier + '</span>' +
+        '</div>' +
+        '<div class="camp-drill-health-bar-wrap">' +
+          '<div class="camp-drill-health-bar-track">' +
+            '<div class="camp-drill-health-bar-fill" style="width:' + hs.score + '%;background:' + hs.color + '"></div>' +
+          '</div>' +
+          '<div class="camp-drill-health-bar-footer">' +
+            '<span class="camp-drill-health-desc">Campaign Health</span>' +
+            pillsHtml +
+          '</div>' +
+        '</div>' +
+      '</div>';
+  }
+
+  /* Health score recalculated after signals are known */
+  function _campHealthScoreWithSignals(campaign, alerts, proposals) {
+    var hs    = _campHealthScore(campaign);
+    var score = hs.score;
+    // Alert penalties
+    alerts.forEach(function(a) {
+      if      (a.severity === 'critical') score -= 15;
+      else if (a.severity === 'warning')  score -= 8;
+      else if (a.severity === 'info')     score -= 3;
+    });
+    // Approved proposals mean action is already being taken — small boost
+    var approved = proposals.filter(function(p) { return p.status === 'approved'; }).length;
+    if (approved > 0) score += 5;
+    score = Math.min(100, Math.max(0, score));
+
+    var tier, color;
+    if      (score >= 85) { tier = 'Elite';    color = '#10b981'; }
+    else if (score >= 65) { tier = 'Strong';   color = '#3b82f6'; }
+    else if (score >= 45) { tier = 'Stable';   color = '#f59e0b'; }
+    else if (score >= 25) { tier = 'Weak';     color = '#f97316'; }
+    else                  { tier = 'Critical'; color = '#ef4444'; }
+    return { score: score, tier: tier, color: color };
+  }
+
+  /* Recommended Actions block */
+  function _renderDrillActions(campaign) {
+    var el = document.getElementById('campDrillActions');
+    if (!el) return;
+
+    var actions = [
+      { icon: '◎', label: 'AI Coach',             desc: 'Get AI-powered optimisation recommendations', page: 'ai-coach' },
+      { icon: '⚡', label: 'Automation Proposals', desc: 'View or create proposals for this campaign',  page: 'automation' },
+      { icon: '◇', label: 'Content Studio',        desc: 'Create content inspired by this campaign',   page: 'content-studio' },
+      { icon: '▲',  label: 'Budget Intelligence',  desc: 'Analyse budget efficiency and pacing',        page: 'budget' },
+      { icon: '◈', label: 'Alerts',                desc: 'Review all active alerts for this account',  page: 'alerts' },
+    ];
+
+    var html = '<div class="camp-drill-actions-header">Recommended Actions</div><div class="camp-drill-actions-list">';
+    actions.forEach(function(a) {
+      html +=
+        '<button class="camp-drill-action-item" onclick="window._drillNav(\'' + a.page + '\')">' +
+          '<span class="camp-drill-action-icon">' + a.icon + '</span>' +
+          '<span class="camp-drill-action-text">' +
+            '<span class="camp-drill-action-label">' + a.label + '</span>' +
+            '<span class="camp-drill-action-desc">' + a.desc + '</span>' +
+          '</span>' +
+        '</button>';
+    });
+    html += '</div>';
+    el.innerHTML = html;
+  }
+
+  window._drillNav = function(page) { window.a7Navigate && window.a7Navigate(page); };
+
+  function _loadDrillSignals(campaign) {
+    var sigEl = document.getElementById('campDrillSignals');
+    var loadEl = document.getElementById('campDrillSigLoading');
+    if (!sigEl) return;
+
+    if (loadEl) loadEl.style.display = '';
+
+    var qs = acctParam();
+    Promise.all([
+      fetchApi('/alerts?limit=100' + qs).catch(function() { return { alerts: [] }; }),
+      fetchApi('/automation/actions?limit=100' + qs).catch(function() { return { actions: [] }; }),
+    ]).then(function(results) {
+      var allAlerts  = (results[0].alerts  || []).filter(function(a) {
+        return (a.entity_name || '').toLowerCase() === (campaign.name || '').toLowerCase();
+      });
+      var allActions = (results[1].actions || []).filter(function(a) {
+        return (a.entity_name || '').toLowerCase() === (campaign.name || '').toLowerCase();
+      });
+
+      // Re-render health score with signal penalties and pill counts
+      _renderDrillHealth(
+        _campHealthScoreWithSignals(campaign, allAlerts, allActions),
+        allAlerts.length,
+        allActions.length
+      );
+
+      var html = '';
+
+      // Alerts section
+      html += '<div class="camp-drill-sig-section">';
+      html += '<div class="camp-drill-sig-header">Active Alerts <span class="camp-drill-sig-count">' + allAlerts.length + '</span></div>';
+      if (allAlerts.length === 0) {
+        html += '<div class="camp-drill-sig-empty">No active alerts for this campaign.</div>';
+      } else {
+        allAlerts.forEach(function(a) {
+          html += '<div class="camp-drill-sig-item sev-' + (a.severity || 'info') + '">' +
+            '<span class="camp-drill-sig-sev">' + (a.severity || 'info') + '</span>' +
+            '<div class="camp-drill-sig-content">' +
+              '<div class="camp-drill-sig-title">' + _escCC(a.title || '') + '</div>' +
+              '<div class="camp-drill-sig-msg">' + _escCC(a.message || '') + '</div>' +
+            '</div></div>';
+        });
+      }
+      html += '</div>';
+
+      // Automation proposals section
+      html += '<div class="camp-drill-sig-section">';
+      html += '<div class="camp-drill-sig-header">Automation Proposals <span class="camp-drill-sig-count">' + allActions.length + '</span></div>';
+      if (allActions.length === 0) {
+        html += '<div class="camp-drill-sig-empty">No pending proposals for this campaign.</div>';
+      } else {
+        allActions.forEach(function(a) {
+          var pct  = a.suggested_change_pct ? (a.suggested_change_pct > 0 ? '+' : '') + a.suggested_change_pct + '%' : '';
+          var conf = a.confidence ? Math.round(a.confidence * 100) + '%' : '';
+          html += '<div class="camp-drill-sig-item auto-' + (a.status || 'proposed') + '">' +
+            '<span class="camp-drill-sig-sev auto">' + (a.status || 'proposed') + '</span>' +
+            '<div class="camp-drill-sig-content">' +
+              '<div class="camp-drill-sig-title">' + _escCC(a.action_type || '') + (pct ? ' <span class="camp-drill-sig-pct">' + pct + '</span>' : '') + '</div>' +
+              '<div class="camp-drill-sig-msg">' + _escCC(a.reason || '') + (conf ? ' <span class="camp-drill-sig-conf">confidence: ' + conf + '</span>' : '') + '</div>' +
+            '</div></div>';
+        });
+      }
+      html += '</div>';
+
+      if (loadEl) loadEl.style.display = 'none';
+      sigEl.innerHTML = html;
+    });
+  }
+
+  function _loadDrillDepth(campaign) {
+    var depthEl = document.getElementById('campDrillDepth');
+    if (!depthEl) return;
+
+    depthEl.dataset.loaded = '1';
+    depthEl.innerHTML = '<div class="camp-drill-sig-loading">Loading ad depth…</div>';
+
+    var campId = campaign.id || '';
+    var qs     = acctParam();
+
+    Promise.all([
+      fetchApi('/campaigns/' + encodeURIComponent(campId) + '/adsets').catch(function() { return { ad_sets: [] }; }),
+      fetchApi('/creatives?campaign=' + encodeURIComponent(campId) + '&days=7' + qs).catch(function() { return { creatives: [] }; }),
+    ]).then(function(results) {
+      var adSets    = results[0].ad_sets  || [];
+      var creatives = results[1].creatives || [];
+
+      if (adSets.length === 0 && creatives.length === 0) {
+        depthEl.innerHTML =
+          '<div class="camp-drill-depth-placeholder">' +
+            '<div class="camp-drill-depth-icon">◈</div>' +
+            '<div class="camp-drill-depth-title">No Ad Depth Data</div>' +
+            '<div class="camp-drill-depth-note">Connect a live Meta Ads account to unlock ad set performance, creative thumbnails, and per-ad analytics.</div>' +
+            '<button class="camp-drill-depth-cta" onclick="window._drillNav(\'accounts\')">Connect Account →</button>' +
+          '</div>';
+        return;
+      }
+
+      // ── Helpers ─────────────────────────────────────────────────────────────
+      function _adsetScore(a) {
+        // Higher is better: weigh conversions first, then CTR
+        return (a.conversions || 0) * 100 + (a.ctr || 0);
+      }
+      function _crScore(cr) {
+        return (cr.total_conversions || 0) * 100 + (cr.avg_ctr || cr.ctr || 0);
+      }
+      function _isFatigued(cr) {
+        return (cr.avg_frequency || 0) > 3 || (cr.max_frequency || 0) > 5;
+      }
+      function _renderCreativeCard(cr, isBest) {
+        var thumb = cr.thumbnail_url
+          ? '<img src="' + _escCC(cr.thumbnail_url) + '" class="camp-drill-creative-thumb" loading="lazy" onerror="this.style.display=\'none\'">'
+          : '<div class="camp-drill-creative-thumb-empty">◻</div>';
+        var badges = '';
+        if (isBest)         badges += '<span class="camp-drill-badge camp-drill-badge-best">Best</span>';
+        if (_isFatigued(cr)) badges += '<span class="camp-drill-badge camp-drill-badge-fatigue">Fatigue</span>';
+        return '<div class="camp-drill-creative-card' + (isBest ? ' camp-drill-creative-card-best' : '') + '">' +
+          thumb +
+          '<div class="camp-drill-creative-meta">' +
+            (badges ? '<div class="camp-drill-creative-badges">' + badges + '</div>' : '') +
+            '<div class="camp-drill-creative-name" title="' + _escCC(cr.creative_name || '') + '">' + _escCC(cr.creative_name || 'Untitled') + '</div>' +
+            '<div class="camp-drill-creative-stats">' +
+              '<span>CTR ' + fmtPct(cr.avg_ctr || cr.ctr || 0) + '</span>' +
+              '<span>Conv. ' + fmt(cr.total_conversions || 0) + '</span>' +
+              '<span>CPA ' + (cr.cpa ? fmtMoney(cr.cpa) : '—') + '</span>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+      }
+
+      var html = '';
+
+      // ── Ad Sets section ──────────────────────────────────────────────────────
+      if (adSets.length > 0) {
+        // Find best ad set (by score)
+        var bestAdsetIdx = 0;
+        adSets.forEach(function(a, i) { if (_adsetScore(a) > _adsetScore(adSets[bestAdsetIdx])) bestAdsetIdx = i; });
+
+        // Build creative lookup by adset_id, sorted by score desc
+        var creativesByAdset = {};
+        creatives.forEach(function(c) {
+          var aid = c.adset_id || '';
+          if (!creativesByAdset[aid]) creativesByAdset[aid] = [];
+          creativesByAdset[aid].push(c);
+        });
+        Object.keys(creativesByAdset).forEach(function(aid) {
+          creativesByAdset[aid].sort(function(a, b) { return _crScore(b) - _crScore(a); });
+        });
+
+        html += '<div class="camp-drill-sig-section">';
+        html += '<div class="camp-drill-sig-header">Ad Sets <span class="camp-drill-sig-count">' + adSets.length + '</span></div>';
+
+        adSets.forEach(function(a, idx) {
+          var isTop = idx === bestAdsetIdx && adSets.length > 1;
+          var sc    = statusClass(a.status);
+          html +=
+            '<div class="camp-drill-adset-card' + (isTop ? ' camp-drill-adset-card-top' : '') + '">' +
+              '<div class="camp-drill-adset-header">' +
+                '<span class="status-dot ' + sc + '"></span>' +
+                '<span class="camp-drill-adset-name">' + _escCC(a.name || '—') + '</span>' +
+                (isTop ? '<span class="camp-drill-badge camp-drill-badge-top">Top</span>' : '') +
+              '</div>' +
+              '<div class="camp-drill-adset-kpis">' +
+                '<div class="camp-drill-adset-kpi"><span class="camp-drill-adset-kv">' + fmtMoney(a.spend || 0) + '</span><span class="camp-drill-adset-kl">Spend</span></div>' +
+                '<div class="camp-drill-adset-kpi"><span class="camp-drill-adset-kv">' + fmtPct(a.ctr || 0)    + '</span><span class="camp-drill-adset-kl">CTR</span></div>' +
+                '<div class="camp-drill-adset-kpi"><span class="camp-drill-adset-kv">' + fmt(a.conversions || 0) + '</span><span class="camp-drill-adset-kl">Conv.</span></div>' +
+                '<div class="camp-drill-adset-kpi"><span class="camp-drill-adset-kv">' + (a.cpa ? fmtMoney(a.cpa) : '—') + '</span><span class="camp-drill-adset-kl">CPA</span></div>' +
+              '</div>';
+
+          // Nested creatives
+          var ads = creativesByAdset[a.id] || [];
+          if (ads.length > 0) {
+            html += '<div class="camp-drill-creative-grid">';
+            ads.forEach(function(cr, ci) {
+              html += _renderCreativeCard(cr, ci === 0 && ads.length > 1);
+            });
+            html += '</div>';
+          }
+          html += '</div>'; // close adset-card
+        });
+        html += '</div>'; // close sig-section
+      }
+
+      // ── Flat creatives (no adset data from live API) ─────────────────────────
+      if (adSets.length === 0 && creatives.length > 0) {
+        var sortedCrs = creatives.slice().sort(function(a, b) { return _crScore(b) - _crScore(a); });
+        html += '<div class="camp-drill-sig-section">';
+        html += '<div class="camp-drill-sig-header">Creatives (Cached) <span class="camp-drill-sig-count">' + sortedCrs.length + '</span></div>';
+        html += '<div class="camp-drill-creative-grid">';
+        sortedCrs.forEach(function(cr, ci) {
+          html += _renderCreativeCard(cr, ci === 0 && sortedCrs.length > 1);
+        });
+        html += '</div></div>';
+      }
+
+      depthEl.innerHTML = html || '<div class="camp-drill-sig-empty">No ad depth data available.</div>';
+    });
+  }
+
+  /* ─── Command Center ─── */
+  async function loadCommandCenter() {
+    var loadWrap = document.getElementById('ccLoading');
+    var content  = document.getElementById('ccContent');
+    if (!loadWrap || !content) return;
+    loadWrap.style.display = '';
+    content.style.display  = 'none';
+
+    try {
+      var qs  = currentAccountId ? '?account_id=' + encodeURIComponent(currentAccountId) : '';
+      var res = await fetch('/api/command-center' + qs);
+      var data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'API error');
+
+      _renderCCKpis(data.kpis);
+      _renderCCAttention(data.attention);
+      _renderCCOpps(data.opportunities || []);
+      _renderCCHealth(data.health);
+
+      loadWrap.style.display = 'none';
+      content.style.display  = '';
+    } catch (e) {
+      loadWrap.innerHTML = '<div class="cc-empty">Failed to load command center — ' + _escCC(String(e.message)) + '</div>';
+    }
+  }
+
+  function _escCC(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function _fmtCCMoney(v) {
+    if (v === null || v === undefined) return '—';
+    if (v >= 1000000) return '$' + (v / 1000000).toFixed(1) + 'M';
+    if (v >= 1000)    return '$' + (v / 1000).toFixed(1) + 'K';
+    return '$' + Number(v).toFixed(0);
+  }
+
+  function _renderCCKpis(kpis) {
+    var row = document.getElementById('ccKpiRow');
+    if (!row || !kpis) return;
+    var gs = kpis.growth_score;
+    var gsLabel = kpis.growth_label || null;
+    var gsTier = gs !== null && gs !== undefined
+      ? (gs >= 80 ? 'elite' : gs >= 65 ? 'strong' : gs >= 50 ? 'stable' : gs >= 35 ? 'weak' : 'critical')
+      : '';
+
+    // Today's data (primary); 7d as secondary reference
+    var hasTodaySpend = kpis.spend_today !== null && kpis.spend_today !== undefined;
+    var hasTodayConv  = kpis.conv_today  !== null && kpis.conv_today  !== undefined;
+    var hasTodayCpa   = kpis.cpa_today   !== null && kpis.cpa_today   !== undefined;
+
+    row.innerHTML = [
+      '<div class="cc-kpi-card spend">',
+        '<div class="cc-kpi-label">Spend Today</div>',
+        '<div class="cc-kpi-value">' + (hasTodaySpend ? _fmtCCMoney(kpis.spend_today) : '—') + '</div>',
+        '<div class="cc-kpi-sub">' + _fmtCCMoney(kpis.spend_7d) + ' last 7d</div>',
+      '</div>',
+      '<div class="cc-kpi-card conv">',
+        '<div class="cc-kpi-label">Conversions Today</div>',
+        '<div class="cc-kpi-value">' + (hasTodayConv ? kpis.conv_today : '—') + '</div>',
+        '<div class="cc-kpi-sub">' + (kpis.conv_7d || 0) + ' last 7d</div>',
+      '</div>',
+      '<div class="cc-kpi-card cpa">',
+        '<div class="cc-kpi-label">CPA Today</div>',
+        '<div class="cc-kpi-value">' + (hasTodayCpa ? _fmtCCMoney(kpis.cpa_today) : '—') + '</div>',
+        '<div class="cc-kpi-sub">' + (kpis.cpa_7d !== null && kpis.cpa_7d !== undefined ? _fmtCCMoney(kpis.cpa_7d) + ' 7d avg' : 'no data 7d') + '</div>',
+      '</div>',
+      '<div class="cc-kpi-card growth ' + gsTier + '">',
+        '<div class="cc-kpi-label">Growth Score</div>',
+        '<div class="cc-kpi-value">' + (gs !== null && gs !== undefined ? Math.round(gs) : '—') + '</div>',
+        '<div class="cc-kpi-sub">' + (gsLabel || 'AI performance index') + '</div>',
+      '</div>',
+    ].join('');
+  }
+
+  function _renderCCAttention(attention) {
+    var body    = document.getElementById('ccAttentionBody');
+    var countEl = document.getElementById('ccAttentionCount');
+    if (!body || !attention) return;
+
+    var items = [];
+    var total = 0;
+
+    (attention.alerts || []).forEach(function(a) {
+      total++;
+      items.push([
+        '<div class="cc-attention-item" onclick="window.a7Navigate&&window.a7Navigate(\'alerts\')" title="View alerts">',
+          '<span class="cc-sev-dot ' + _escCC(a.severity) + '"></span>',
+          '<div class="cc-attn-text">',
+            '<div class="cc-attn-title">' + _escCC(a.title) + '</div>',
+            '<div class="cc-attn-msg">'  + _escCC(a.message || a.alert_type) + '</div>',
+          '</div>',
+        '</div>',
+      ].join(''));
+    });
+
+    if (attention.pending_auto > 0) {
+      total += attention.pending_auto;
+      items.push([
+        '<div class="cc-sys-row" style="cursor:pointer" onclick="window.a7Navigate&&window.a7Navigate(\'automation\')">',
+          '<span class="cc-sys-icon">⊗</span>',
+          '<span class="cc-sys-text"><strong>' + attention.pending_auto + '</strong> automation action' + (attention.pending_auto !== 1 ? 's' : '') + ' pending approval</span>',
+        '</div>',
+      ].join(''));
+    }
+
+    if (attention.stale_accounts > 0) {
+      total += attention.stale_accounts;
+      items.push([
+        '<div class="cc-sys-row" style="cursor:pointer" onclick="window.a7Navigate&&window.a7Navigate(\'integrations\')">',
+          '<span class="cc-sys-icon">⚠</span>',
+          '<span class="cc-sys-text"><strong>' + attention.stale_accounts + '</strong> account' + (attention.stale_accounts !== 1 ? 's' : '') + ' need re-sync</span>',
+        '</div>',
+      ].join(''));
+    }
+
+    if (items.length === 0) {
+      items.push('<div class="cc-empty">✓ All systems healthy</div>');
+    }
+
+    if (countEl) {
+      countEl.textContent = total > 0 ? total : '✓';
+      countEl.className   = 'cc-block-count' + (total === 0 ? ' zero' : '');
+    }
+
+    body.innerHTML = items.join('');
+  }
+
+  function _renderCCOpps(opps) {
+    var body = document.getElementById('ccOppsBody');
+    if (!body) return;
+    if (!opps || opps.length === 0) {
+      body.innerHTML = '<div class="cc-empty">No opportunities detected yet.</div>';
+      return;
+    }
+    var destMap = { budget: 'budget', scale: 'campaigns', content: 'content-studio', info: 'ai-coach' };
+    body.innerHTML = opps.map(function(o) {
+      var dest = destMap[o.type] || 'ai-coach';
+      return [
+        '<div class="cc-opp-item" onclick="window.a7Navigate&&window.a7Navigate(\'' + _escCC(dest) + '\')" title="' + _escCC(o.title) + '">',
+          '<div class="cc-opp-icon ' + _escCC(o.type) + '">' + _escCC(o.icon) + '</div>',
+          '<div class="cc-opp-text">',
+            '<div class="cc-opp-title">' + _escCC(o.title) + '</div>',
+            '<div class="cc-opp-desc">'  + _escCC(o.desc)  + '</div>',
+          '</div>',
+          '<div class="cc-opp-arrow">›</div>',
+        '</div>',
+      ].join('');
+    }).join('');
+  }
+
+  function _renderCCHealth(health) {
+    var body = document.getElementById('ccHealthBody');
+    if (!body) return;
+    if (!health) {
+      body.innerHTML = '<div class="cc-no-health">Connect an ad account to see health metrics.</div>';
+      return;
+    }
+    var labelClass = { 'Excellent': 'excellent', 'Good': 'good', 'Fair': 'fair', 'Needs Work': 'needswork' }[health.label] || 'fair';
+    var platformBadge = health.platform
+      ? '<span class="cc-platform-badge ' + _escCC(health.platform.toLowerCase()) + '">' + _escCC(health.platform) + '</span>'
+      : '';
+    var syncOk = health.last_sync && health.last_sync !== 'Never' && !health.last_sync.startsWith('Never');
+    var syncClass = syncOk ? 'ok' : 'stale';
+    var alertDot = health.alert_count > 0
+      ? '<span class="cc-alert-dot"></span>'
+      : '';
+    body.innerHTML = [
+      '<div class="cc-health-acct-row">',
+        '<div class="cc-health-name">' + _escCC(health.account_name) + '</div>',
+        platformBadge,
+      '</div>',
+      '<div class="cc-health-score-row">',
+        '<div class="cc-health-score-num">' + Math.round(health.score || 0) + '</div>',
+        '<span class="cc-health-label ' + labelClass + '">' + _escCC(health.label) + '</span>',
+      '</div>',
+      '<div class="cc-health-stats">',
+        '<div class="cc-health-stat">',
+          '<div class="cc-health-stat-val">' + _fmtCCMoney(health.spend_7d) + '</div>',
+          '<div class="cc-health-stat-key">Spend 7d</div>',
+        '</div>',
+        '<div class="cc-health-stat">',
+          '<div class="cc-health-stat-val">' + (health.conv_7d || 0) + '</div>',
+          '<div class="cc-health-stat-key">Conv. 7d</div>',
+        '</div>',
+        '<div class="cc-health-stat">',
+          '<div class="cc-health-stat-val cc-sync-val ' + syncClass + '">' + _escCC(health.last_sync) + '</div>',
+          '<div class="cc-health-stat-key">Last Sync</div>',
+        '</div>',
+        '<div class="cc-health-stat">',
+          '<div class="cc-health-stat-val">' + alertDot + (health.alert_count || 0) + '</div>',
+          '<div class="cc-health-stat-key">Active Alerts</div>',
+        '</div>',
+      '</div>',
+    ].join('');
+  }
+
   /* ─── Lazy Load Registry ─── */
   // Maps page → load function names to call on first visit
   var _pageLoaders = {
-    'overview':       ['loadGrowthScore'],
-    'accounts':       ['loadAccountOverview'],
+    'overview':       ['loadCommandCenter'],
+    'accounts':       ['loadAccountsPage', 'loadAccountOverview'],
     'campaigns':      [],   // data loaded by main load() which runs for overview
     'budget':         ['loadBudget'],
     'automation':     ['loadAutomation'],
@@ -3654,6 +4754,8 @@
   /* ─── Init ─── */
   // Wire loader function map (after all functions are declared)
   _loaderFnMap = {
+    loadCommandCenter:  loadCommandCenter,
+    loadAccountsPage:   loadAccountsPage,
     loadGrowthScore:    loadGrowthScore,
     loadAccountOverview: loadAccountOverview,
     loadBudget:         loadBudget,
@@ -3672,7 +4774,7 @@
   _calledLoaders.add('load');
 
   // _initRouter() navigates to initial page and triggers its lazy loaders
-  // (loadGrowthScore runs via _pageLoaders['overview'] on first visit)
+  // (loadCommandCenter runs via _pageLoaders['overview'] on first visit)
   _initRouter();
   loadPlatformStatus();
   initAccountSelector();

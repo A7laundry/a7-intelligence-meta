@@ -88,6 +88,9 @@ def create_app():
     from app.routes.content_intelligence import content_intelligence_bp
     app.register_blueprint(content_intelligence_bp, url_prefix="/api")
 
+    from app.routes.command_center import cc_bp
+    app.register_blueprint(cc_bp, url_prefix="/api")
+
     # Register API key middleware (no-op if A7_API_KEY not set)
     from app.middleware.auth import register_auth_middleware
     register_auth_middleware(app)

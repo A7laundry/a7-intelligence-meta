@@ -23,116 +23,106 @@
 <!-- ═══════════════════════════════════════════════════════ -->
 <div id="page-overview" class="page-section active">
 
-  <!-- Account Summary Cards (single-account quick stats, shown when account is selected) -->
-  <div class="acct-summary-row" id="accountSummaryCards" style="display:none"></div>
+  <!-- ── Command Center ──────────────────────────────────────── -->
+  <div class="cc-wrapper" id="ccWrapper">
 
-  <!-- Command Center Strip -->
-  <div class="growth-strip command-strip" id="growthStrip" style="display:none">
-    <div class="growth-strip-score">
-      <div class="growth-score-num" id="growthScoreNum">--</div>
-      <div class="growth-score-badge" id="growthScoreBadge">Score</div>
-      <div class="score-label">Growth Score</div>
-    </div>
-    <div class="strip-divider"></div>
-    <div class="growth-strip-summary" id="growthStripSummary">
-      <div class="strip-loading">Analyzing growth signals...</div>
-    </div>
-    <div class="growth-strip-signals" id="growthStripSignals"></div>
-    <div class="strip-actions">
-      <button class="strip-action-btn" onclick="window.a7Navigate && window.a7Navigate('ai-coach')">
-        View AI Coach →
-      </button>
-    </div>
-  </div>
-  <style>
-  .score-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: #5d7499; margin-top: 4px; }
-  .strip-divider { width: 1px; background: #1c2b42; align-self: stretch; flex-shrink: 0; }
-  .strip-loading { color: #5d7499; font-size: 13px; }
-  .strip-actions { margin-left: auto; flex-shrink: 0; }
-  .strip-action-btn {
-    background: rgba(59,130,246,.1);
-    border: 1px solid rgba(59,130,246,.25);
-    color: #3b82f6;
-    padding: 7px 14px; border-radius: 6px;
-    font-size: 12px; font-weight: 700;
-    cursor: pointer; white-space: nowrap;
-    transition: all .15s;
-  }
-  .strip-action-btn:hover { background: rgba(59,130,246,.2); box-shadow: 0 0 12px rgba(59,130,246,.2); }
-  </style>
-
-  <div class="loading kpi-loading" id="loadingState">
-    <div class="loading-inner">
-      <div class="loading-spinner"></div>
-      <span>Loading metrics...</span>
-    </div>
-  </div>
-  <style>
-  .loading-inner { display: flex; align-items: center; gap: 12px; color: #5d7499; font-size: 14px; justify-content: center; padding: 40px; }
-  .loading-spinner {
-    width: 20px; height: 20px; border-radius: 50%;
-    border: 2px solid #1c2b42;
-    border-top-color: #3b82f6;
-    animation: spin .7s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  </style>
-
-  <!-- KPI Cards -->
-  <div class="kpi-grid" id="kpiGrid" style="display:none">
-    <div class="kpi-card">
-      <div class="kpi-value" id="kpiSpend">&mdash;</div>
-      <div class="kpi-label">Total Spend</div>
-      <div class="kpi-change" id="kpiSpendChange"></div>
-      <div class="kpi-breakdown">
-        <span class="meta-val" id="kpiMetaSpend">M: &mdash;</span><br>
-        <span class="google-val" id="kpiGoogleSpend">G: &mdash;</span>
+    <!-- Loading -->
+    <div class="cc-loading-wrap" id="ccLoading">
+      <div class="loading-inner">
+        <div class="loading-spinner"></div>
+        <span>Loading command center...</span>
       </div>
     </div>
-    <div class="kpi-card">
-      <div class="kpi-value" id="kpiImpressions">&mdash;</div>
-      <div class="kpi-label">Impressions</div>
-      <div class="kpi-change" id="kpiImpressionsChange"></div>
-      <div class="kpi-breakdown">
-        <span class="meta-val" id="kpiMetaImpressions">M: &mdash;</span><br>
-        <span class="google-val" id="kpiGoogleImpressions">G: &mdash;</span>
-      </div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-value" id="kpiClicks">&mdash;</div>
-      <div class="kpi-label">Clicks</div>
-      <div class="kpi-change" id="kpiClicksChange"></div>
-      <div class="kpi-breakdown">
-        <span class="meta-val" id="kpiMetaClicks">M: &mdash;</span><br>
-        <span class="google-val" id="kpiGoogleClicks">G: &mdash;</span>
-      </div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-value" id="kpiCtr">&mdash;</div>
-      <div class="kpi-label">CTR</div>
-      <div class="kpi-change" id="kpiCtrChange"></div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-value" id="kpiConversions">&mdash;</div>
-      <div class="kpi-label">Conversions</div>
-      <div class="kpi-change" id="kpiConversionsChange"></div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-value" id="kpiCpa">&mdash;</div>
-      <div class="kpi-label">CPA</div>
-      <div class="kpi-change" id="kpiCpaChange"></div>
-    </div>
-  </div>
+    <style>
+    .loading-inner { display:flex;align-items:center;gap:12px;color:#5d7499;font-size:14px;justify-content:center;padding:40px; }
+    .loading-spinner { width:20px;height:20px;border-radius:50%;border:2px solid #1c2b42;border-top-color:#3b82f6;animation:spin .7s linear infinite; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    </style>
 
-  <!-- Daily Trend Chart -->
-  <div class="section">
-    <div class="section-header">
-      <span class="section-title">Daily Spend & Conversions</span>
-    </div>
-    <div class="section-body chart-container">
-      <canvas id="trendChart"></canvas>
-    </div>
-  </div>
+    <!-- Content (populated by loadCommandCenter) -->
+    <div class="cc-content" id="ccContent" style="display:none">
+
+      <!-- KPI Hero Row -->
+      <div class="cc-kpi-row" id="ccKpiRow"></div>
+
+      <!-- Body: 2-column grid -->
+      <div class="cc-body-grid">
+
+        <!-- Left column -->
+        <div class="cc-col-left">
+
+          <!-- Needs Attention -->
+          <div class="cc-block">
+            <div class="cc-block-header">
+              <span class="cc-block-icon">◬</span>
+              <span class="cc-block-title">Needs Attention</span>
+              <span class="cc-block-count" id="ccAttentionCount"></span>
+            </div>
+            <div class="cc-block-body" id="ccAttentionBody"></div>
+          </div>
+
+          <!-- Top Opportunities -->
+          <div class="cc-block">
+            <div class="cc-block-header">
+              <span class="cc-block-icon">◈</span>
+              <span class="cc-block-title">Top Opportunities</span>
+            </div>
+            <div class="cc-block-body" id="ccOppsBody"></div>
+          </div>
+
+        </div><!-- /cc-col-left -->
+
+        <!-- Right column -->
+        <div class="cc-col-right">
+
+          <!-- Account Health -->
+          <div class="cc-block">
+            <div class="cc-block-header">
+              <span class="cc-block-icon">◉</span>
+              <span class="cc-block-title">Account Health</span>
+            </div>
+            <div class="cc-block-body" id="ccHealthBody"></div>
+          </div>
+
+          <!-- Quick Actions -->
+          <div class="cc-block">
+            <div class="cc-block-header">
+              <span class="cc-block-icon">⊞</span>
+              <span class="cc-block-title">Quick Actions</span>
+            </div>
+            <div class="cc-actions-grid">
+              <button class="cc-action-btn" onclick="window.a7Navigate&&window.a7Navigate('ai-coach')">
+                <span class="cc-action-icon">◉</span>
+                <span class="cc-action-label">AI Coach</span>
+              </button>
+              <button class="cc-action-btn" onclick="window.a7Navigate&&window.a7Navigate('alerts')">
+                <span class="cc-action-icon">◬</span>
+                <span class="cc-action-label">Alerts</span>
+              </button>
+              <button class="cc-action-btn" onclick="window.a7Navigate&&window.a7Navigate('campaigns')">
+                <span class="cc-action-icon">◫</span>
+                <span class="cc-action-label">Campaigns</span>
+              </button>
+              <button class="cc-action-btn" onclick="window.a7Navigate&&window.a7Navigate('automation')">
+                <span class="cc-action-icon">⊗</span>
+                <span class="cc-action-label">Automation</span>
+              </button>
+              <button class="cc-action-btn" onclick="window.a7Navigate&&window.a7Navigate('content-studio')">
+                <span class="cc-action-icon">◱</span>
+                <span class="cc-action-label">Content</span>
+              </button>
+              <button class="cc-action-btn" onclick="window.a7Navigate&&window.a7Navigate('budget')">
+                <span class="cc-action-icon">◎</span>
+                <span class="cc-action-label">Budget</span>
+              </button>
+            </div>
+          </div>
+
+        </div><!-- /cc-col-right -->
+      </div><!-- /cc-body-grid -->
+
+    </div><!-- /cc-content -->
+  </div><!-- /cc-wrapper -->
 
 </div><!-- /page-overview -->
 
@@ -141,10 +131,30 @@
 <!-- ═══════════════════════════════════════════════════════ -->
 <div id="page-accounts" class="page-section">
 
-  <!-- Cross-Account Overview (shown only when 2+ accounts) -->
+  <!-- Account Cards (always visible) -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-title">Connected Accounts</span>
+      <button class="btn-action" onclick="window.openAccountWizard && window.openAccountWizard()">+ Add Account</button>
+    </div>
+    <div class="section-body">
+      <div id="acctCardsLoading" class="coach-loading">Loading accounts…</div>
+      <div id="acctCardsList" class="acct-cards-list" style="display:none"></div>
+      <div id="acctCardsEmpty" style="display:none">
+        <div class="empty-state">
+          <div class="empty-state-icon">⊞</div>
+          <div class="empty-state-title">No Accounts Connected</div>
+          <div class="empty-state-msg">Connect a Meta or Google Ads account to start tracking performance.</div>
+          <button class="btn-primary" onclick="window.openAccountWizard && window.openAccountWizard()" style="margin-top:16px">+ Connect Account</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Portfolio View (shown only when 2+ accounts) -->
   <div class="section" id="crossAccountSection">
     <div class="section-header">
-      <span class="section-title">Cross-Account Overview</span>
+      <span class="section-title">Portfolio Overview</span>
       <span class="section-subtitle" id="crossAccountPeriod"></span>
     </div>
     <div class="section-body">
@@ -215,6 +225,157 @@
 <!-- page-campaigns                                         -->
 <!-- ═══════════════════════════════════════════════════════ -->
 <div id="page-campaigns" class="page-section">
+
+  <!-- Account Summary Cards -->
+  <div class="acct-summary-row" id="accountSummaryCards" style="display:none"></div>
+
+  <!-- Growth Score Strip -->
+  <div class="growth-strip command-strip" id="growthStrip" style="display:none">
+    <div class="growth-strip-score">
+      <div class="growth-score-num" id="growthScoreNum">--</div>
+      <div class="growth-score-badge" id="growthScoreBadge">Score</div>
+      <div class="score-label">Growth Score</div>
+    </div>
+    <div class="strip-divider"></div>
+    <div class="growth-strip-summary" id="growthStripSummary">
+      <div class="strip-loading">Analyzing growth signals...</div>
+    </div>
+    <div class="growth-strip-signals" id="growthStripSignals"></div>
+    <div class="strip-actions">
+      <button class="strip-action-btn" onclick="window.a7Navigate&&window.a7Navigate('ai-coach')">View AI Coach →</button>
+    </div>
+  </div>
+  <style>
+  .score-label { font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:#5d7499;margin-top:4px; }
+  .strip-divider { width:1px;background:#1c2b42;align-self:stretch;flex-shrink:0; }
+  .strip-loading { color:#5d7499;font-size:13px; }
+  .strip-actions { margin-left:auto;flex-shrink:0; }
+  .strip-action-btn { background:rgba(59,130,246,.1);border:1px solid rgba(59,130,246,.25);color:#3b82f6;padding:7px 14px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;transition:all .15s; }
+  .strip-action-btn:hover { background:rgba(59,130,246,.2);box-shadow:0 0 12px rgba(59,130,246,.2); }
+  </style>
+
+  <!-- KPI Summary -->
+  <div class="loading kpi-loading" id="loadingState">
+    <div class="loading-inner">
+      <div class="loading-spinner"></div>
+      <span>Loading metrics...</span>
+    </div>
+  </div>
+
+  <div class="kpi-grid" id="kpiGrid" style="display:none">
+    <div class="kpi-card">
+      <div class="kpi-value" id="kpiSpend">&mdash;</div>
+      <div class="kpi-label">Total Spend</div>
+      <div class="kpi-change" id="kpiSpendChange"></div>
+      <div class="kpi-breakdown">
+        <span class="meta-val" id="kpiMetaSpend">M: &mdash;</span><br>
+        <span class="google-val" id="kpiGoogleSpend">G: &mdash;</span>
+      </div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-value" id="kpiImpressions">&mdash;</div>
+      <div class="kpi-label">Impressions</div>
+      <div class="kpi-change" id="kpiImpressionsChange"></div>
+      <div class="kpi-breakdown">
+        <span class="meta-val" id="kpiMetaImpressions">M: &mdash;</span><br>
+        <span class="google-val" id="kpiGoogleImpressions">G: &mdash;</span>
+      </div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-value" id="kpiClicks">&mdash;</div>
+      <div class="kpi-label">Clicks</div>
+      <div class="kpi-change" id="kpiClicksChange"></div>
+      <div class="kpi-breakdown">
+        <span class="meta-val" id="kpiMetaClicks">M: &mdash;</span><br>
+        <span class="google-val" id="kpiGoogleClicks">G: &mdash;</span>
+      </div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-value" id="kpiCtr">&mdash;</div>
+      <div class="kpi-label">CTR</div>
+      <div class="kpi-change" id="kpiCtrChange"></div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-value" id="kpiConversions">&mdash;</div>
+      <div class="kpi-label">Conversions</div>
+      <div class="kpi-change" id="kpiConversionsChange"></div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-value" id="kpiCpa">&mdash;</div>
+      <div class="kpi-label">CPA</div>
+      <div class="kpi-change" id="kpiCpaChange"></div>
+    </div>
+  </div>
+
+  <!-- Daily Trend Chart -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-title">Daily Spend &amp; Conversions</span>
+    </div>
+    <div class="section-body chart-container">
+      <canvas id="trendChart"></canvas>
+    </div>
+  </div>
+
+  <!-- Campaign Filters -->
+  <div class="camp-filter-bar" id="campFilterBar">
+    <div class="camp-filter-group">
+      <button class="camp-filter-btn active" data-camp-platform="all">All</button>
+      <button class="camp-filter-btn" data-camp-platform="meta">Meta</button>
+      <button class="camp-filter-btn" data-camp-platform="google">Google</button>
+    </div>
+    <div class="camp-filter-group">
+      <button class="camp-filter-btn active" data-camp-status="all">All Status</button>
+      <button class="camp-filter-btn" data-camp-status="ACTIVE">Active</button>
+      <button class="camp-filter-btn" data-camp-status="PAUSED">Paused</button>
+    </div>
+    <input id="campSearch" class="camp-search" type="text" placeholder="Search campaigns…" autocomplete="off" />
+    <button class="camp-filter-clear" id="campFilterClear" style="display:none" title="Clear all filters">✕ Clear</button>
+    <span id="campFilterCount" class="camp-filter-count"></span>
+  </div>
+
+  <!-- No-results state -->
+  <div id="campNoResults" class="camp-no-results" style="display:none">
+    <div class="camp-no-results-icon">◎</div>
+    <div class="camp-no-results-title">No campaigns match your filters</div>
+    <div class="camp-no-results-hint">Try clearing filters or changing the search term.</div>
+    <button class="camp-no-results-reset" onclick="window._clearCampaignFilters && window._clearCampaignFilters()">Clear Filters</button>
+  </div>
+
+  <!-- Campaign Drill Panel -->
+  <div id="campDrillPanel" class="camp-drill-panel" style="display:none">
+    <div class="camp-drill-header">
+      <div class="camp-drill-info">
+        <span class="camp-drill-platform" id="campDrillPlatform"></span>
+        <span class="camp-drill-status-badge" id="campDrillStatus"></span>
+        <span class="camp-drill-name" id="campDrillTitle"></span>
+      </div>
+      <div class="camp-drill-header-actions">
+        <button class="camp-drill-hdr-btn" id="campDrillCoachBtn">AI Coach</button>
+        <button class="camp-drill-hdr-btn" id="campDrillAutoBtn">Proposals</button>
+        <button class="camp-drill-close" onclick="window._closeCampaignDrill && window._closeCampaignDrill()">✕</button>
+      </div>
+    </div>
+    <div class="camp-drill-stats" id="campDrillStats"></div>
+    <div class="camp-drill-health" id="campDrillHealth"></div>
+    <div class="camp-drill-actions" id="campDrillActions"></div>
+    <div class="camp-drill-tabs" id="campDrillTabs">
+      <button class="camp-drill-tab active" data-drill-tab="signals">Signals</button>
+      <button class="camp-drill-tab" data-drill-tab="depth">Ad Depth</button>
+    </div>
+    <div class="camp-drill-body" id="campDrillBody">
+      <div class="camp-drill-tab-body active" id="campDrillSignals">
+        <div class="camp-drill-sig-loading" id="campDrillSigLoading">Loading signals…</div>
+      </div>
+      <div class="camp-drill-tab-body" id="campDrillDepth">
+        <div class="camp-drill-depth-placeholder">
+          <div class="camp-drill-depth-icon">◈</div>
+          <div class="camp-drill-depth-title">Ad Sets &amp; Creatives</div>
+          <div class="camp-drill-depth-note">Connect live Meta or Google API to see real-time ad set performance and creative thumbnails.</div>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- Meta Campaigns -->
   <div class="section">
@@ -299,6 +460,17 @@
     </div>
   </div>
 
+  <!-- Spend Pacing -->
+  <div class="section" id="budgetPacingSection" style="display:none">
+    <div class="section-header">
+      <span class="section-title">Spend Pacing</span>
+      <span class="section-subtitle" id="budgetPacingNote">vs. daily budget targets</span>
+    </div>
+    <div class="section-body">
+      <div id="budgetPacingList" class="budget-pacing-list"></div>
+    </div>
+  </div>
+
 </div><!-- /page-budget -->
 
 <!-- ═══════════════════════════════════════════════════════ -->
@@ -316,6 +488,24 @@
       </div>
     </div>
     <div class="section-body">
+      <div id="autoStatsBar" class="auto-stats-bar" style="display:none">
+        <div class="auto-stats-item proposed">
+          <span class="auto-stats-val" id="autoStPending">—</span>
+          <span class="auto-stats-lbl">Pending</span>
+        </div>
+        <div class="auto-stats-item approved">
+          <span class="auto-stats-val" id="autoStApproved">—</span>
+          <span class="auto-stats-lbl">Approved</span>
+        </div>
+        <div class="auto-stats-item executed">
+          <span class="auto-stats-val" id="autoStExecuted">—</span>
+          <span class="auto-stats-lbl">Executed</span>
+        </div>
+        <div class="auto-stats-item failed">
+          <span class="auto-stats-val" id="autoStFailed">—</span>
+          <span class="auto-stats-lbl">Failed</span>
+        </div>
+      </div>
       <div id="automationLoading" class="coach-loading">Loading automation data...</div>
       <div id="automationContent" style="display:none">
         <div class="automation-summary" id="automationSummary"></div>
@@ -345,13 +535,26 @@
   <div class="section" id="creativeSection">
     <div class="section-header">
       <span class="section-title">Creative Intelligence</span>
-      <button class="btn-action" onclick="collectCreatives()" title="Sync creatives from Meta">&#x1F504; Sync</button>
     </div>
     <div class="section-body">
-      <div id="creativeSummary" class="creative-summary"></div>
+      <div class="creative-toolbar">
+        <div class="creative-filter-group" id="creativeStatusFilter">
+          <button class="camp-filter-btn active" data-cre-filter="all">All</button>
+          <button class="camp-filter-btn" data-cre-filter="active">Active</button>
+          <button class="camp-filter-btn" data-cre-filter="fatigue">Fatigue</button>
+          <button class="camp-filter-btn" data-cre-filter="top">Top Performers</button>
+        </div>
+        <span id="creativeFilterCount" class="camp-filter-count"></span>
+        <button class="btn-action" onclick="collectCreatives()" title="Sync from Meta">&#x21BA; Sync</button>
+      </div>
+      <div id="creativeHero" class="creative-hero" style="display:none"></div>
       <div id="creativeGrid" class="creative-grid"></div>
-      <div id="creativeEmpty" style="text-align:center;color:var(--text-muted);padding:24px;display:none">
-        No creative data yet. Click <strong>Sync</strong> to collect creative data from Meta Ads.
+      <div id="creativeNoResults" class="creative-no-results" style="display:none"></div>
+      <div id="creativeEmpty" class="creative-empty-state" style="display:none">
+        <div class="creative-empty-icon">◻</div>
+        <div class="creative-empty-title">No Creatives Yet</div>
+        <div class="creative-empty-hint">Connect a Meta Ads account and click Sync to collect creative data, performance scores, and fatigue signals.</div>
+        <button class="btn-action" onclick="collectCreatives()" style="margin-top:12px">&#x21BA; Sync Creatives</button>
       </div>
     </div>
   </div>
@@ -633,51 +836,73 @@
 <!-- ═══════════════════════════════════════════════════════ -->
 <div id="page-ai-coach" class="page-section">
 
-  <!-- AI Coach Intelligence Panel -->
-  <div class="section" id="coachSection">
+  <div class="section coach-workspace-section" id="coachSection">
     <div class="section-header">
       <span class="section-title">AI Coach</span>
-      <button class="btn-action" onclick="refreshCoach()" title="Refresh insights">&#x1F504; Refresh</button>
+      <button class="btn-action" onclick="refreshCoach()" title="Refresh insights">&#x21BA; Refresh</button>
     </div>
-    <div class="section-eyebrow">
-      <span class="eyebrow-icon">🧠</span>
-      <span class="eyebrow-label">AI Coach</span>
-      <span class="eyebrow-badge badge badge-blue">Powered by AI</span>
-    </div>
-    <style>
-    .section-eyebrow {
-      display: flex; align-items: center; gap: 10px;
-      padding: 14px 20px;
-      border-bottom: 1px solid #1c2b42;
-      background: linear-gradient(180deg, #131e30 0%, #0d1220 100%);
-    }
-    .eyebrow-icon { font-size: 16px; }
-    .eyebrow-label { font-size: 13px; font-weight: 700; color: #e8eeff; text-transform: uppercase; letter-spacing: .06em; }
-    .eyebrow-badge { margin-left: 4px; }
-    </style>
-    <div class="section-body">
-      <div id="coachLoading" class="coach-loading">Analyzing performance data...</div>
+
+    <div class="section-body" style="padding:0">
+      <div id="coachLoading" class="coach-loading" style="padding:40px 20px">Analyzing performance data…</div>
+
       <div id="coachContent" style="display:none">
-        <!-- Health + Headline -->
-        <div class="coach-header" id="coachHeader">
-          <div class="coach-health" id="coachHealth">
-            <div class="health-badge" id="healthBadge">--</div>
-            <div class="health-label" id="healthLabel">Loading</div>
-            <div class="health-score" id="healthScore">Score: --</div>
-          </div>
+
+        <!-- Health Overview Bar -->
+        <div class="coach-health-bar" id="coachHealthBar"></div>
+
+        <!-- Headline + Summary -->
+        <div class="coach-headline-wrap">
           <div class="coach-headline" id="coachHeadline"></div>
+          <ul class="coach-bullets" id="coachBullets"></ul>
         </div>
-        <!-- Summary Bullets -->
-        <ul class="coach-bullets" id="coachBullets"></ul>
-        <!-- Highlights Row -->
-        <div class="coach-highlights" id="coachHighlights"></div>
-        <!-- Recommendation Cards -->
-        <div class="coach-recs" id="coachRecs"></div>
-      </div>
-      <div id="coachEmpty" style="display:none;text-align:center;color:var(--text-muted);padding:24px">
+
+        <!-- Intel Grid: Opportunities + Risks -->
+        <div class="coach-intel-grid">
+          <div class="coach-intel-col">
+            <div class="coach-intel-hdr">
+              <span class="coach-intel-hdr-icon">◈</span> Top Opportunities
+            </div>
+            <div id="coachOpportunities" class="coach-intel-body"></div>
+          </div>
+          <div class="coach-intel-col risk-col">
+            <div class="coach-intel-hdr">
+              <span class="coach-intel-hdr-icon">◬</span> Top Risks
+            </div>
+            <div id="coachRisks" class="coach-intel-body"></div>
+          </div>
+        </div>
+
+        <!-- Recommended Actions -->
+        <div class="coach-recs-section">
+          <div class="coach-section-hdr">Recommended Actions</div>
+          <div class="coach-recs" id="coachRecs"></div>
+        </div>
+
+        <!-- Linked Context -->
+        <div class="coach-context-row" id="coachContextRow">
+          <button class="coach-ctx-btn" onclick="window.a7Navigate&&window.a7Navigate('campaigns')">
+            <span class="coach-ctx-icon">◫</span> Campaigns
+          </button>
+          <button class="coach-ctx-btn" onclick="window.a7Navigate&&window.a7Navigate('creative')">
+            <span class="coach-ctx-icon">◱</span> Creatives
+          </button>
+          <button class="coach-ctx-btn" onclick="window.a7Navigate&&window.a7Navigate('automation')">
+            <span class="coach-ctx-icon">⊗</span> Automation
+          </button>
+          <button class="coach-ctx-btn" onclick="window.a7Navigate&&window.a7Navigate('alerts')">
+            <span class="coach-ctx-icon">◬</span> Alerts
+          </button>
+          <button class="coach-ctx-btn" onclick="window.a7Navigate&&window.a7Navigate('budget')">
+            <span class="coach-ctx-icon">◎</span> Budget
+          </button>
+        </div>
+
+      </div><!-- /coachContent -->
+
+      <div id="coachEmpty" style="display:none;text-align:center;color:var(--text-muted);padding:40px 20px">
         No insights available yet. Click <strong>Refresh</strong> to generate AI Coach analysis.
       </div>
-    </div>
+    </div><!-- /section-body -->
   </div>
 
 </div><!-- /page-ai-coach -->

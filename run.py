@@ -26,6 +26,13 @@ import os
 # Add project root to path for existing modules
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# Load .env before anything else
+try:
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+except ImportError:
+    pass
+
 from app import create_app
 from app.db.init_db import init_db
 
