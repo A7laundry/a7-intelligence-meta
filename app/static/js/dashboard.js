@@ -2259,6 +2259,8 @@
           '<td>' +
             '<button class="cs-action-btn" onclick="csApproveIdea(' + i.id + ')">Approve</button>' +
             '<button class="cs-action-btn" onclick="csRejectIdea(' + i.id + ')">Reject</button>' +
+            '<button class="cs-action-btn cs-action-build" onclick="csBuildPrompt(' + i.id + ')" title="Build structured prompt from brand kit + idea">Prompt</button>' +
+            '<button class="cs-action-btn cs-action-gen" onclick="csGenerateImage(' + i.id + ')" title="Generate image with AI">Image</button>' +
           '</td>' +
         '</tr>';
       }).join('');
@@ -2283,13 +2285,19 @@
       grid.innerHTML = assets.map(function(a) {
         var icon = icons[a.asset_type] || '📄';
         var thumb = a.thumbnail_url
-          ? '<img src="' + _esc(a.thumbnail_url) + '" style="width:100%;height:100%;object-fit:cover">'
-          : icon;
+          ? '<img src="' + _esc(a.thumbnail_url) + '" style="width:100%;height:100%;object-fit:cover" loading="lazy">'
+          : '<span style="font-size:2rem">' + icon + '</span>';
+        var providerBadge = a.provider && a.provider !== 'mock'
+          ? '<span class="cs-badge cs-badge-src" style="font-size:9px">' + _esc(a.provider) + '</span>'
+          : '<span style="font-size:9px;color:var(--text-muted)">mock</span>';
+        var costBadge = (a.generation_cost && a.generation_cost > 0)
+          ? '<span style="font-size:9px;color:var(--text-muted)">$' + a.generation_cost.toFixed(3) + '</span>'
+          : '';
         return '<div class="cs-asset-card">' +
           '<div class="cs-asset-thumb">' + thumb + '</div>' +
           '<div class="cs-asset-info">' +
-            '<div class="cs-asset-type">' + _esc(a.asset_type || '') + '</div>' +
-            '<div class="cs-asset-status" style="color:var(--text-muted)">' + _esc(a.status || '') + '</div>' +
+            '<div class="cs-asset-type">' + _esc(a.asset_type || '') + ' ' + providerBadge + '</div>' +
+            '<div class="cs-asset-status" style="color:var(--text-muted)">' + _esc(a.status || '') + ' ' + costBadge + '</div>' +
           '</div>' +
         '</div>';
       }).join('');
@@ -2356,6 +2364,39 @@
         body: JSON.stringify({ status: 'rejected' }),
       });
       _csLoadIdeas();
+    } catch (e) { /* silently skip */ }
+  };
+
+  window.csBuildPrompt = async function(ideaId) {
+    try {
+      var res = await fetch('/api/content/prompts/build', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account_id: currentAccountId || 1, content_idea_id: ideaId }),
+      });
+      var data = await res.json();
+      if (data && data.prompt_text) {
+        alert('Prompt built:\n\n' + data.prompt_text.slice(0, 300) + (data.prompt_text.length > 300 ? '…' : ''));
+      }
+    } catch (e) { /* silently skip */ }
+  };
+
+  window.csGenerateImage = async function(ideaId) {
+    if (!confirm('Generate an AI image for this idea? (uses image generation credits)')) return;
+    try {
+      var res = await fetch('/api/content/assets/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account_id: currentAccountId || 1, content_idea_id: ideaId }),
+      });
+      var data = await res.json();
+      if (data && data.asset) {
+        _csActiveTab = 'assets';
+        document.querySelectorAll('.cs-tab').forEach(function(b) {
+          b.classList.toggle('active', b.getAttribute('data-cs-tab') === 'assets');
+        });
+        _renderCSTab('assets');
+      }
     } catch (e) { /* silently skip */ }
   };
 

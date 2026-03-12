@@ -333,7 +333,8 @@ class ContentStudioService:
             conn.close()
 
     def create_asset(self, account_id, content_idea_id=None, asset_type="image",
-                     asset_url="", thumbnail_url="", status="draft"):
+                     asset_url="", thumbnail_url="", status="draft",
+                     provider="mock", generation_cost=0.0):
         """Insert a new creative asset."""
         if asset_type not in self.VALID_ASSET_TYPES:
             asset_type = "image"
@@ -343,9 +344,11 @@ class ContentStudioService:
         try:
             cur = conn.execute(
                 """INSERT INTO creative_assets
-                   (account_id, content_idea_id, asset_type, asset_url, thumbnail_url, status)
-                   VALUES (?,?,?,?,?,?)""",
-                (int(account_id), content_idea_id, asset_type, asset_url, thumbnail_url, status),
+                   (account_id, content_idea_id, asset_type, asset_url, thumbnail_url,
+                    status, provider, generation_cost)
+                   VALUES (?,?,?,?,?,?,?,?)""",
+                (int(account_id), content_idea_id, asset_type, asset_url, thumbnail_url,
+                 status, provider, generation_cost),
             )
             conn.commit()
             return {
@@ -354,8 +357,202 @@ class ContentStudioService:
                 "content_idea_id": content_idea_id,
                 "asset_type": asset_type,
                 "status": status,
+                "provider": provider,
             }
         except Exception as e:
             return {"error": str(e)}
         finally:
             conn.close()
+
+    def get_asset(self, asset_id, account_id=None):
+        """Return a single creative asset by id."""
+        conn = get_connection()
+        try:
+            query = "SELECT * FROM creative_assets WHERE id = ?"
+            params = [int(asset_id)]
+            if account_id is not None:
+                query += " AND account_id = ?"
+                params.append(int(account_id))
+            row = conn.execute(query, params).fetchone()
+            if row:
+                return dict(row)
+            return {"error": "Asset not found"}
+        except Exception as e:
+            return {"error": str(e)}
+        finally:
+            conn.close()
+
+    # ── Prompt Builder ────────────────────────────────────────────────────────
+
+    def build_prompt(self, account_id, content_idea_id, image_type="social_post"):
+        """Build a structured prompt from brand kit + content idea, upsert into DB.
+
+        Returns the prompt dict with `id`, `prompt_text`, and related fields.
+        """
+        if image_type not in self.VALID_IMAGE_TYPES:
+            image_type = "social_post"
+
+        idea = self._get_idea(content_idea_id, account_id)
+        if not idea:
+            return {"error": "Content idea not found"}
+
+        brand = self.get_brand_kit(account_id)
+
+        # Build structured prompt
+        parts = []
+
+        # Brand identity block
+        if brand.get("style_description"):
+            parts.append(f"Style: {brand['style_description']}.")
+        if brand.get("primary_color") and brand["primary_color"] != "#000000":
+            parts.append(f"Primary brand color: {brand['primary_color']}.")
+        if brand.get("accent_color"):
+            parts.append(f"Accent color: {brand['accent_color']}.")
+        if brand.get("font_family") and brand["font_family"] != "Inter":
+            parts.append(f"Font: {brand['font_family']}.")
+
+        # Content block
+        parts.append(f"Create a {image_type.replace('_', ' ')} image.")
+        parts.append(f"Topic: {idea['title']}.")
+        if idea.get("description"):
+            parts.append(idea["description"])
+
+        # Platform context
+        platform = idea.get("platform_target", "instagram")
+        content_type = idea.get("content_type", "post")
+        parts.append(f"Platform: {platform}. Format: {content_type}.")
+        parts.append("High quality, professional, visually engaging.")
+
+        prompt_text = " ".join(parts)
+        aspect_ratio = self._get_aspect_ratio(content_type, platform)
+
+        # Upsert: overwrite if same (account, idea, image_type) exists
+        conn = get_connection()
+        try:
+            existing = conn.execute(
+                """SELECT id FROM creative_prompts
+                   WHERE account_id = ? AND content_idea_id = ? AND image_type = ?""",
+                (int(account_id), int(content_idea_id), image_type),
+            ).fetchone()
+
+            if existing:
+                conn.execute(
+                    """UPDATE creative_prompts
+                       SET prompt_text = ?, aspect_ratio = ?,
+                           updated_at = datetime('now')
+                       WHERE id = ?""",
+                    (prompt_text, aspect_ratio, existing["id"]),
+                )
+                conn.commit()
+                prompt_id = existing["id"]
+            else:
+                cur = conn.execute(
+                    """INSERT INTO creative_prompts
+                       (account_id, content_idea_id, prompt_text, style,
+                        aspect_ratio, image_type)
+                       VALUES (?,?,?,?,?,?)""",
+                    (int(account_id), int(content_idea_id), prompt_text,
+                     "photorealistic", aspect_ratio, image_type),
+                )
+                conn.commit()
+                prompt_id = cur.lastrowid
+
+            return {
+                "id": prompt_id,
+                "account_id": int(account_id),
+                "content_idea_id": int(content_idea_id),
+                "prompt_text": prompt_text,
+                "image_type": image_type,
+                "aspect_ratio": aspect_ratio,
+            }
+        except Exception as e:
+            return {"error": str(e)}
+        finally:
+            conn.close()
+
+    # ── Asset Generation Pipeline ─────────────────────────────────────────────
+
+    def generate_asset_from_idea(self, account_id, content_idea_id, image_type="social_post"):
+        """End-to-end pipeline: build prompt → generate image → save asset.
+
+        1. build_prompt() — structured prompt from brand kit + idea
+        2. ImageGenerationService.generate_image()
+        3. Save creative_prompts entry (upsert)
+        4. Save creative_assets entry linked to content_idea_id
+        5. Track usage_metrics for billing
+        """
+        account_id = int(account_id)
+        content_idea_id = int(content_idea_id)
+
+        # Step 1: Build prompt
+        prompt_result = self.build_prompt(account_id, content_idea_id, image_type)
+        if "error" in prompt_result:
+            return prompt_result
+
+        prompt_text = prompt_result["prompt_text"]
+        aspect_ratio = prompt_result.get("aspect_ratio", "1:1")
+
+        # Step 2: Generate image
+        from app.services.image_generation_service import ImageGenerationService
+        img_svc = ImageGenerationService()
+        img_result = img_svc.generate_image(
+            prompt_text=prompt_text,
+            image_type=image_type,
+            aspect_ratio=aspect_ratio,
+            account_id=account_id,
+        )
+
+        # Step 3: Save asset
+        asset = self.create_asset(
+            account_id=account_id,
+            content_idea_id=content_idea_id,
+            asset_type="image",
+            asset_url=img_result.get("asset_url", ""),
+            thumbnail_url=img_result.get("thumbnail_url", ""),
+            status="draft",
+            provider=img_result.get("provider", "mock"),
+            generation_cost=img_result.get("generation_cost", 0.0),
+        )
+
+        # Step 4: Track usage
+        try:
+            from app.services.billing_service import BillingService
+            BillingService().track_usage("image_generation")
+        except Exception:
+            pass
+
+        return {
+            "asset": asset,
+            "prompt": prompt_result,
+            "provider": img_result.get("provider", "mock"),
+            "generation_cost": img_result.get("generation_cost", 0.0),
+        }
+
+    # ── Helpers ───────────────────────────────────────────────────────────────
+
+    def _get_idea(self, content_idea_id, account_id=None):
+        """Fetch a single content idea row."""
+        conn = get_connection()
+        try:
+            query = "SELECT * FROM content_ideas WHERE id = ?"
+            params = [int(content_idea_id)]
+            if account_id is not None:
+                query += " AND account_id = ?"
+                params.append(int(account_id))
+            row = conn.execute(query, params).fetchone()
+            return dict(row) if row else None
+        except Exception:
+            return None
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _get_aspect_ratio(content_type, platform):
+        """Map content_type + platform to standard aspect ratio."""
+        if content_type in ("story", "reel"):
+            return "9:16"
+        if content_type in ("carousel", "post") and platform == "instagram":
+            return "4:5"
+        if content_type == "banner" or platform == "google_display":
+            return "16:9"
+        return "1:1"

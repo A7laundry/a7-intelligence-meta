@@ -175,3 +175,58 @@ def create_asset():
         return jsonify(result), 201 if "id" in result else 422
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@content_bp.route("/content/assets/<int:asset_id>", methods=["GET"])
+def get_asset(asset_id):
+    """Return a single creative asset by id."""
+    acct = _account_id()
+    try:
+        result = _get_svc().get_asset(asset_id, account_id=acct)
+        if "error" in result:
+            return jsonify(result), 404
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@content_bp.route("/content/prompts/build", methods=["POST"])
+def build_prompt():
+    """Build a structured prompt from brand kit + content idea."""
+    body = request.get_json(silent=True) or {}
+    content_idea_id = body.get("content_idea_id")
+    if not content_idea_id:
+        return jsonify({"error": "content_idea_id is required"}), 400
+    acct = body.get("account_id") or _account_id() or 1
+    try:
+        result = _get_svc().build_prompt(
+            account_id=acct,
+            content_idea_id=content_idea_id,
+            image_type=body.get("image_type", "social_post"),
+        )
+        if "error" in result:
+            return jsonify(result), 422
+        return jsonify(result), 201
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@content_bp.route("/content/assets/generate", methods=["POST"])
+def generate_asset():
+    """End-to-end pipeline: build prompt → generate image → save asset."""
+    body = request.get_json(silent=True) or {}
+    content_idea_id = body.get("content_idea_id")
+    if not content_idea_id:
+        return jsonify({"error": "content_idea_id is required"}), 400
+    acct = body.get("account_id") or _account_id() or 1
+    try:
+        result = _get_svc().generate_asset_from_idea(
+            account_id=acct,
+            content_idea_id=content_idea_id,
+            image_type=body.get("image_type", "social_post"),
+        )
+        if "error" in result:
+            return jsonify(result), 422
+        return jsonify(result), 201
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500

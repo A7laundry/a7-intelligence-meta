@@ -1493,6 +1493,10 @@ tr.ca-health-red td:first-child { background: rgba(239,68,68,.04); }
   margin-right: 3px; transition: background .15s;
 }
 .cs-action-btn:hover { background: var(--meta); color: #fff; border-color: var(--meta); }
+.cs-action-build { border-color: #6366f1; color: #6366f1; }
+.cs-action-build:hover { background: #6366f1; color: #fff; border-color: #6366f1; }
+.cs-action-gen { border-color: #10b981; color: #10b981; }
+.cs-action-gen:hover { background: #10b981; color: #fff; border-color: #10b981; }
 .cs-asset-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(140px,1fr)); gap: 12px;
 }

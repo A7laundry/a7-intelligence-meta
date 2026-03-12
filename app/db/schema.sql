@@ -334,7 +334,8 @@ CREATE TABLE IF NOT EXISTS creative_prompts (
     style TEXT DEFAULT 'photorealistic',
     aspect_ratio TEXT DEFAULT '1:1',
     image_type TEXT DEFAULT 'social_post' CHECK(image_type IN ('ad_creative','social_post','story','banner')),
-    created_at TEXT DEFAULT (datetime('now'))
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS creative_assets (
@@ -345,6 +346,8 @@ CREATE TABLE IF NOT EXISTS creative_assets (
     asset_url TEXT DEFAULT '',
     thumbnail_url TEXT DEFAULT '',
     status TEXT DEFAULT 'draft' CHECK(status IN ('draft','approved','published','archived')),
+    provider TEXT DEFAULT 'mock',
+    generation_cost REAL DEFAULT 0.0,
     created_at TEXT DEFAULT (datetime('now'))
 );
 

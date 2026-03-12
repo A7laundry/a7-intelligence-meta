@@ -274,6 +274,17 @@ def _run_migrations(conn):
         conn.execute("CREATE INDEX IF NOT EXISTS idx_creative_assets_status ON creative_assets(status)")
         conn.commit()
 
+    # Migration 9: Content Studio Phase 8B — prompt updated_at, asset generation columns
+    if _table_exists(conn, "creative_prompts") and not _column_exists(conn, "creative_prompts", "updated_at"):
+        conn.execute("ALTER TABLE creative_prompts ADD COLUMN updated_at TEXT")
+        conn.commit()
+    if _table_exists(conn, "creative_assets") and not _column_exists(conn, "creative_assets", "provider"):
+        conn.execute("ALTER TABLE creative_assets ADD COLUMN provider TEXT DEFAULT 'mock'")
+        conn.commit()
+    if _table_exists(conn, "creative_assets") and not _column_exists(conn, "creative_assets", "generation_cost"):
+        conn.execute("ALTER TABLE creative_assets ADD COLUMN generation_cost REAL DEFAULT 0.0")
+        conn.commit()
+
     _migrate_snapshots_table(conn, "creatives",
         """CREATE TABLE creatives_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

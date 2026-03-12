@@ -2163,3 +2163,138 @@ class TestContentStudio:
             assert isinstance(result.get("key_findings"), list)
         finally:
             os.environ.update(saved)
+
+class TestContentStudioPhaseB:
+    """Phase 8B — Prompt Builder + Image Generation Engine."""
+
+    def test_build_prompt_returns_prompt_text(self, client):
+        """build_prompt() returns a non-empty prompt_text combining brand info + idea."""
+        from app.db.init_db import init_db
+        from app.services.content_studio_service import ContentStudioService
+        init_db()
+        svc = ContentStudioService()
+        idea = svc.create_idea(account_id=1, title="Flash sale reel", description="30% off this weekend only",
+                               content_type="reel", platform_target="instagram")
+        result = svc.build_prompt(account_id=1, content_idea_id=idea["id"], image_type="social_post")
+        assert "id" in result
+        assert "prompt_text" in result
+        assert len(result["prompt_text"]) > 20
+        assert "Flash sale reel" in result["prompt_text"]
+
+    def test_build_prompt_upsert(self, client):
+        """Calling build_prompt twice for same idea+image_type updates, not duplicates."""
+        from app.db.init_db import init_db, get_connection
+        from app.services.content_studio_service import ContentStudioService
+        init_db()
+        svc = ContentStudioService()
+        idea = svc.create_idea(account_id=1, title="Upsert test idea", content_type="post",
+                               platform_target="facebook")
+        r1 = svc.build_prompt(account_id=1, content_idea_id=idea["id"], image_type="social_post")
+        r2 = svc.build_prompt(account_id=1, content_idea_id=idea["id"], image_type="social_post")
+        assert r1["id"] == r2["id"]  # same row updated, not new row
+        conn = get_connection()
+        count = conn.execute(
+            "SELECT COUNT(*) FROM creative_prompts WHERE content_idea_id=? AND image_type='social_post'",
+            (idea["id"],)
+        ).fetchone()[0]
+        conn.close()
+        assert count == 1
+
+    def test_build_prompt_endpoint(self, client):
+        """POST /api/content/prompts/build returns 201 with prompt_text."""
+        from app.db.init_db import init_db
+        from app.services.content_studio_service import ContentStudioService
+        init_db()
+        idea = ContentStudioService().create_idea(account_id=1, title="Endpoint test idea")
+        resp = client.post("/api/content/prompts/build",
+                           json={"account_id": 1, "content_idea_id": idea["id"]},
+                           content_type="application/json")
+        assert resp.status_code == 201
+        data = resp.get_json()
+        assert "prompt_text" in data
+        assert "id" in data
+
+    def test_build_prompt_missing_idea_returns_error(self, client):
+        """build_prompt() with non-existent idea_id returns error dict."""
+        from app.db.init_db import init_db
+        from app.services.content_studio_service import ContentStudioService
+        init_db()
+        result = ContentStudioService().build_prompt(account_id=1, content_idea_id=99999)
+        assert "error" in result
+
+    def test_image_generation_service_mock(self):
+        """ImageGenerationService returns mock asset with correct schema."""
+        import os
+        os.environ.pop("IMAGE_GENERATION_PROVIDER", None)
+        from app.services.image_generation_service import ImageGenerationService
+        svc = ImageGenerationService()
+        result = svc.generate_image("A blue background with text", image_type="social_post",
+                                    aspect_ratio="1:1")
+        assert "asset_url" in result
+        assert "thumbnail_url" in result
+        assert result["status"] == "draft"
+        assert result["provider"] == "mock"
+        assert result["generation_cost"] == 0.0
+        assert "placehold.co" in result["asset_url"]
+
+    def test_image_generation_aspect_ratios(self):
+        """Mock provider respects aspect ratio dimensions in URL."""
+        import os
+        os.environ.pop("IMAGE_GENERATION_PROVIDER", None)
+        from app.services.image_generation_service import ImageGenerationService
+        svc = ImageGenerationService()
+        r_square = svc.generate_image("test", aspect_ratio="1:1")
+        r_portrait = svc.generate_image("test", aspect_ratio="9:16")
+        assert "1024x1024" in r_square["asset_url"]
+        assert "1024x1792" in r_portrait["asset_url"]
+
+    def test_generate_asset_from_idea_pipeline(self):
+        """generate_asset_from_idea() saves asset to DB and returns asset dict."""
+        from app.db.init_db import init_db, get_connection
+        from app.services.content_studio_service import ContentStudioService
+        init_db()
+        svc = ContentStudioService()
+        idea = svc.create_idea(account_id=1, title="Pipeline test idea",
+                               content_type="post", platform_target="instagram")
+        result = svc.generate_asset_from_idea(account_id=1, content_idea_id=idea["id"])
+        assert "asset" in result
+        assert "prompt" in result
+        assert "provider" in result
+        assert result["asset"]["id"] is not None
+        # Verify row exists in DB
+        conn = get_connection()
+        row = conn.execute("SELECT * FROM creative_assets WHERE id=?",
+                           (result["asset"]["id"],)).fetchone()
+        conn.close()
+        assert row is not None
+        assert row["content_idea_id"] == idea["id"]
+
+    def test_generate_asset_endpoint(self, client):
+        """POST /api/content/assets/generate returns 201 with asset and prompt."""
+        from app.db.init_db import init_db
+        from app.services.content_studio_service import ContentStudioService
+        init_db()
+        idea = ContentStudioService().create_idea(account_id=1, title="Generate endpoint test")
+        resp = client.post("/api/content/assets/generate",
+                           json={"account_id": 1, "content_idea_id": idea["id"]},
+                           content_type="application/json")
+        assert resp.status_code == 201
+        data = resp.get_json()
+        assert "asset" in data
+        assert "prompt" in data
+
+    def test_get_asset_endpoint(self, client):
+        """GET /api/content/assets/<id> returns asset with provider and generation_cost."""
+        from app.db.init_db import init_db
+        from app.services.content_studio_service import ContentStudioService
+        init_db()
+        svc = ContentStudioService()
+        idea = svc.create_idea(account_id=1, title="Get asset test idea")
+        gen = svc.generate_asset_from_idea(account_id=1, content_idea_id=idea["id"])
+        asset_id = gen["asset"]["id"]
+        resp = client.get(f"/api/content/assets/{asset_id}")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["id"] == asset_id
+        assert "provider" in data
+        assert "generation_cost" in data
