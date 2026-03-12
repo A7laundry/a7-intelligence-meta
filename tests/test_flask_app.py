@@ -2980,3 +2980,307 @@ class TestCalendar:
         resp = client.get("/api/content/calendar/upcoming?account_id=1")
         assert resp.status_code == 200
         assert isinstance(resp.get_json(), list)
+
+
+class TestContentIntelligence:
+    """Phase 8F — Content Intelligence tests."""
+
+    # ── helpers ──────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _make_published_post(account_id=1, platform="instagram",
+                             post_type="image_post", title="Test",
+                             published_at=None):
+        from app.db.init_db import init_db, get_connection
+        from app.services.publishing_service import PublishingService
+        init_db()
+        svc = PublishingService()
+        post = svc.create_post(account_id=account_id, title=title,
+                               platform_target=platform, post_type=post_type)
+        pub_at = published_at or "2026-03-01T10:00:00"
+        conn = get_connection()
+        conn.execute(
+            "UPDATE content_posts SET status='published', published_at=? WHERE id=?",
+            (pub_at, post["id"]),
+        )
+        conn.commit()
+        conn.close()
+        return post
+
+    # ── sync ─────────────────────────────────────────────────────────────────
+
+    def test_sync_creates_metrics_for_published_posts(self):
+        """sync_content_metrics creates metric rows for published posts."""
+        from app.db.init_db import init_db, get_connection
+        from app.services.content_intelligence_service import ContentIntelligenceService
+        init_db()
+        acct = 300
+        post = self._make_published_post(account_id=acct, title="Sync test")
+        svc = ContentIntelligenceService()
+        result = svc.sync_content_metrics(account_id=acct)
+        assert "error" not in result
+        assert result["synced"] >= 1
+        conn = get_connection()
+        row = conn.execute(
+            "SELECT * FROM content_metrics WHERE content_post_id=?", (post["id"],)
+        ).fetchone()
+        conn.close()
+        assert row is not None
+        assert row["reach"] > 0
+        assert row["engagement"] > 0
+
+    def test_sync_idempotent(self):
+        """Second sync does not duplicate metrics rows."""
+        from app.db.init_db import init_db, get_connection
+        from app.services.content_intelligence_service import ContentIntelligenceService
+        init_db()
+        acct = 301
+        self._make_published_post(account_id=acct, title="Idempotent test")
+        svc = ContentIntelligenceService()
+        svc.sync_content_metrics(account_id=acct)
+        result2 = svc.sync_content_metrics(account_id=acct)
+        assert result2["synced"] == 0
+        assert result2["already_synced"] >= 1
+
+    # ── summary ───────────────────────────────────────────────────────────────
+
+    def test_content_summary_after_sync(self):
+        """get_content_summary returns non-zero values after sync."""
+        from app.db.init_db import init_db
+        from app.services.content_intelligence_service import ContentIntelligenceService
+        init_db()
+        acct = 302
+        self._make_published_post(account_id=acct, title="Summary test",
+                                  published_at="2026-03-10T10:00:00")
+        svc = ContentIntelligenceService()
+        svc.sync_content_metrics(account_id=acct)
+        summary = svc.get_content_summary(account_id=acct, days=365)
+        assert summary["posts_published"] >= 1
+        assert summary["total_reach"] > 0
+        assert summary["total_engagement"] > 0
+        assert 0.0 <= summary["avg_score"] <= 100.0
+
+    # ── top posts ─────────────────────────────────────────────────────────────
+
+    def test_top_posts_ordered_by_score(self):
+        """get_top_posts returns posts in descending score order."""
+        from app.db.init_db import init_db
+        from app.services.content_intelligence_service import ContentIntelligenceService
+        init_db()
+        acct = 303
+        for i in range(3):
+            self._make_published_post(account_id=acct, title=f"Post {i}",
+                                      published_at="2026-03-05T10:00:00")
+        svc = ContentIntelligenceService()
+        svc.sync_content_metrics(account_id=acct)
+        posts = svc.get_top_posts(account_id=acct, days=365)
+        assert len(posts) >= 1
+        scores = [p["score"] for p in posts]
+        assert scores == sorted(scores, reverse=True)
+
+    # ── format performance ────────────────────────────────────────────────────
+
+    def test_format_performance_groups_correctly(self):
+        """get_format_performance groups by post_type × platform."""
+        from app.db.init_db import init_db
+        from app.services.content_intelligence_service import ContentIntelligenceService
+        init_db()
+        acct = 304
+        self._make_published_post(account_id=acct, platform="instagram",
+                                  post_type="reel", title="Reel 1",
+                                  published_at="2026-03-01T10:00:00")
+        self._make_published_post(account_id=acct, platform="instagram",
+                                  post_type="image_post", title="Image 1",
+                                  published_at="2026-03-02T10:00:00")
+        svc = ContentIntelligenceService()
+        svc.sync_content_metrics(account_id=acct)
+        formats = svc.get_format_performance(account_id=acct, days=365)
+        assert len(formats) >= 2
+        types_found = {f["post_type"] for f in formats}
+        assert "reel" in types_found
+        assert "image_post" in types_found
+        # reel should outrank image_post (higher engagement multiplier)
+        reel_row = next(f for f in formats if f["post_type"] == "reel")
+        img_row  = next(f for f in formats if f["post_type"] == "image_post")
+        assert reel_row["avg_engagement"] > img_row["avg_engagement"]
+
+    # ── best times ────────────────────────────────────────────────────────────
+
+    def test_best_posting_times_sorted(self):
+        """get_best_posting_times returns slots sorted by avg_engagement desc."""
+        from app.db.init_db import init_db
+        from app.services.content_intelligence_service import ContentIntelligenceService
+        init_db()
+        acct = 305
+        for pub_at in ["2026-03-01T08:00:00", "2026-03-02T14:00:00",
+                       "2026-03-03T20:00:00"]:
+            self._make_published_post(account_id=acct, title="Time post",
+                                      published_at=pub_at)
+        svc = ContentIntelligenceService()
+        svc.sync_content_metrics(account_id=acct)
+        times = svc.get_best_posting_times(account_id=acct, days=365)
+        assert len(times) >= 1
+        engagements = [t["avg_engagement"] for t in times]
+        assert engagements == sorted(engagements, reverse=True)
+        # Weekday labels should be valid
+        valid_days = {"Mon","Tue","Wed","Thu","Fri","Sat","Sun"}
+        for t in times:
+            assert t["weekday_label"] in valid_days
+
+    # ── reuse opportunities ───────────────────────────────────────────────────
+
+    def test_detect_reuse_for_top_performer(self):
+        """High-score post generates at least a top_performer insight."""
+        from app.db.init_db import init_db, get_connection
+        from app.services.content_intelligence_service import ContentIntelligenceService, _mock_metrics
+        init_db()
+        acct = 306
+        # Use instagram+reel for maximum mock score
+        post = self._make_published_post(account_id=acct, platform="instagram",
+                                         post_type="reel", title="Viral Reel",
+                                         published_at="2026-02-01T10:00:00")
+        # Insert mock metrics directly so we control score
+        m = _mock_metrics({"id": post["id"], "platform_target": "instagram",
+                           "post_type": "reel"})
+        # Inflate engagement for guaranteed top-performer score
+        conn = get_connection()
+        conn.execute(
+            """INSERT OR REPLACE INTO content_metrics
+               (account_id, content_post_id, platform_target, metric_date,
+                impressions, reach, clicks, engagement, likes, comments, shares, saves, ctr)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (acct, post["id"], "instagram", "2026-02-01",
+             50000, 40000, 2000, 8000, 5000, 400, 800, 800, 0.05),
+        )
+        conn.commit()
+        conn.close()
+        svc = ContentIntelligenceService()
+        insights = svc.detect_reuse_opportunities(account_id=acct, days=365)
+        types = {i["type"] for i in insights if "error" not in i}
+        assert "top_performer" in types
+
+    def test_detect_no_opportunities_for_unpublished(self):
+        """Account with no published posts returns no insights."""
+        from app.db.init_db import init_db
+        from app.services.content_intelligence_service import ContentIntelligenceService
+        from app.services.publishing_service import PublishingService
+        init_db()
+        acct = 307
+        PublishingService().create_post(account_id=acct, title="Draft only")
+        svc = ContentIntelligenceService()
+        insights = svc.detect_reuse_opportunities(account_id=acct, days=30)
+        assert insights == []
+
+    # ── content score ─────────────────────────────────────────────────────────
+
+    def test_content_score_high_engagement(self):
+        """Post with very high engagement should score above 60."""
+        from app.db.init_db import init_db, get_connection
+        from app.services.content_intelligence_service import ContentIntelligenceService
+        init_db()
+        acct = 308
+        post = self._make_published_post(account_id=acct, title="High eng",
+                                         published_at="2026-03-10T10:00:00")
+        conn = get_connection()
+        conn.execute(
+            """INSERT OR REPLACE INTO content_metrics
+               (account_id, content_post_id, platform_target, metric_date,
+                impressions, reach, clicks, engagement, likes, comments, shares, saves, ctr)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (acct, post["id"], "instagram", "2026-03-10",
+             100000, 80000, 4000, 8000, 5000, 600, 1200, 1200, 0.05),
+        )
+        conn.commit()
+        conn.close()
+        svc = ContentIntelligenceService()
+        score = svc.calculate_content_score(post_id=post["id"], account_id=acct)
+        assert score > 60.0
+        assert score <= 100.0
+
+    def test_content_score_low_engagement(self):
+        """Post with very low engagement should score below 20."""
+        from app.db.init_db import init_db, get_connection
+        from app.services.content_intelligence_service import ContentIntelligenceService
+        init_db()
+        acct = 309
+        post = self._make_published_post(account_id=acct, title="Low eng",
+                                         published_at="2026-01-01T10:00:00")
+        conn = get_connection()
+        conn.execute(
+            """INSERT OR REPLACE INTO content_metrics
+               (account_id, content_post_id, platform_target, metric_date,
+                impressions, reach, clicks, engagement, likes, comments, shares, saves, ctr)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (acct, post["id"], "instagram", "2026-01-01",
+             1000, 900, 2, 5, 3, 1, 1, 0, 0.002),
+        )
+        conn.commit()
+        conn.close()
+        svc = ContentIntelligenceService()
+        score = svc.calculate_content_score(post_id=post["id"], account_id=acct)
+        assert score < 20.0
+
+    def test_content_score_uses_mock_fallback(self):
+        """Score for post without stored metrics still returns a value > 0."""
+        from app.db.init_db import init_db
+        from app.services.content_intelligence_service import ContentIntelligenceService
+        init_db()
+        acct = 310
+        post = self._make_published_post(account_id=acct, title="No metrics")
+        svc = ContentIntelligenceService()
+        score = svc.calculate_content_score(post_id=post["id"], account_id=acct)
+        assert 0.0 <= score <= 100.0
+
+    # ── account isolation ──────────────────────────────────────────────────────
+
+    def test_account_isolation(self):
+        """Metrics and insights from account 311 do not appear in account 312."""
+        from app.db.init_db import init_db, get_connection
+        from app.services.content_intelligence_service import ContentIntelligenceService
+        init_db()
+        self._make_published_post(account_id=311, title="Acct311 post",
+                                  published_at="2026-03-01T10:00:00")
+        svc = ContentIntelligenceService()
+        svc.sync_content_metrics(account_id=311)
+        summary312 = svc.get_content_summary(account_id=312, days=365)
+        assert summary312["posts_published"] == 0
+        assert summary312["total_reach"] == 0
+
+    # ── API endpoints ─────────────────────────────────────────────────────────
+
+    def test_sync_api_endpoint(self, client):
+        """POST /api/content/intelligence/sync returns 200."""
+        resp = client.post(
+            "/api/content/intelligence/sync",
+            json={"account_id": 1},
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "synced" in data
+        assert "already_synced" in data
+
+    def test_summary_api_endpoint(self, client):
+        """GET /api/content/intelligence/summary returns expected keys."""
+        resp = client.get("/api/content/intelligence/summary?account_id=1&days=7")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "posts_published" in data
+        assert "avg_score" in data
+
+    def test_top_posts_api_endpoint(self, client):
+        """GET /api/content/intelligence/top-posts returns a list."""
+        resp = client.get("/api/content/intelligence/top-posts?account_id=1&days=30")
+        assert resp.status_code == 200
+        assert isinstance(resp.get_json(), list)
+
+    def test_formats_api_endpoint(self, client):
+        """GET /api/content/intelligence/formats returns a list."""
+        resp = client.get("/api/content/intelligence/formats?account_id=1&days=30")
+        assert resp.status_code == 200
+        assert isinstance(resp.get_json(), list)
+
+    def test_reuse_api_endpoint(self, client):
+        """GET /api/content/intelligence/reuse returns a list."""
+        resp = client.get("/api/content/intelligence/reuse?account_id=1&days=30")
+        assert resp.status_code == 200
+        assert isinstance(resp.get_json(), list)

@@ -525,6 +525,7 @@
       <button class="cs-tab" data-cs-tab="publishing">Publishing</button>
       <button class="cs-tab" data-cs-tab="brand">Brand Kit</button>
       <button class="cs-tab" data-cs-tab="calendar">&#128197; Calendar</button>
+      <button class="cs-tab" data-cs-tab="intelligence">&#129504; Intelligence</button>
     </div>
 
     <!-- Ideas panel -->
@@ -643,6 +644,39 @@
     <div id="csAssetsPanel" style="display:none">
       <div id="csAssetGrid" class="cs-asset-grid"></div>
       <div id="csAssetsEmpty" class="cs-empty" style="display:none">No creative assets yet.</div>
+    </div>
+
+    <!-- Intelligence panel -->
+    <div id="csIntelligencePanel" style="display:none">
+
+      <!-- Sync bar -->
+      <div class="intel-sync-bar">
+        <button class="pub-create-btn" onclick="window.intelSync()">&#9889; Sync Metrics</button>
+        <span id="intelSyncStatus" class="intel-sync-status"></span>
+      </div>
+
+      <!-- KPI summary row -->
+      <div id="intelSummaryRow" class="intel-kpi-row"></div>
+
+      <!-- Top Posts -->
+      <div class="intel-section-label">Top Posts</div>
+      <div id="intelTopPosts" class="intel-top-posts"></div>
+      <div id="intelTopPostsEmpty" class="cs-empty" style="display:none">No published posts with metrics yet. Sync first.</div>
+
+      <!-- Format Performance -->
+      <div class="intel-section-label">Format Performance</div>
+      <div id="intelFormats"></div>
+      <div id="intelFormatsEmpty" class="cs-empty" style="display:none">No format data yet.</div>
+
+      <!-- Best Posting Times -->
+      <div class="intel-section-label">Best Posting Times</div>
+      <div id="intelBestTimes"></div>
+      <div id="intelBestTimesEmpty" class="cs-empty" style="display:none">Not enough data yet.</div>
+
+      <!-- Reuse Opportunities -->
+      <div class="intel-section-label">Reuse &amp; Synergy Opportunities</div>
+      <div id="intelReuse" class="intel-reuse-list"></div>
+      <div id="intelReuseEmpty" class="cs-empty" style="display:none">No reuse opportunities detected yet.</div>
     </div>
 
     <!-- Calendar panel -->

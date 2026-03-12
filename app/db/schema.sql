@@ -388,14 +388,33 @@ CREATE TABLE IF NOT EXISTS publishing_jobs (
     platform_target TEXT DEFAULT 'instagram',
     job_type TEXT DEFAULT 'publish_now' CHECK(job_type IN ('publish_now','schedule','retry')),
     status TEXT DEFAULT 'queued' CHECK(status IN (
-        'queued','scheduled','running','success','failed','cancelled'
+        'queued','scheduled','uploading','publishing','running',
+        'success','failed','retrying','cancelled'
     )),
     scheduled_for TEXT,
     executed_at TEXT,
     result_message TEXT DEFAULT '',
     payload_json TEXT DEFAULT '{}',
+    retry_count INTEGER DEFAULT 0,
+    next_retry_at TEXT,
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS social_connectors (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id INTEGER NOT NULL,
+    platform TEXT NOT NULL CHECK(platform IN ('instagram','facebook_page')),
+    access_token TEXT DEFAULT '',
+    page_id TEXT DEFAULT '',
+    ig_user_id TEXT DEFAULT '',
+    status TEXT DEFAULT 'disconnected' CHECK(status IN (
+        'connected','invalid','expired','disconnected'
+    )),
+    last_validated_at TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(account_id, platform)
 );
 
 CREATE INDEX IF NOT EXISTS idx_content_posts_account   ON content_posts(account_id);
@@ -406,3 +425,50 @@ CREATE INDEX IF NOT EXISTS idx_publishing_jobs_account ON publishing_jobs(accoun
 CREATE INDEX IF NOT EXISTS idx_publishing_jobs_status  ON publishing_jobs(status);
 CREATE INDEX IF NOT EXISTS idx_publishing_jobs_sched   ON publishing_jobs(scheduled_for);
 CREATE INDEX IF NOT EXISTS idx_publishing_jobs_post    ON publishing_jobs(content_post_id);
+CREATE INDEX IF NOT EXISTS idx_publishing_jobs_retry   ON publishing_jobs(next_retry_at);
+
+CREATE INDEX IF NOT EXISTS idx_social_connectors_account  ON social_connectors(account_id);
+CREATE INDEX IF NOT EXISTS idx_social_connectors_platform ON social_connectors(platform);
+
+-- ─── Content Intelligence ─────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS content_metrics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id INTEGER NOT NULL,
+    content_post_id INTEGER NOT NULL REFERENCES content_posts(id),
+    platform_target TEXT DEFAULT '',
+    metric_date TEXT NOT NULL,       -- YYYY-MM-DD of snapshot
+    impressions INTEGER DEFAULT 0,
+    reach INTEGER DEFAULT 0,
+    clicks INTEGER DEFAULT 0,
+    engagement INTEGER DEFAULT 0,
+    likes INTEGER DEFAULT 0,
+    comments INTEGER DEFAULT 0,
+    shares INTEGER DEFAULT 0,
+    saves INTEGER DEFAULT 0,
+    ctr REAL DEFAULT 0.0,
+    created_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(content_post_id, metric_date)
+);
+
+CREATE TABLE IF NOT EXISTS content_insights (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id INTEGER NOT NULL,
+    content_post_id INTEGER REFERENCES content_posts(id),
+    insight_type TEXT NOT NULL CHECK(insight_type IN (
+        'top_performer','low_engagement','best_time',
+        'reuse_opportunity','paid_synergy','format_winner'
+    )),
+    title TEXT NOT NULL DEFAULT '',
+    message TEXT DEFAULT '',
+    score REAL DEFAULT 0.0,
+    payload_json TEXT DEFAULT '{}',
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_content_metrics_account  ON content_metrics(account_id);
+CREATE INDEX IF NOT EXISTS idx_content_metrics_post     ON content_metrics(content_post_id);
+CREATE INDEX IF NOT EXISTS idx_content_metrics_date     ON content_metrics(metric_date);
+CREATE INDEX IF NOT EXISTS idx_content_insights_account ON content_insights(account_id);
+CREATE INDEX IF NOT EXISTS idx_content_insights_type    ON content_insights(insight_type);
+CREATE INDEX IF NOT EXISTS idx_content_insights_post    ON content_insights(content_post_id);

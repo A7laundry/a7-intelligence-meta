@@ -340,6 +340,121 @@ def _run_migrations(conn):
         conn.execute("CREATE INDEX IF NOT EXISTS idx_publishing_jobs_post    ON publishing_jobs(content_post_id)")
         conn.commit()
 
+    # Migration 11a: Extend publishing_jobs — new statuses + retry columns
+    if _table_exists(conn, "publishing_jobs"):
+        row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='publishing_jobs'"
+        ).fetchone()
+        old_sql = row[0] if row else ""
+        needs_rebuild = ("'uploading'" not in old_sql or
+                         not _column_exists(conn, "publishing_jobs", "retry_count"))
+        if needs_rebuild:
+            try:
+                old_cols = ("id, account_id, content_post_id, platform_target, job_type, "
+                            "status, scheduled_for, executed_at, result_message, "
+                            "payload_json, created_at, updated_at")
+                conn.execute("""
+                    CREATE TABLE publishing_jobs_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        account_id INTEGER DEFAULT 1,
+                        content_post_id INTEGER,
+                        platform_target TEXT DEFAULT 'instagram',
+                        job_type TEXT DEFAULT 'publish_now',
+                        status TEXT DEFAULT 'queued',
+                        scheduled_for TEXT,
+                        executed_at TEXT,
+                        result_message TEXT DEFAULT '',
+                        payload_json TEXT DEFAULT '{}',
+                        retry_count INTEGER DEFAULT 0,
+                        next_retry_at TEXT,
+                        created_at TEXT DEFAULT (datetime('now')),
+                        updated_at TEXT DEFAULT (datetime('now'))
+                    )
+                """)
+                conn.execute(
+                    f"INSERT INTO publishing_jobs_new ({old_cols}, retry_count, next_retry_at) "
+                    f"SELECT {old_cols}, 0, NULL FROM publishing_jobs"
+                )
+                conn.execute("DROP TABLE publishing_jobs")
+                conn.execute("ALTER TABLE publishing_jobs_new RENAME TO publishing_jobs")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_publishing_jobs_account ON publishing_jobs(account_id)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_publishing_jobs_status  ON publishing_jobs(status)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_publishing_jobs_sched   ON publishing_jobs(scheduled_for)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_publishing_jobs_post    ON publishing_jobs(content_post_id)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_publishing_jobs_retry   ON publishing_jobs(next_retry_at)")
+                conn.commit()
+            except Exception as e:
+                conn.rollback()
+                print(f"⚠️  Migration 11a skipped: {e}")
+
+    # Migration 11b: social_connectors table
+    if not _table_exists(conn, "social_connectors"):
+        conn.execute("""
+            CREATE TABLE social_connectors (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id INTEGER NOT NULL,
+                platform TEXT NOT NULL,
+                access_token TEXT DEFAULT '',
+                page_id TEXT DEFAULT '',
+                ig_user_id TEXT DEFAULT '',
+                status TEXT DEFAULT 'disconnected',
+                last_validated_at TEXT,
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now')),
+                UNIQUE(account_id, platform)
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_social_connectors_account  ON social_connectors(account_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_social_connectors_platform ON social_connectors(platform)")
+        conn.commit()
+
+    # Migration 12a: content_metrics table
+    if not _table_exists(conn, "content_metrics"):
+        conn.execute("""
+            CREATE TABLE content_metrics (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id INTEGER NOT NULL,
+                content_post_id INTEGER NOT NULL,
+                platform_target TEXT DEFAULT '',
+                metric_date TEXT NOT NULL,
+                impressions INTEGER DEFAULT 0,
+                reach INTEGER DEFAULT 0,
+                clicks INTEGER DEFAULT 0,
+                engagement INTEGER DEFAULT 0,
+                likes INTEGER DEFAULT 0,
+                comments INTEGER DEFAULT 0,
+                shares INTEGER DEFAULT 0,
+                saves INTEGER DEFAULT 0,
+                ctr REAL DEFAULT 0.0,
+                created_at TEXT DEFAULT (datetime('now')),
+                UNIQUE(content_post_id, metric_date)
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_content_metrics_account ON content_metrics(account_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_content_metrics_post    ON content_metrics(content_post_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_content_metrics_date    ON content_metrics(metric_date)")
+        conn.commit()
+
+    # Migration 12b: content_insights table
+    if not _table_exists(conn, "content_insights"):
+        conn.execute("""
+            CREATE TABLE content_insights (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id INTEGER NOT NULL,
+                content_post_id INTEGER,
+                insight_type TEXT NOT NULL,
+                title TEXT NOT NULL DEFAULT '',
+                message TEXT DEFAULT '',
+                score REAL DEFAULT 0.0,
+                payload_json TEXT DEFAULT '{}',
+                created_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_content_insights_account ON content_insights(account_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_content_insights_type    ON content_insights(insight_type)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_content_insights_post    ON content_insights(content_post_id)")
+        conn.commit()
+
     _migrate_snapshots_table(conn, "creatives",
         """CREATE TABLE creatives_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

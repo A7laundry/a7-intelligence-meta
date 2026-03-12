@@ -67,6 +67,9 @@ def create_app():
     from app.routes.calendar import calendar_bp
     app.register_blueprint(calendar_bp, url_prefix="/api")
 
+    from app.routes.content_intelligence import content_intelligence_bp
+    app.register_blueprint(content_intelligence_bp, url_prefix="/api")
+
     # Template context processor
     @app.context_processor
     def inject_globals():

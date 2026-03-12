@@ -2232,6 +2232,7 @@
       publishing: 'csPublishingPanel',
       brand: 'csBrandPanel',
       calendar: 'csCalendarPanel',
+      intelligence: 'csIntelligencePanel',
     };
     Object.keys(panels).forEach(function(k) {
       var el = $(panels[k]);
@@ -2242,6 +2243,7 @@
     if (tab === 'publishing') _pubLoad();
     if (tab === 'brand') _csLoadBrandKit();
     if (tab === 'calendar') _calLoad();
+    if (tab === 'intelligence') _intelLoad();
   }
 
   async function _csLoadIdeas() {
@@ -2658,6 +2660,210 @@
       if (loading) loading.style.display = 'none';
     }
   }
+
+  // ── Content Intelligence ──────────────────────────────────────────────────
+
+  var _intelPlatformIcon = {
+    instagram: '📸', facebook: '📘', facebook_page: '📘',
+    tiktok: '🎵', linkedin: '💼', pinterest: '📌', google_display: '🎯',
+  };
+  var _intelInsightIcon = {
+    top_performer: '🏆', reuse_opportunity: '♻️', paid_synergy: '🔗',
+    low_engagement: '⚠️', format_winner: '🥇', best_time: '⏰',
+  };
+
+  async function _intelLoad() {
+    await Promise.all([
+      _intelLoadSummary(),
+      _intelLoadTopPosts(),
+      _intelLoadFormats(),
+      _intelLoadBestTimes(),
+      _intelLoadReuse(),
+    ]);
+  }
+
+  async function _intelLoadSummary() {
+    var row = $('#intelSummaryRow');
+    if (!row) return;
+    try {
+      var d = await fetchApi('/content/intelligence/summary?' + _acctQs() + '&days=7');
+      row.innerHTML =
+        _intelKpi('Posts Published', d.posts_published, '(last 7 days)') +
+        _intelKpi('Total Reach',     _intelFmt(d.total_reach), '') +
+        _intelKpi('Engagement',      _intelFmt(d.total_engagement), '') +
+        _intelKpi('Avg Score',       d.avg_score + '/100', '');
+    } catch (e) { row.innerHTML = ''; }
+  }
+
+  function _intelKpi(label, value, sub) {
+    return '<div class="intel-kpi-card">' +
+      '<div class="intel-kpi-label">' + _esc(label) + '</div>' +
+      '<div class="intel-kpi-value">' + _esc(String(value)) + '</div>' +
+      (sub ? '<div class="intel-kpi-sub">' + _esc(sub) + '</div>' : '') +
+    '</div>';
+  }
+
+  function _intelFmt(n) {
+    if (!n && n !== 0) return '—';
+    if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+    if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+    return String(n);
+  }
+
+  function _intelScoreCls(score) {
+    if (score >= 60) return 'intel-score-high';
+    if (score >= 30) return 'intel-score-medium';
+    return 'intel-score-low';
+  }
+
+  async function _intelLoadTopPosts() {
+    var container = $('#intelTopPosts');
+    var empty = $('#intelTopPostsEmpty');
+    if (!container) return;
+    try {
+      var posts = await fetchApi('/content/intelligence/top-posts?' + _acctQs() + '&days=30');
+      if (!Array.isArray(posts) || posts.length === 0) {
+        container.innerHTML = '';
+        if (empty) empty.style.display = '';
+        return;
+      }
+      if (empty) empty.style.display = 'none';
+      container.innerHTML = posts.map(function(p) {
+        var icon = _intelPlatformIcon[p.platform_target] || '📢';
+        var thumb = p.thumbnail_url
+          ? '<img src="' + _esc(p.thumbnail_url) + '" loading="lazy">'
+          : icon;
+        var score = p.score || 0;
+        return '<div class="intel-post-row">' +
+          '<div class="intel-post-thumb">' + thumb + '</div>' +
+          '<div class="intel-post-info">' +
+            '<div class="intel-post-title">' + _esc(p.title || '(untitled)') + '</div>' +
+            '<div class="intel-post-meta">' +
+              icon + ' ' + _esc(p.platform_target || '') + ' · ' +
+              _esc(p.post_type || '') + ' · ' +
+              'Reach: ' + _intelFmt(p.reach) + ' · Eng: ' + _intelFmt(p.engagement) +
+            '</div>' +
+          '</div>' +
+          '<span class="intel-score-badge ' + _intelScoreCls(score) + '">' + score.toFixed(0) + '</span>' +
+        '</div>';
+      }).join('');
+    } catch (e) { if (container) container.innerHTML = ''; }
+  }
+
+  async function _intelLoadFormats() {
+    var container = $('#intelFormats');
+    var empty = $('#intelFormatsEmpty');
+    if (!container) return;
+    try {
+      var rows = await fetchApi('/content/intelligence/formats?' + _acctQs() + '&days=30');
+      if (!Array.isArray(rows) || rows.length === 0) {
+        container.innerHTML = '';
+        if (empty) empty.style.display = '';
+        return;
+      }
+      if (empty) empty.style.display = 'none';
+      var html = '<table class="intel-format-table"><thead><tr>' +
+        '<th>Format</th><th>Platform</th><th>Posts</th>' +
+        '<th>Avg Engagement</th><th>Avg Reach</th><th>Avg CTR</th>' +
+        '</tr></thead><tbody>';
+      rows.forEach(function(r) {
+        html += '<tr>' +
+          '<td>' + _esc(r.post_type || '') + '</td>' +
+          '<td>' + _esc(r.platform_target || '') + '</td>' +
+          '<td>' + (r.post_count || 0) + '</td>' +
+          '<td>' + _intelFmt(Math.round(r.avg_engagement || 0)) + '</td>' +
+          '<td>' + _intelFmt(Math.round(r.avg_reach || 0)) + '</td>' +
+          '<td>' + ((r.avg_ctr || 0) * 100).toFixed(2) + '%</td>' +
+        '</tr>';
+      });
+      html += '</tbody></table>';
+      container.innerHTML = html;
+    } catch (e) { if (container) container.innerHTML = ''; }
+  }
+
+  async function _intelLoadBestTimes() {
+    var container = $('#intelBestTimes');
+    var empty = $('#intelBestTimesEmpty');
+    if (!container) return;
+    try {
+      var times = await fetchApi('/content/intelligence/best-times?' + _acctQs() + '&days=30');
+      if (!Array.isArray(times) || times.length === 0) {
+        container.innerHTML = '';
+        if (empty) empty.style.display = '';
+        return;
+      }
+      if (empty) empty.style.display = 'none';
+      container.innerHTML = '<div class="intel-times-grid">' +
+        times.slice(0, 6).map(function(t) {
+          return '<div class="intel-time-card">' +
+            '<div class="intel-time-day">'  + _esc(t.weekday_label) + '</div>' +
+            '<div class="intel-time-hour">' + _esc(t.hour_label) + '</div>' +
+            '<div class="intel-time-eng">'  + _intelFmt(Math.round(t.avg_engagement)) + '</div>' +
+            '<div class="intel-time-label">avg eng · ' + (t.post_count || 0) + ' posts</div>' +
+          '</div>';
+        }).join('') +
+      '</div>';
+    } catch (e) { if (container) container.innerHTML = ''; }
+  }
+
+  async function _intelLoadReuse() {
+    var container = $('#intelReuse');
+    var empty = $('#intelReuseEmpty');
+    if (!container) return;
+    try {
+      var items = await fetchApi('/content/intelligence/reuse?' + _acctQs() + '&days=30');
+      if (!Array.isArray(items) || items.length === 0) {
+        container.innerHTML = '';
+        if (empty) empty.style.display = '';
+        return;
+      }
+      // Filter out error items
+      items = items.filter(function(i) { return !i.error; });
+      if (items.length === 0) {
+        container.innerHTML = '';
+        if (empty) empty.style.display = '';
+        return;
+      }
+      if (empty) empty.style.display = 'none';
+      container.innerHTML = items.map(function(ins) {
+        var icon = _intelInsightIcon[ins.type] || '💡';
+        return '<div class="intel-reuse-card">' +
+          '<div class="intel-reuse-icon">' + icon + '</div>' +
+          '<div class="intel-reuse-body">' +
+            '<div class="intel-reuse-type ' + _esc(ins.type) + '">' +
+              _esc((ins.type || '').replace(/_/g, ' ')) +
+            '</div>' +
+            '<div class="intel-reuse-title">' + _esc(ins.title || '') + '</div>' +
+            '<div class="intel-reuse-msg">'   + _esc(ins.message || '') + '</div>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+    } catch (e) { if (container) container.innerHTML = ''; }
+  }
+
+  window.intelSync = async function() {
+    var status = $('#intelSyncStatus');
+    if (status) status.textContent = 'Syncing…';
+    try {
+      var res  = await fetch('/api/content/intelligence/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account_id: currentAccountId || 1 }),
+      });
+      var data = await res.json();
+      if (data.error) {
+        if (status) status.textContent = '✗ Error: ' + data.error;
+        return;
+      }
+      if (status) {
+        status.textContent = '✓ Synced ' + (data.synced || 0) +
+          ' posts (' + (data.already_synced || 0) + ' already up to date)';
+      }
+      await _intelLoad();
+    } catch (e) {
+      if (status) status.textContent = '✗ Sync failed';
+    }
+  };
 
   // ── Content Calendar ──────────────────────────────────────────────────────
 
