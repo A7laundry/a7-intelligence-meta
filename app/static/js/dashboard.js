@@ -2127,6 +2127,51 @@
     }
   })();
 
+  /* ─── Plan Usage ─── */
+  async function loadPlanUsage() {
+    var section = document.getElementById('planUsageSection');
+    var metersEl = document.getElementById('planUsageMeters');
+    var badgeEl  = document.getElementById('planNameBadge');
+    var priceEl  = document.getElementById('planPriceLabel');
+    var periodEl = document.getElementById('planUsagePeriod');
+    if (!section || !metersEl) return;
+    try {
+      var d = await fetchApi('/billing/usage');
+      if (badgeEl) badgeEl.textContent = d.plan_name || 'Starter';
+      if (priceEl) priceEl.textContent = (d.price > 0) ? '$' + d.price + '/mo' : 'Free';
+      if (periodEl) periodEl.textContent = d.period || '';
+
+      var meters = [
+        { label: 'Ad Accounts',      data: d.accounts },
+        { label: 'Automation Runs',  data: d.automation },
+        { label: 'Copilot Queries',  data: d.copilot },
+      ];
+
+      metersEl.innerHTML = meters.map(function(m) {
+        var u = m.data || {};
+        if (u.unlimited) {
+          return '<div class="plan-usage-meter">' +
+            '<div class="pum-row"><span class="pum-label">' + m.label + '</span>' +
+            '<span class="pum-unlimited">Unlimited</span></div>' +
+          '</div>';
+        }
+        var pct = u.pct || 0;
+        var barCls = pct >= 90 ? 'pum-bar danger' : pct >= 70 ? 'pum-bar warn' : 'pum-bar';
+        return '<div class="plan-usage-meter">' +
+          '<div class="pum-row">' +
+            '<span class="pum-label">' + m.label + '</span>' +
+            '<span class="pum-value">' + (u.used || 0) + ' / ' + (u.limit || 0) + '</span>' +
+          '</div>' +
+          '<div class="pum-bar-wrap"><div class="' + barCls + '" style="width:' + pct + '%"></div></div>' +
+        '</div>';
+      }).join('');
+
+      section.style.display = '';
+    } catch (e) {
+      // silently skip if billing endpoint unavailable
+    }
+  }
+
   /* ─── Init ─── */
   loadPlatformStatus();
   initAccountSelector();
@@ -2141,6 +2186,7 @@
   loadAutomation();
   loadCreatives();
   loadAccountOverview();
+  loadPlanUsage();
   startAutoRefresh();
 
 })();

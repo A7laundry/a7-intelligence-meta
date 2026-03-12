@@ -146,6 +146,64 @@ def _run_migrations(conn):
             conn.execute(f"ALTER TABLE ad_accounts ADD COLUMN {col} {col_type}")
     conn.commit()
 
+    # Migration 7: Billing — plans, subscriptions, usage_metrics
+    if not _table_exists(conn, "plans"):
+        conn.execute("""
+            CREATE TABLE plans (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                price REAL DEFAULT 0,
+                accounts_limit INTEGER,
+                automation_runs_limit INTEGER,
+                copilot_queries_limit INTEGER,
+                created_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        # Seed default plans
+        conn.executemany(
+            "INSERT OR IGNORE INTO plans (name, price, accounts_limit, automation_runs_limit, copilot_queries_limit) VALUES (?,?,?,?,?)",
+            [
+                ("Starter", 0.0,   2,    100,  200),
+                ("Growth",  99.0,  10,   1000, 2000),
+                ("Scale",   299.0, None, None, None),
+            ]
+        )
+        conn.commit()
+
+    if not _table_exists(conn, "subscriptions"):
+        conn.execute("""
+            CREATE TABLE subscriptions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                organization_id INTEGER NOT NULL DEFAULT 1,
+                plan_id INTEGER NOT NULL,
+                status TEXT DEFAULT 'active',
+                created_at TEXT DEFAULT (datetime('now')),
+                UNIQUE(organization_id)
+            )
+        """)
+        # Seed default subscription: org 1 → Starter plan
+        conn.execute("""
+            INSERT OR IGNORE INTO subscriptions (organization_id, plan_id, status)
+            SELECT 1, id, 'active' FROM plans WHERE name='Starter' LIMIT 1
+        """)
+        conn.commit()
+
+    if not _table_exists(conn, "usage_metrics"):
+        conn.execute("""
+            CREATE TABLE usage_metrics (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                organization_id INTEGER NOT NULL DEFAULT 1,
+                metric TEXT NOT NULL,
+                value INTEGER DEFAULT 1,
+                period TEXT NOT NULL,
+                created_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_usage_metrics_org    ON usage_metrics(organization_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_usage_metrics_metric ON usage_metrics(metric, period)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_subscriptions_org    ON subscriptions(organization_id)")
+        conn.commit()
+
     _migrate_snapshots_table(conn, "creatives",
         """CREATE TABLE creatives_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

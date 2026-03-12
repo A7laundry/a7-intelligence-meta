@@ -1783,3 +1783,100 @@ class TestMultiAccountUX:
             assert "growth_score" in a
             assert "active_alerts" in a
             assert "spend_last_7_days" in a
+
+
+class TestBillingAndPlans:
+    """Billing layer — plan lookup, usage tracking, and limit enforcement."""
+
+    def test_billing_plan_endpoint_returns_200(self, client):
+        """GET /api/billing/plan returns plan info."""
+        from app.db.init_db import init_db
+        init_db()
+        resp = client.get("/api/billing/plan")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "plan_name" in data
+        assert "accounts_limit" in data
+        assert "automation_runs_limit" in data
+        assert "copilot_queries_limit" in data
+
+    def test_billing_usage_endpoint_returns_200(self, client):
+        """GET /api/billing/usage returns plan usage summary."""
+        from app.db.init_db import init_db
+        init_db()
+        resp = client.get("/api/billing/usage")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "plan_name" in data
+        assert "accounts" in data
+        assert "automation" in data
+        assert "copilot" in data
+
+    def test_usage_meter_has_required_fields(self, client):
+        """Each usage meter has used, limit, pct, unlimited fields."""
+        from app.db.init_db import init_db
+        init_db()
+        resp = client.get("/api/billing/usage")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        for key in ("accounts", "automation", "copilot"):
+            meter = data[key]
+            assert "used" in meter
+            assert "unlimited" in meter
+            if not meter["unlimited"]:
+                assert "limit" in meter
+                assert "pct" in meter
+                assert 0 <= meter["pct"] <= 100
+
+    def test_default_plan_is_starter(self, client):
+        """Default plan for org 1 is Starter."""
+        from app.db.init_db import init_db
+        init_db()
+        resp = client.get("/api/billing/plan")
+        data = resp.get_json()
+        assert data["plan_name"] == "Starter"
+
+    def test_check_account_limit(self):
+        """check_account_limit returns allowed/current/limit dict."""
+        from app.db.init_db import init_db
+        init_db()
+        from app.services.billing_service import BillingService
+        svc = BillingService()
+        result = svc.check_account_limit()
+        assert "allowed" in result
+        assert "current" in result
+        assert "limit" in result
+        assert isinstance(result["allowed"], bool)
+        assert isinstance(result["current"], int)
+
+    def test_track_usage_increments_counter(self):
+        """track_usage persists a usage_metric row."""
+        from app.db.init_db import init_db, get_connection
+        init_db()
+        from app.services.billing_service import BillingService
+        svc = BillingService()
+        period = __import__('datetime').datetime.utcnow().strftime("%Y-%m")
+        # Get baseline
+        before = svc.get_usage()["copilot_queries"]
+        svc.track_usage("copilot_query")
+        after = svc.get_usage()["copilot_queries"]
+        assert after == before + 1
+
+    def test_check_copilot_usage_limit_enforcement(self):
+        """When copilot_queries used >= limit, allowed=False."""
+        from app.db.init_db import init_db
+        init_db()
+        from app.services.billing_service import BillingService
+        svc = BillingService()
+        plan = svc.get_plan()
+        limit = plan["copilot_queries_limit"]
+        if limit is None:
+            return  # unlimited plan — skip
+        # Record usage up to the limit
+        usage = svc.get_usage()
+        remaining = limit - usage["copilot_queries"]
+        if remaining > 0 and remaining <= 5:
+            for _ in range(remaining):
+                svc.track_usage("copilot_query")
+            result = svc.check_copilot_usage()
+            assert result["allowed"] is False

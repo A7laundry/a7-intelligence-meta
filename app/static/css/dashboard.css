@@ -1377,3 +1377,56 @@ tr.ca-health-red td:first-child { background: rgba(239,68,68,.04); }
 @media (max-width: 768px) {
   .acct-summary-row { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* ─── Plan Usage Panel ─── */
+.plan-usage-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.plan-name-badge {
+  font-size: 13px;
+  font-weight: 700;
+  padding: 4px 12px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, var(--meta), #1d4ed8);
+  color: #fff;
+}
+.plan-price-label {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.plan-usage-meters {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.plan-usage-meter {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pum-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+}
+.pum-label { font-weight: 500; color: var(--text); }
+.pum-value { color: var(--text-muted); font-size: 12px; }
+.pum-bar-wrap {
+  height: 6px;
+  background: var(--bg);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.pum-bar {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--meta);
+  transition: width .4s ease;
+}
+.pum-bar.warn  { background: #f59e0b; }
+.pum-bar.danger { background: var(--red); }
+.pum-unlimited { font-size: 11px; color: var(--text-muted); }

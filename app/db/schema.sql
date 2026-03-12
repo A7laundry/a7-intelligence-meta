@@ -263,3 +263,37 @@ CREATE TABLE IF NOT EXISTS automation_runs (
 
 CREATE INDEX IF NOT EXISTS idx_automation_runs_account ON automation_runs(account_id);
 CREATE INDEX IF NOT EXISTS idx_automation_runs_started ON automation_runs(started_at);
+
+-- ─── Billing & Plans ─────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS plans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    price REAL DEFAULT 0,
+    accounts_limit INTEGER,         -- NULL = unlimited
+    automation_runs_limit INTEGER,  -- NULL = unlimited
+    copilot_queries_limit INTEGER,  -- NULL = unlimited
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS subscriptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    organization_id INTEGER NOT NULL DEFAULT 1,
+    plan_id INTEGER NOT NULL REFERENCES plans(id),
+    status TEXT DEFAULT 'active' CHECK(status IN ('active', 'trialing', 'cancelled', 'past_due')),
+    created_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(organization_id)
+);
+
+CREATE TABLE IF NOT EXISTS usage_metrics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    organization_id INTEGER NOT NULL DEFAULT 1,
+    metric TEXT NOT NULL,  -- 'copilot_query' | 'automation_run' | 'account_connected'
+    value INTEGER DEFAULT 1,
+    period TEXT NOT NULL,  -- 'YYYY-MM'
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_usage_metrics_org    ON usage_metrics(organization_id);
+CREATE INDEX IF NOT EXISTS idx_usage_metrics_metric ON usage_metrics(metric, period);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_org    ON subscriptions(organization_id);
