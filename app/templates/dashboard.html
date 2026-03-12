@@ -17,261 +17,110 @@
 {% endblock %}
 
 {% block content %}
-<!-- Account Summary Cards (single-account quick stats, shown when account is selected) -->
-<div class="acct-summary-row" id="accountSummaryCards" style="display:none"></div>
 
-<!-- Cross-Account Overview (shown only when 2+ accounts) -->
-<div class="section" id="crossAccountSection" style="display:none">
-  <div class="section-header">
-    <span class="section-title">Cross-Account Overview</span>
-    <span class="section-subtitle" id="crossAccountPeriod"></span>
-  </div>
-  <div class="section-body">
-    <div id="crossAccountLoading" class="coach-loading">Loading cross-account data...</div>
-    <div id="crossAccountContent" style="display:none">
-      <!-- Totals row -->
-      <div class="cross-account-totals" id="crossAccountTotals"></div>
-      <!-- Insights row -->
-      <div class="cross-account-insights" id="crossAccountInsights"></div>
-      <!-- Chart + Table row -->
-      <div class="cross-account-main">
-        <div class="cross-account-chart-wrap">
-          <canvas id="accountSpendChart" height="220"></canvas>
-        </div>
-        <div class="cross-account-table-wrap">
-          <table id="crossAccountTable">
-            <thead>
-              <tr>
-                <th>Account</th>
-                <th>Platform</th>
-                <th>Spend</th>
-                <th>Conv.</th>
-                <th>CPA</th>
-                <th>CTR</th>
-                <th>Efficiency</th>
-                <th>Alerts</th>
-                <th>Growth</th>
-              </tr>
-            </thead>
-            <tbody id="crossAccountTableBody"></tbody>
-          </table>
-        </div>
-      </div>
-      <!-- Account Health Table -->
-      <div class="account-health-wrap" id="accountHealthWrap" style="display:none">
-        <div class="account-health-header">Account Health Overview</div>
-        <div class="table-wrap">
-          <table id="accountHealthTable">
-            <thead>
-              <tr>
-                <th>Account</th>
-                <th>Growth Score</th>
-                <th>Active Alerts</th>
-                <th>Spend (7d)</th>
-                <th>Conversions (7d)</th>
-                <th>Actions Today</th>
-              </tr>
-            </thead>
-            <tbody id="accountHealthBody"></tbody>
-          </table>
-        </div>
-      </div>
-    </div><!-- /crossAccountContent -->
-    <div id="crossAccountEmpty" style="display:none">
-      <div class="empty-state">
-        <div class="empty-state-icon">⚡</div>
-        <div class="empty-state-title">Multi-Account Ready</div>
-        <div class="empty-state-msg">Connect multiple ad accounts to unlock cross-account intelligence, comparative analytics, and portfolio-level growth scoring.</div>
-        <button class="btn-primary" onclick="window.openAccountWizard && window.openAccountWizard()" style="margin-top:16px">+ Connect Account</button>
-      </div>
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- page-overview                                          -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div id="page-overview" class="page-section active">
+
+  <!-- Account Summary Cards (single-account quick stats, shown when account is selected) -->
+  <div class="acct-summary-row" id="accountSummaryCards" style="display:none"></div>
+
+  <!-- Command Center Strip -->
+  <div class="growth-strip command-strip" id="growthStrip" style="display:none">
+    <div class="growth-strip-score">
+      <div class="growth-score-num" id="growthScoreNum">--</div>
+      <div class="growth-score-badge" id="growthScoreBadge">Score</div>
+      <div class="score-label">Growth Score</div>
+    </div>
+    <div class="strip-divider"></div>
+    <div class="growth-strip-summary" id="growthStripSummary">
+      <div class="strip-loading">Analyzing growth signals...</div>
+    </div>
+    <div class="growth-strip-signals" id="growthStripSignals"></div>
+    <div class="strip-actions">
+      <button class="strip-action-btn" onclick="window.a7Navigate && window.a7Navigate('ai-coach')">
+        View AI Coach →
+      </button>
     </div>
   </div>
-</div>
+  <style>
+  .score-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: #5d7499; margin-top: 4px; }
+  .strip-divider { width: 1px; background: #1c2b42; align-self: stretch; flex-shrink: 0; }
+  .strip-loading { color: #5d7499; font-size: 13px; }
+  .strip-actions { margin-left: auto; flex-shrink: 0; }
+  .strip-action-btn {
+    background: rgba(59,130,246,.1);
+    border: 1px solid rgba(59,130,246,.25);
+    color: #3b82f6;
+    padding: 7px 14px; border-radius: 6px;
+    font-size: 12px; font-weight: 700;
+    cursor: pointer; white-space: nowrap;
+    transition: all .15s;
+  }
+  .strip-action-btn:hover { background: rgba(59,130,246,.2); box-shadow: 0 0 12px rgba(59,130,246,.2); }
+  </style>
 
-<!-- Command Center Strip -->
-<div class="growth-strip command-strip" id="growthStrip" style="display:none">
-  <div class="growth-strip-score">
-    <div class="growth-score-num" id="growthScoreNum">--</div>
-    <div class="growth-score-badge" id="growthScoreBadge">Score</div>
-    <div class="score-label">Growth Score</div>
-  </div>
-  <div class="strip-divider"></div>
-  <div class="growth-strip-summary" id="growthStripSummary">
-    <div class="strip-loading">Analyzing growth signals...</div>
-  </div>
-  <div class="growth-strip-signals" id="growthStripSignals"></div>
-  <div class="strip-actions">
-    <button class="strip-action-btn" onclick="document.querySelector('[data-tab=ai_coach]').click()">
-      View AI Coach →
-    </button>
-  </div>
-</div>
-<style>
-.score-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: #5d7499; margin-top: 4px; }
-.strip-divider { width: 1px; background: #1c2b42; align-self: stretch; flex-shrink: 0; }
-.strip-loading { color: #5d7499; font-size: 13px; }
-.strip-actions { margin-left: auto; flex-shrink: 0; }
-.strip-action-btn {
-  background: rgba(59,130,246,.1);
-  border: 1px solid rgba(59,130,246,.25);
-  color: #3b82f6;
-  padding: 7px 14px; border-radius: 6px;
-  font-size: 12px; font-weight: 700;
-  cursor: pointer; white-space: nowrap;
-  transition: all .15s;
-}
-.strip-action-btn:hover { background: rgba(59,130,246,.2); box-shadow: 0 0 12px rgba(59,130,246,.2); }
-</style>
-
-<div class="loading kpi-loading" id="loadingState">
-  <div class="loading-inner">
-    <div class="loading-spinner"></div>
-    <span>Loading metrics...</span>
-  </div>
-</div>
-<style>
-.loading-inner { display: flex; align-items: center; gap: 12px; color: #5d7499; font-size: 14px; justify-content: center; padding: 40px; }
-.loading-spinner {
-  width: 20px; height: 20px; border-radius: 50%;
-  border: 2px solid #1c2b42;
-  border-top-color: #3b82f6;
-  animation: spin .7s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-</style>
-
-<!-- KPI Cards -->
-<div class="kpi-grid" id="kpiGrid" style="display:none">
-  <div class="kpi-card">
-    <div class="kpi-value" id="kpiSpend">&mdash;</div>
-    <div class="kpi-label">Total Spend</div>
-    <div class="kpi-change" id="kpiSpendChange"></div>
-    <div class="kpi-breakdown">
-      <span class="meta-val" id="kpiMetaSpend">M: &mdash;</span><br>
-      <span class="google-val" id="kpiGoogleSpend">G: &mdash;</span>
+  <div class="loading kpi-loading" id="loadingState">
+    <div class="loading-inner">
+      <div class="loading-spinner"></div>
+      <span>Loading metrics...</span>
     </div>
   </div>
-  <div class="kpi-card">
-    <div class="kpi-value" id="kpiImpressions">&mdash;</div>
-    <div class="kpi-label">Impressions</div>
-    <div class="kpi-change" id="kpiImpressionsChange"></div>
-    <div class="kpi-breakdown">
-      <span class="meta-val" id="kpiMetaImpressions">M: &mdash;</span><br>
-      <span class="google-val" id="kpiGoogleImpressions">G: &mdash;</span>
-    </div>
-  </div>
-  <div class="kpi-card">
-    <div class="kpi-value" id="kpiClicks">&mdash;</div>
-    <div class="kpi-label">Clicks</div>
-    <div class="kpi-change" id="kpiClicksChange"></div>
-    <div class="kpi-breakdown">
-      <span class="meta-val" id="kpiMetaClicks">M: &mdash;</span><br>
-      <span class="google-val" id="kpiGoogleClicks">G: &mdash;</span>
-    </div>
-  </div>
-  <div class="kpi-card">
-    <div class="kpi-value" id="kpiCtr">&mdash;</div>
-    <div class="kpi-label">CTR</div>
-    <div class="kpi-change" id="kpiCtrChange"></div>
-  </div>
-  <div class="kpi-card">
-    <div class="kpi-value" id="kpiConversions">&mdash;</div>
-    <div class="kpi-label">Conversions</div>
-    <div class="kpi-change" id="kpiConversionsChange"></div>
-  </div>
-  <div class="kpi-card">
-    <div class="kpi-value" id="kpiCpa">&mdash;</div>
-    <div class="kpi-label">CPA</div>
-    <div class="kpi-change" id="kpiCpaChange"></div>
-  </div>
-</div>
+  <style>
+  .loading-inner { display: flex; align-items: center; gap: 12px; color: #5d7499; font-size: 14px; justify-content: center; padding: 40px; }
+  .loading-spinner {
+    width: 20px; height: 20px; border-radius: 50%;
+    border: 2px solid #1c2b42;
+    border-top-color: #3b82f6;
+    animation: spin .7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
 
-<!-- Sections -->
-<div id="sectionsContainer" style="display:none">
-
-  <!-- AI Coach Intelligence Panel -->
-  <div class="section" id="coachSection">
-    <div class="section-header">
-      <span class="section-title">AI Coach</span>
-      <button class="btn-action" onclick="refreshCoach()" title="Refresh insights">&#x1F504; Refresh</button>
-    </div>
-    <div class="section-eyebrow">
-      <span class="eyebrow-icon">🧠</span>
-      <span class="eyebrow-label">AI Coach</span>
-      <span class="eyebrow-badge badge badge-blue">Powered by AI</span>
-    </div>
-    <style>
-    .section-eyebrow {
-      display: flex; align-items: center; gap: 10px;
-      padding: 14px 20px;
-      border-bottom: 1px solid #1c2b42;
-      background: linear-gradient(180deg, #131e30 0%, #0d1220 100%);
-    }
-    .eyebrow-icon { font-size: 16px; }
-    .eyebrow-label { font-size: 13px; font-weight: 700; color: #e8eeff; text-transform: uppercase; letter-spacing: .06em; }
-    .eyebrow-badge { margin-left: 4px; }
-    </style>
-    <div class="section-body">
-      <div id="coachLoading" class="coach-loading">Analyzing performance data...</div>
-      <div id="coachContent" style="display:none">
-        <!-- Health + Headline -->
-        <div class="coach-header" id="coachHeader">
-          <div class="coach-health" id="coachHealth">
-            <div class="health-badge" id="healthBadge">--</div>
-            <div class="health-label" id="healthLabel">Loading</div>
-            <div class="health-score" id="healthScore">Score: --</div>
-          </div>
-          <div class="coach-headline" id="coachHeadline"></div>
-        </div>
-        <!-- Summary Bullets -->
-        <ul class="coach-bullets" id="coachBullets"></ul>
-        <!-- Highlights Row -->
-        <div class="coach-highlights" id="coachHighlights"></div>
-        <!-- Recommendation Cards -->
-        <div class="coach-recs" id="coachRecs"></div>
-      </div>
-      <div id="coachEmpty" style="display:none;text-align:center;color:var(--text-muted);padding:24px">
-        No insights available yet. Click <strong>Refresh</strong> to generate AI Coach analysis.
+  <!-- KPI Cards -->
+  <div class="kpi-grid" id="kpiGrid" style="display:none">
+    <div class="kpi-card">
+      <div class="kpi-value" id="kpiSpend">&mdash;</div>
+      <div class="kpi-label">Total Spend</div>
+      <div class="kpi-change" id="kpiSpendChange"></div>
+      <div class="kpi-breakdown">
+        <span class="meta-val" id="kpiMetaSpend">M: &mdash;</span><br>
+        <span class="google-val" id="kpiGoogleSpend">G: &mdash;</span>
       </div>
     </div>
-  </div>
-
-  <!-- Budget Intelligence -->
-  <div class="section" id="budgetSection">
-    <div class="section-header">
-      <span class="section-title">Budget Intelligence</span>
-    </div>
-    <div class="section-body">
-      <div id="budgetLoading" class="coach-loading">Analyzing budget allocation...</div>
-      <div id="budgetContent" style="display:none">
-        <div class="budget-top-row">
-          <div class="budget-score-card" id="budgetScoreCard">
-            <div class="budget-score-value" id="budgetScoreValue">--</div>
-            <div class="budget-score-label">Efficiency Score</div>
-          </div>
-          <div class="budget-chart-wrap">
-            <canvas id="budgetChart" height="160"></canvas>
-          </div>
-        </div>
-        <div class="budget-lists" id="budgetLists"></div>
-      </div>
-      <div id="budgetEmpty" style="display:none;text-align:center;color:var(--text-muted);padding:24px">
-        No budget data available.
+    <div class="kpi-card">
+      <div class="kpi-value" id="kpiImpressions">&mdash;</div>
+      <div class="kpi-label">Impressions</div>
+      <div class="kpi-change" id="kpiImpressionsChange"></div>
+      <div class="kpi-breakdown">
+        <span class="meta-val" id="kpiMetaImpressions">M: &mdash;</span><br>
+        <span class="google-val" id="kpiGoogleImpressions">G: &mdash;</span>
       </div>
     </div>
-  </div>
-
-  <!-- Alerts Center -->
-  <div class="section" id="alertsSection">
-    <div class="section-header">
-      <span class="section-title">Alerts Center</span>
-      <button class="btn-action" onclick="refreshAlerts()" title="Refresh alerts">&#x1F504; Refresh</button>
-    </div>
-    <div class="section-body">
-      <div id="alertsList"></div>
-      <div id="alertsEmpty" style="display:none;text-align:center;color:var(--text-muted);padding:24px">
-        No active alerts. System is operating normally.
+    <div class="kpi-card">
+      <div class="kpi-value" id="kpiClicks">&mdash;</div>
+      <div class="kpi-label">Clicks</div>
+      <div class="kpi-change" id="kpiClicksChange"></div>
+      <div class="kpi-breakdown">
+        <span class="meta-val" id="kpiMetaClicks">M: &mdash;</span><br>
+        <span class="google-val" id="kpiGoogleClicks">G: &mdash;</span>
       </div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-value" id="kpiCtr">&mdash;</div>
+      <div class="kpi-label">CTR</div>
+      <div class="kpi-change" id="kpiCtrChange"></div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-value" id="kpiConversions">&mdash;</div>
+      <div class="kpi-label">Conversions</div>
+      <div class="kpi-change" id="kpiConversionsChange"></div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-value" id="kpiCpa">&mdash;</div>
+      <div class="kpi-label">CPA</div>
+      <div class="kpi-change" id="kpiCpaChange"></div>
     </div>
   </div>
 
@@ -284,6 +133,88 @@
       <canvas id="trendChart"></canvas>
     </div>
   </div>
+
+</div><!-- /page-overview -->
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- page-accounts                                          -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div id="page-accounts" class="page-section">
+
+  <!-- Cross-Account Overview (shown only when 2+ accounts) -->
+  <div class="section" id="crossAccountSection">
+    <div class="section-header">
+      <span class="section-title">Cross-Account Overview</span>
+      <span class="section-subtitle" id="crossAccountPeriod"></span>
+    </div>
+    <div class="section-body">
+      <div id="crossAccountLoading" class="coach-loading">Loading cross-account data...</div>
+      <div id="crossAccountContent" style="display:none">
+        <!-- Totals row -->
+        <div class="cross-account-totals" id="crossAccountTotals"></div>
+        <!-- Insights row -->
+        <div class="cross-account-insights" id="crossAccountInsights"></div>
+        <!-- Chart + Table row -->
+        <div class="cross-account-main">
+          <div class="cross-account-chart-wrap">
+            <canvas id="accountSpendChart" height="220"></canvas>
+          </div>
+          <div class="cross-account-table-wrap">
+            <table id="crossAccountTable">
+              <thead>
+                <tr>
+                  <th>Account</th>
+                  <th>Platform</th>
+                  <th>Spend</th>
+                  <th>Conv.</th>
+                  <th>CPA</th>
+                  <th>CTR</th>
+                  <th>Efficiency</th>
+                  <th>Alerts</th>
+                  <th>Growth</th>
+                </tr>
+              </thead>
+              <tbody id="crossAccountTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+        <!-- Account Health Table -->
+        <div class="account-health-wrap" id="accountHealthWrap" style="display:none">
+          <div class="account-health-header">Account Health Overview</div>
+          <div class="table-wrap">
+            <table id="accountHealthTable">
+              <thead>
+                <tr>
+                  <th>Account</th>
+                  <th>Growth Score</th>
+                  <th>Active Alerts</th>
+                  <th>Spend (7d)</th>
+                  <th>Conversions (7d)</th>
+                  <th>Actions Today</th>
+                </tr>
+              </thead>
+              <tbody id="accountHealthBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div><!-- /crossAccountContent -->
+      <div id="crossAccountEmpty" style="display:none">
+        <div class="empty-state">
+          <div class="empty-state-icon">⚡</div>
+          <div class="empty-state-title">Multi-Account Ready</div>
+          <div class="empty-state-msg">Connect multiple ad accounts to unlock cross-account intelligence, comparative analytics, and portfolio-level growth scoring.</div>
+          <button class="btn-primary" onclick="window.openAccountWizard && window.openAccountWizard()" style="margin-top:16px">+ Connect Account</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /page-accounts -->
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- page-campaigns                                         -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div id="page-campaigns" class="page-section">
 
   <!-- Meta Campaigns -->
   <div class="section">
@@ -336,6 +267,426 @@
     </div>
   </div>
 
+</div><!-- /page-campaigns -->
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- page-budget                                            -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div id="page-budget" class="page-section">
+
+  <!-- Budget Intelligence -->
+  <div class="section" id="budgetSection">
+    <div class="section-header">
+      <span class="section-title">Budget Intelligence</span>
+    </div>
+    <div class="section-body">
+      <div id="budgetLoading" class="coach-loading">Analyzing budget allocation...</div>
+      <div id="budgetContent" style="display:none">
+        <div class="budget-top-row">
+          <div class="budget-score-card" id="budgetScoreCard">
+            <div class="budget-score-value" id="budgetScoreValue">--</div>
+            <div class="budget-score-label">Efficiency Score</div>
+          </div>
+          <div class="budget-chart-wrap">
+            <canvas id="budgetChart" height="160"></canvas>
+          </div>
+        </div>
+        <div class="budget-lists" id="budgetLists"></div>
+      </div>
+      <div id="budgetEmpty" style="display:none;text-align:center;color:var(--text-muted);padding:24px">
+        No budget data available.
+      </div>
+    </div>
+  </div>
+
+</div><!-- /page-budget -->
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- page-automation                                        -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div id="page-automation" class="page-section">
+
+  <!-- Automation Control Center -->
+  <div class="section" id="automationSection">
+    <div class="section-header">
+      <span class="section-title">Automation Control Center</span>
+      <div>
+        <button class="btn-action" onclick="generateAutomation()" title="Generate new proposals">&#x1F504; Generate</button>
+        <button class="btn-action" onclick="runAutomation()" title="Execute approved actions">&#x25B6; Run</button>
+      </div>
+    </div>
+    <div class="section-body">
+      <div id="automationLoading" class="coach-loading">Loading automation data...</div>
+      <div id="automationContent" style="display:none">
+        <div class="automation-summary" id="automationSummary"></div>
+        <div class="automation-tabs">
+          <button class="auto-tab active" data-tab="pending" onclick="switchAutoTab('pending')">Pending</button>
+          <button class="auto-tab" data-tab="approved" onclick="switchAutoTab('approved')">Approved</button>
+          <button class="auto-tab" data-tab="executed" onclick="switchAutoTab('executed')">Executed</button>
+          <button class="auto-tab" data-tab="logs" onclick="switchAutoTab('logs')">Logs</button>
+          <button class="auto-tab" data-tab="runs" onclick="switchAutoTab('runs')">Run History</button>
+        </div>
+        <div id="automationList"></div>
+      </div>
+      <div id="automationEmpty" style="display:none;text-align:center;color:var(--text-muted);padding:24px">
+        No automation actions yet. Click <strong>Generate</strong> to create proposals.
+      </div>
+    </div>
+  </div>
+
+</div><!-- /page-automation -->
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- page-creative                                          -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div id="page-creative" class="page-section">
+
+  <!-- Creative Intelligence -->
+  <div class="section" id="creativeSection">
+    <div class="section-header">
+      <span class="section-title">Creative Intelligence</span>
+      <button class="btn-action" onclick="collectCreatives()" title="Sync creatives from Meta">&#x1F504; Sync</button>
+    </div>
+    <div class="section-body">
+      <div id="creativeSummary" class="creative-summary"></div>
+      <div id="creativeGrid" class="creative-grid"></div>
+      <div id="creativeEmpty" style="text-align:center;color:var(--text-muted);padding:24px;display:none">
+        No creative data yet. Click <strong>Sync</strong> to collect creative data from Meta Ads.
+      </div>
+    </div>
+  </div>
+
+</div><!-- /page-creative -->
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- page-content-studio                                    -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div id="page-content-studio" class="page-section">
+
+  <!-- Content Studio -->
+  <div class="section" id="contentStudioSection">
+    <div class="section-header">
+      <span class="section-title">Content Studio</span>
+      <span class="section-subtitle">Ideas · Creatives · Publishing · Brand Kit</span>
+    </div>
+    <div class="section-body">
+      <div class="cs-tabs">
+        <button class="cs-tab active" data-cs-tab="ideas">Content Ideas</button>
+        <button class="cs-tab" data-cs-tab="assets">Creative Library</button>
+        <button class="cs-tab" data-cs-tab="publishing">Publishing</button>
+        <button class="cs-tab" data-cs-tab="brand">Brand Kit</button>
+        <button class="cs-tab" data-cs-tab="calendar">&#128197; Calendar</button>
+        <button class="cs-tab" data-cs-tab="intelligence">&#129504; Intelligence</button>
+      </div>
+
+      <!-- Ideas panel -->
+      <div id="csIdeasPanel">
+        <button class="cs-generate-btn" id="csGenerateBtn">&#x2728; Generate Ideas from Insights</button>
+        <div id="csIdeasLoading" style="display:none;color:var(--text-muted);font-size:13px;margin-bottom:12px">Generating ideas…</div>
+        <div class="table-wrap">
+          <table class="cs-ideas-table">
+            <thead>
+              <tr>
+                <th>Idea</th>
+                <th>Type</th>
+                <th>Platform</th>
+                <th>Source</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="csIdeasBody"></tbody>
+          </table>
+        </div>
+        <div id="csIdeasEmpty" class="cs-empty" style="display:none">No content ideas yet. Generate from insights or create manually.</div>
+      </div>
+
+      <!-- Publishing panel -->
+      <div id="csPublishingPanel" style="display:none">
+
+        <!-- Create Post form -->
+        <div class="pub-create-bar">
+          <input id="pubTitle" class="pub-input" type="text" placeholder="Post title…" style="flex:2" />
+          <select id="pubPlatform" class="pub-input" style="flex:1">
+            <option value="instagram">Instagram</option>
+            <option value="facebook">Facebook</option>
+            <option value="tiktok">TikTok</option>
+            <option value="linkedin">LinkedIn</option>
+            <option value="pinterest">Pinterest</option>
+            <option value="google_display">Google Display</option>
+          </select>
+          <select id="pubPostType" class="pub-input" style="flex:1">
+            <option value="image_post">Image Post</option>
+            <option value="reel">Reel</option>
+            <option value="story">Story</option>
+            <option value="carousel">Carousel</option>
+            <option value="banner">Banner</option>
+            <option value="ad_creative">Ad Creative</option>
+          </select>
+          <button class="pub-create-btn" onclick="window.pubCreatePost()">+ Create Draft</button>
+        </div>
+
+        <!-- Upcoming Scheduled Posts -->
+        <div id="pubUpcomingSection" style="display:none;margin-bottom:14px">
+          <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Upcoming Scheduled</div>
+          <div id="pubUpcomingList"></div>
+        </div>
+
+        <!-- Post Drafts table -->
+        <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Post Drafts</div>
+        <div class="table-wrap" style="margin-bottom:20px">
+          <table class="cs-ideas-table" id="pubPostsTable">
+            <thead>
+              <tr>
+                <th>Title</th>
+                <th>Platform</th>
+                <th>Type</th>
+                <th>Status</th>
+                <th>Scheduled For</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="pubPostsBody"></tbody>
+          </table>
+        </div>
+        <div id="pubPostsEmpty" class="cs-empty" style="display:none">No post drafts yet. Create one above.</div>
+
+        <!-- Connector Status panel -->
+        <div id="pubConnectorPanel" style="margin-bottom:16px">
+          <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Connector Status</div>
+          <div id="pubConnectorList" class="pub-connector-list"></div>
+          <details style="margin-top:8px">
+            <summary style="font-size:12px;color:var(--text-muted);cursor:pointer">+ Add / Update Connector</summary>
+            <div class="pub-connector-form" style="margin-top:8px">
+              <select id="pubConnPlatform" class="pub-input">
+                <option value="instagram">Instagram</option>
+                <option value="facebook_page">Facebook Page</option>
+              </select>
+              <input id="pubConnToken"  class="pub-input" type="password" placeholder="Access Token" style="flex:2" />
+              <input id="pubConnIgUser" class="pub-input" type="text" placeholder="IG User ID (Instagram only)" style="flex:1" />
+              <input id="pubConnPageId" class="pub-input" type="text" placeholder="Page ID (Facebook only)" style="flex:1" />
+              <button class="pub-create-btn" onclick="window.pubSaveConnector()">Save</button>
+              <button class="pub-create-btn" style="background:#6366f1" onclick="window.pubValidateConnector()">Validate</button>
+            </div>
+          </details>
+        </div>
+
+        <!-- Publishing Jobs table -->
+        <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin:14px 0 6px;text-transform:uppercase;letter-spacing:.5px">Publishing Jobs</div>
+        <div class="table-wrap">
+          <table class="cs-ideas-table" id="pubJobsTable">
+            <thead>
+              <tr>
+                <th>Job Type</th>
+                <th>Platform</th>
+                <th>Status</th>
+                <th>Scheduled</th>
+                <th>Executed</th>
+                <th>Result</th>
+              </tr>
+            </thead>
+            <tbody id="pubJobsBody"></tbody>
+          </table>
+        </div>
+        <div id="pubJobsEmpty" class="cs-empty" style="display:none">No publishing jobs yet.</div>
+
+        <!-- Publishing Monitor (Phase 8G) -->
+        <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin:20px 0 8px;text-transform:uppercase;letter-spacing:.5px">Publishing Monitor</div>
+        <div class="sched-monitor">
+          <div class="sched-status-row">
+            <span class="sched-badge" id="schedBadge">—</span>
+            <span class="sched-label" id="schedLabel">Scheduler not started</span>
+            <button class="sched-run-btn" onclick="window.schedRunNow()">▶ Run Now</button>
+            <button class="sched-run-btn" style="background:var(--surface-alt);color:var(--text-muted)" onclick="window.schedRefresh()">↻ Refresh</button>
+          </div>
+          <div class="sched-kpi-row">
+            <div class="sched-kpi"><span class="sched-kpi-val" id="schedExec">—</span><span class="sched-kpi-lbl">Executed</span></div>
+            <div class="sched-kpi"><span class="sched-kpi-val" id="schedFailed">—</span><span class="sched-kpi-lbl">Failed</span></div>
+            <div class="sched-kpi"><span class="sched-kpi-val" id="schedStuck">—</span><span class="sched-kpi-lbl">Stuck Resolved</span></div>
+            <div class="sched-kpi"><span class="sched-kpi-val" id="schedLastRun" style="font-size:11px">—</span><span class="sched-kpi-lbl">Last Run</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Assets panel -->
+      <div id="csAssetsPanel" style="display:none">
+        <div id="csAssetGrid" class="cs-asset-grid"></div>
+        <div id="csAssetsEmpty" class="cs-empty" style="display:none">No creative assets yet.</div>
+      </div>
+
+      <!-- Intelligence panel -->
+      <div id="csIntelligencePanel" style="display:none">
+
+        <!-- Sync bar -->
+        <div class="intel-sync-bar">
+          <button class="pub-create-btn" onclick="window.intelSync()">&#9889; Sync Metrics</button>
+          <span id="intelSyncStatus" class="intel-sync-status"></span>
+        </div>
+
+        <!-- KPI summary row -->
+        <div id="intelSummaryRow" class="intel-kpi-row"></div>
+
+        <!-- Top Posts -->
+        <div class="intel-section-label">Top Posts</div>
+        <div id="intelTopPosts" class="intel-top-posts"></div>
+        <div id="intelTopPostsEmpty" class="cs-empty" style="display:none">No published posts with metrics yet. Sync first.</div>
+
+        <!-- Format Performance -->
+        <div class="intel-section-label">Format Performance</div>
+        <div id="intelFormats"></div>
+        <div id="intelFormatsEmpty" class="cs-empty" style="display:none">No format data yet.</div>
+
+        <!-- Best Posting Times -->
+        <div class="intel-section-label">Best Posting Times</div>
+        <div id="intelBestTimes"></div>
+        <div id="intelBestTimesEmpty" class="cs-empty" style="display:none">Not enough data yet.</div>
+
+        <!-- Reuse Opportunities -->
+        <div class="intel-section-label">Reuse &amp; Synergy Opportunities</div>
+        <div id="intelReuse" class="intel-reuse-list"></div>
+        <div id="intelReuseEmpty" class="cs-empty" style="display:none">No reuse opportunities detected yet.</div>
+      </div>
+
+      <!-- Calendar panel -->
+      <div id="csCalendarPanel" style="display:none">
+
+        <!-- Toolbar -->
+        <div class="cal-toolbar">
+          <div class="cal-nav">
+            <button class="cal-nav-btn" onclick="window.calPrev()">&#8592; Prev</button>
+            <button class="cal-nav-btn" onclick="window.calToday()">Today</button>
+            <button class="cal-nav-btn" onclick="window.calNext()">Next &#8594;</button>
+          </div>
+          <span id="calPeriodLabel" class="cal-period-label"></span>
+          <div class="cal-view-toggle">
+            <button id="calBtnWeek"  class="cal-view-btn active" onclick="window.calSetView('week')">Week</button>
+            <button id="calBtnMonth" class="cal-view-btn"        onclick="window.calSetView('month')">Month</button>
+          </div>
+        </div>
+
+        <!-- Dynamically rendered calendar grid -->
+        <div id="calGrid"></div>
+
+        <!-- Upcoming scheduled queue -->
+        <div style="margin-top:20px">
+          <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Upcoming Scheduled</div>
+          <div id="calUpcomingList" class="cal-upcoming-list"></div>
+          <div id="calUpcomingEmpty" class="cs-empty" style="display:none">No upcoming scheduled posts.</div>
+        </div>
+
+        <!-- Reschedule modal -->
+        <div id="calModal" class="cal-modal" style="display:none">
+          <div class="cal-modal-inner">
+            <div style="font-size:14px;font-weight:600;margin-bottom:12px">Reschedule Post</div>
+            <div id="calModalTitle" style="font-size:12px;color:var(--text-muted);margin-bottom:10px"></div>
+            <input id="calModalDate" class="pub-input" type="datetime-local"
+                   style="width:100%;margin-bottom:14px" />
+            <div style="display:flex;gap:8px;justify-content:flex-end">
+              <button class="cal-nav-btn" onclick="window.calCloseModal()">Cancel</button>
+              <button class="pub-create-btn" onclick="window.calReschedule()">Reschedule</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Brand Kit panel -->
+      <div id="csBrandPanel" style="display:none">
+        <div class="cs-brand-form" id="csBrandForm">
+          <div class="cs-brand-field">
+            <label>Brand Name</label>
+            <input id="csBrandName" class="cs-brand-input" type="text" placeholder="My Brand" />
+          </div>
+          <div class="cs-brand-field">
+            <label>Primary Color</label>
+            <input id="csBrandPrimary" class="cs-brand-input" type="color" value="#000000" />
+          </div>
+          <div class="cs-brand-field">
+            <label>Secondary Color</label>
+            <input id="csBrandSecondary" class="cs-brand-input" type="color" value="#ffffff" />
+          </div>
+          <div class="cs-brand-field">
+            <label>Accent Color</label>
+            <input id="csBrandAccent" class="cs-brand-input" type="color" value="#3B82F6" />
+          </div>
+          <div class="cs-brand-field">
+            <label>Font Family</label>
+            <input id="csBrandFont" class="cs-brand-input" type="text" placeholder="Inter" />
+          </div>
+          <div class="cs-brand-field">
+            <label>Logo URL</label>
+            <input id="csBrandLogo" class="cs-brand-input" type="text" placeholder="https://…" />
+          </div>
+          <div class="cs-brand-field" style="grid-column:1/-1">
+            <label>Style Description</label>
+            <input id="csBrandStyle" class="cs-brand-input" type="text" placeholder="Modern, clean, minimalist…" />
+          </div>
+          <button class="cs-brand-save" onclick="window.saveBrandKit()">Save Brand Kit</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /page-content-studio -->
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- page-ai-coach                                          -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div id="page-ai-coach" class="page-section">
+
+  <!-- AI Coach Intelligence Panel -->
+  <div class="section" id="coachSection">
+    <div class="section-header">
+      <span class="section-title">AI Coach</span>
+      <button class="btn-action" onclick="refreshCoach()" title="Refresh insights">&#x1F504; Refresh</button>
+    </div>
+    <div class="section-eyebrow">
+      <span class="eyebrow-icon">🧠</span>
+      <span class="eyebrow-label">AI Coach</span>
+      <span class="eyebrow-badge badge badge-blue">Powered by AI</span>
+    </div>
+    <style>
+    .section-eyebrow {
+      display: flex; align-items: center; gap: 10px;
+      padding: 14px 20px;
+      border-bottom: 1px solid #1c2b42;
+      background: linear-gradient(180deg, #131e30 0%, #0d1220 100%);
+    }
+    .eyebrow-icon { font-size: 16px; }
+    .eyebrow-label { font-size: 13px; font-weight: 700; color: #e8eeff; text-transform: uppercase; letter-spacing: .06em; }
+    .eyebrow-badge { margin-left: 4px; }
+    </style>
+    <div class="section-body">
+      <div id="coachLoading" class="coach-loading">Analyzing performance data...</div>
+      <div id="coachContent" style="display:none">
+        <!-- Health + Headline -->
+        <div class="coach-header" id="coachHeader">
+          <div class="coach-health" id="coachHealth">
+            <div class="health-badge" id="healthBadge">--</div>
+            <div class="health-label" id="healthLabel">Loading</div>
+            <div class="health-score" id="healthScore">Score: --</div>
+          </div>
+          <div class="coach-headline" id="coachHeadline"></div>
+        </div>
+        <!-- Summary Bullets -->
+        <ul class="coach-bullets" id="coachBullets"></ul>
+        <!-- Highlights Row -->
+        <div class="coach-highlights" id="coachHighlights"></div>
+        <!-- Recommendation Cards -->
+        <div class="coach-recs" id="coachRecs"></div>
+      </div>
+      <div id="coachEmpty" style="display:none;text-align:center;color:var(--text-muted);padding:24px">
+        No insights available yet. Click <strong>Refresh</strong> to generate AI Coach analysis.
+      </div>
+    </div>
+  </div>
+
+</div><!-- /page-ai-coach -->
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- page-insights                                          -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div id="page-insights" class="page-section">
+
   <!-- Forecast Panel -->
   <div class="section" id="forecastSection">
     <div class="section-header">
@@ -348,28 +699,6 @@
       </div>
       <div id="forecastEmpty" style="display:none;text-align:center;color:var(--text-muted);padding:24px">
         Not enough historical data for forecasting. Collect at least 5 daily snapshots.
-      </div>
-    </div>
-  </div>
-
-  <!-- Executive Reports -->
-  <div class="section" id="reportsSection">
-    <div class="section-header">
-      <span class="section-title">Executive Reports</span>
-      <div>
-        <a href="/api/reports/export/csv" class="btn-action" style="text-decoration:none">CSV</a>
-        <a href="/api/reports/export/pdf" class="btn-action" style="text-decoration:none">PDF</a>
-        <a href="/api/reports/export/json" class="btn-action" style="text-decoration:none">JSON</a>
-      </div>
-    </div>
-    <div class="section-body">
-      <div id="reportLoading" class="coach-loading">Generating report...</div>
-      <div id="reportContent" style="display:none">
-        <div class="report-summary" id="reportSummary"></div>
-        <div class="report-alerts" id="reportAlerts"></div>
-      </div>
-      <div id="reportEmpty" style="display:none;text-align:center;color:var(--text-muted);padding:24px">
-        No report data available.
       </div>
     </div>
   </div>
@@ -412,48 +741,62 @@
     </div>
   </div>
 
-  <!-- Automation Control Center -->
-  <div class="section" id="automationSection">
+</div><!-- /page-insights -->
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- page-alerts                                            -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div id="page-alerts" class="page-section">
+
+  <!-- Alerts Center -->
+  <div class="section" id="alertsSection">
     <div class="section-header">
-      <span class="section-title">Automation Control Center</span>
-      <div>
-        <button class="btn-action" onclick="generateAutomation()" title="Generate new proposals">&#x1F504; Generate</button>
-        <button class="btn-action" onclick="runAutomation()" title="Execute approved actions">&#x25B6; Run</button>
-      </div>
+      <span class="section-title">Alerts Center</span>
+      <button class="btn-action" onclick="refreshAlerts()" title="Refresh alerts">&#x1F504; Refresh</button>
     </div>
     <div class="section-body">
-      <div id="automationLoading" class="coach-loading">Loading automation data...</div>
-      <div id="automationContent" style="display:none">
-        <div class="automation-summary" id="automationSummary"></div>
-        <div class="automation-tabs">
-          <button class="auto-tab active" data-tab="pending" onclick="switchAutoTab('pending')">Pending</button>
-          <button class="auto-tab" data-tab="approved" onclick="switchAutoTab('approved')">Approved</button>
-          <button class="auto-tab" data-tab="executed" onclick="switchAutoTab('executed')">Executed</button>
-          <button class="auto-tab" data-tab="logs" onclick="switchAutoTab('logs')">Logs</button>
-          <button class="auto-tab" data-tab="runs" onclick="switchAutoTab('runs')">Run History</button>
-        </div>
-        <div id="automationList"></div>
-      </div>
-      <div id="automationEmpty" style="display:none;text-align:center;color:var(--text-muted);padding:24px">
-        No automation actions yet. Click <strong>Generate</strong> to create proposals.
+      <div id="alertsList"></div>
+      <div id="alertsEmpty" style="display:none;text-align:center;color:var(--text-muted);padding:24px">
+        No active alerts. System is operating normally.
       </div>
     </div>
   </div>
 
-  <!-- Creative Intelligence -->
-  <div class="section" id="creativeSection">
+</div><!-- /page-alerts -->
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- page-reports                                           -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div id="page-reports" class="page-section">
+
+  <!-- Executive Reports -->
+  <div class="section" id="reportsSection">
     <div class="section-header">
-      <span class="section-title">Creative Intelligence</span>
-      <button class="btn-action" onclick="collectCreatives()" title="Sync creatives from Meta">&#x1F504; Sync</button>
+      <span class="section-title">Executive Reports</span>
+      <div>
+        <a href="/api/reports/export/csv" class="btn-action" style="text-decoration:none">CSV</a>
+        <a href="/api/reports/export/pdf" class="btn-action" style="text-decoration:none">PDF</a>
+        <a href="/api/reports/export/json" class="btn-action" style="text-decoration:none">JSON</a>
+      </div>
     </div>
     <div class="section-body">
-      <div id="creativeSummary" class="creative-summary"></div>
-      <div id="creativeGrid" class="creative-grid"></div>
-      <div id="creativeEmpty" style="text-align:center;color:var(--text-muted);padding:24px;display:none">
-        No creative data yet. Click <strong>Sync</strong> to collect creative data from Meta Ads.
+      <div id="reportLoading" class="coach-loading">Generating report...</div>
+      <div id="reportContent" style="display:none">
+        <div class="report-summary" id="reportSummary"></div>
+        <div class="report-alerts" id="reportAlerts"></div>
+      </div>
+      <div id="reportEmpty" style="display:none;text-align:center;color:var(--text-muted);padding:24px">
+        No report data available.
       </div>
     </div>
   </div>
+
+</div><!-- /page-reports -->
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- page-copilot                                           -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div id="page-copilot" class="page-section">
 
   <!-- AI Marketing Copilot -->
   <div class="section" id="copilotSection">
@@ -473,7 +816,46 @@
     </div>
   </div>
 
-</div><!-- /sectionsContainer -->
+</div><!-- /page-copilot -->
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- page-integrations                                      -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div id="page-integrations" class="page-section">
+
+  <div class="section">
+    <div class="section-header">
+      <span class="section-title">Integrations</span>
+    </div>
+    <div class="section-body" style="padding:24px">
+      <p style="color:var(--text-muted);font-size:14px">Connect and manage your ad platform accounts. Use the wizard below to add Meta Ads or Google Ads accounts.</p>
+      <button class="btn-primary" onclick="window.openAccountWizard && window.openAccountWizard()" style="margin-top:16px">+ Connect Account</button>
+    </div>
+  </div>
+
+</div><!-- /page-integrations -->
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- page-billing                                           -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div id="page-billing" class="page-section">
+
+  <!-- Plan Usage Panel -->
+  <div class="section" id="planUsageSection">
+    <div class="section-header">
+      <span class="section-title">Plan Usage</span>
+      <span class="section-subtitle" id="planUsagePeriod"></span>
+    </div>
+    <div class="section-body">
+      <div class="plan-usage-header">
+        <span class="plan-name-badge" id="planNameBadge"></span>
+        <span class="plan-price-label" id="planPriceLabel"></span>
+      </div>
+      <div class="plan-usage-meters" id="planUsageMeters"></div>
+    </div>
+  </div>
+
+</div><!-- /page-billing -->
 
 <!-- ═══════════════════════════════════════════════════════ -->
 <!-- Account Connection Wizard Modal                        -->
@@ -573,288 +955,6 @@
   </div>
 </div>
 
-<!-- Content Studio -->
-<div class="section" id="contentStudioSection" style="display:none">
-  <div class="section-header">
-    <span class="section-title">Content Studio</span>
-    <span class="section-subtitle">Ideas · Creatives · Publishing · Brand Kit</span>
-  </div>
-  <div class="section-body">
-    <div class="cs-tabs">
-      <button class="cs-tab active" data-cs-tab="ideas">Content Ideas</button>
-      <button class="cs-tab" data-cs-tab="assets">Creative Library</button>
-      <button class="cs-tab" data-cs-tab="publishing">Publishing</button>
-      <button class="cs-tab" data-cs-tab="brand">Brand Kit</button>
-      <button class="cs-tab" data-cs-tab="calendar">&#128197; Calendar</button>
-      <button class="cs-tab" data-cs-tab="intelligence">&#129504; Intelligence</button>
-    </div>
-
-    <!-- Ideas panel -->
-    <div id="csIdeasPanel">
-      <button class="cs-generate-btn" id="csGenerateBtn">&#x2728; Generate Ideas from Insights</button>
-      <div id="csIdeasLoading" style="display:none;color:var(--text-muted);font-size:13px;margin-bottom:12px">Generating ideas…</div>
-      <div class="table-wrap">
-        <table class="cs-ideas-table">
-          <thead>
-            <tr>
-              <th>Idea</th>
-              <th>Type</th>
-              <th>Platform</th>
-              <th>Source</th>
-              <th>Status</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody id="csIdeasBody"></tbody>
-        </table>
-      </div>
-      <div id="csIdeasEmpty" class="cs-empty" style="display:none">No content ideas yet. Generate from insights or create manually.</div>
-    </div>
-
-    <!-- Publishing panel -->
-    <div id="csPublishingPanel" style="display:none">
-
-      <!-- Create Post form -->
-      <div class="pub-create-bar">
-        <input id="pubTitle" class="pub-input" type="text" placeholder="Post title…" style="flex:2" />
-        <select id="pubPlatform" class="pub-input" style="flex:1">
-          <option value="instagram">Instagram</option>
-          <option value="facebook">Facebook</option>
-          <option value="tiktok">TikTok</option>
-          <option value="linkedin">LinkedIn</option>
-          <option value="pinterest">Pinterest</option>
-          <option value="google_display">Google Display</option>
-        </select>
-        <select id="pubPostType" class="pub-input" style="flex:1">
-          <option value="image_post">Image Post</option>
-          <option value="reel">Reel</option>
-          <option value="story">Story</option>
-          <option value="carousel">Carousel</option>
-          <option value="banner">Banner</option>
-          <option value="ad_creative">Ad Creative</option>
-        </select>
-        <button class="pub-create-btn" onclick="window.pubCreatePost()">+ Create Draft</button>
-      </div>
-
-      <!-- Upcoming Scheduled Posts -->
-      <div id="pubUpcomingSection" style="display:none;margin-bottom:14px">
-        <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Upcoming Scheduled</div>
-        <div id="pubUpcomingList"></div>
-      </div>
-
-      <!-- Post Drafts table -->
-      <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Post Drafts</div>
-      <div class="table-wrap" style="margin-bottom:20px">
-        <table class="cs-ideas-table" id="pubPostsTable">
-          <thead>
-            <tr>
-              <th>Title</th>
-              <th>Platform</th>
-              <th>Type</th>
-              <th>Status</th>
-              <th>Scheduled For</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody id="pubPostsBody"></tbody>
-        </table>
-      </div>
-      <div id="pubPostsEmpty" class="cs-empty" style="display:none">No post drafts yet. Create one above.</div>
-
-      <!-- Connector Status panel -->
-      <div id="pubConnectorPanel" style="margin-bottom:16px">
-        <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Connector Status</div>
-        <div id="pubConnectorList" class="pub-connector-list"></div>
-        <details style="margin-top:8px">
-          <summary style="font-size:12px;color:var(--text-muted);cursor:pointer">+ Add / Update Connector</summary>
-          <div class="pub-connector-form" style="margin-top:8px">
-            <select id="pubConnPlatform" class="pub-input">
-              <option value="instagram">Instagram</option>
-              <option value="facebook_page">Facebook Page</option>
-            </select>
-            <input id="pubConnToken"  class="pub-input" type="password" placeholder="Access Token" style="flex:2" />
-            <input id="pubConnIgUser" class="pub-input" type="text" placeholder="IG User ID (Instagram only)" style="flex:1" />
-            <input id="pubConnPageId" class="pub-input" type="text" placeholder="Page ID (Facebook only)" style="flex:1" />
-            <button class="pub-create-btn" onclick="window.pubSaveConnector()">Save</button>
-            <button class="pub-create-btn" style="background:#6366f1" onclick="window.pubValidateConnector()">Validate</button>
-          </div>
-        </details>
-      </div>
-
-      <!-- Publishing Jobs table -->
-      <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin:14px 0 6px;text-transform:uppercase;letter-spacing:.5px">Publishing Jobs</div>
-      <div class="table-wrap">
-        <table class="cs-ideas-table" id="pubJobsTable">
-          <thead>
-            <tr>
-              <th>Job Type</th>
-              <th>Platform</th>
-              <th>Status</th>
-              <th>Scheduled</th>
-              <th>Executed</th>
-              <th>Result</th>
-            </tr>
-          </thead>
-          <tbody id="pubJobsBody"></tbody>
-        </table>
-      </div>
-      <div id="pubJobsEmpty" class="cs-empty" style="display:none">No publishing jobs yet.</div>
-
-      <!-- Publishing Monitor (Phase 8G) -->
-      <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin:20px 0 8px;text-transform:uppercase;letter-spacing:.5px">Publishing Monitor</div>
-      <div class="sched-monitor">
-        <div class="sched-status-row">
-          <span class="sched-badge" id="schedBadge">—</span>
-          <span class="sched-label" id="schedLabel">Scheduler not started</span>
-          <button class="sched-run-btn" onclick="window.schedRunNow()">▶ Run Now</button>
-          <button class="sched-run-btn" style="background:var(--surface-alt);color:var(--text-muted)" onclick="window.schedRefresh()">↻ Refresh</button>
-        </div>
-        <div class="sched-kpi-row">
-          <div class="sched-kpi"><span class="sched-kpi-val" id="schedExec">—</span><span class="sched-kpi-lbl">Executed</span></div>
-          <div class="sched-kpi"><span class="sched-kpi-val" id="schedFailed">—</span><span class="sched-kpi-lbl">Failed</span></div>
-          <div class="sched-kpi"><span class="sched-kpi-val" id="schedStuck">—</span><span class="sched-kpi-lbl">Stuck Resolved</span></div>
-          <div class="sched-kpi"><span class="sched-kpi-val" id="schedLastRun" style="font-size:11px">—</span><span class="sched-kpi-lbl">Last Run</span></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Assets panel -->
-    <div id="csAssetsPanel" style="display:none">
-      <div id="csAssetGrid" class="cs-asset-grid"></div>
-      <div id="csAssetsEmpty" class="cs-empty" style="display:none">No creative assets yet.</div>
-    </div>
-
-    <!-- Intelligence panel -->
-    <div id="csIntelligencePanel" style="display:none">
-
-      <!-- Sync bar -->
-      <div class="intel-sync-bar">
-        <button class="pub-create-btn" onclick="window.intelSync()">&#9889; Sync Metrics</button>
-        <span id="intelSyncStatus" class="intel-sync-status"></span>
-      </div>
-
-      <!-- KPI summary row -->
-      <div id="intelSummaryRow" class="intel-kpi-row"></div>
-
-      <!-- Top Posts -->
-      <div class="intel-section-label">Top Posts</div>
-      <div id="intelTopPosts" class="intel-top-posts"></div>
-      <div id="intelTopPostsEmpty" class="cs-empty" style="display:none">No published posts with metrics yet. Sync first.</div>
-
-      <!-- Format Performance -->
-      <div class="intel-section-label">Format Performance</div>
-      <div id="intelFormats"></div>
-      <div id="intelFormatsEmpty" class="cs-empty" style="display:none">No format data yet.</div>
-
-      <!-- Best Posting Times -->
-      <div class="intel-section-label">Best Posting Times</div>
-      <div id="intelBestTimes"></div>
-      <div id="intelBestTimesEmpty" class="cs-empty" style="display:none">Not enough data yet.</div>
-
-      <!-- Reuse Opportunities -->
-      <div class="intel-section-label">Reuse &amp; Synergy Opportunities</div>
-      <div id="intelReuse" class="intel-reuse-list"></div>
-      <div id="intelReuseEmpty" class="cs-empty" style="display:none">No reuse opportunities detected yet.</div>
-    </div>
-
-    <!-- Calendar panel -->
-    <div id="csCalendarPanel" style="display:none">
-
-      <!-- Toolbar -->
-      <div class="cal-toolbar">
-        <div class="cal-nav">
-          <button class="cal-nav-btn" onclick="window.calPrev()">&#8592; Prev</button>
-          <button class="cal-nav-btn" onclick="window.calToday()">Today</button>
-          <button class="cal-nav-btn" onclick="window.calNext()">Next &#8594;</button>
-        </div>
-        <span id="calPeriodLabel" class="cal-period-label"></span>
-        <div class="cal-view-toggle">
-          <button id="calBtnWeek"  class="cal-view-btn active" onclick="window.calSetView('week')">Week</button>
-          <button id="calBtnMonth" class="cal-view-btn"        onclick="window.calSetView('month')">Month</button>
-        </div>
-      </div>
-
-      <!-- Dynamically rendered calendar grid -->
-      <div id="calGrid"></div>
-
-      <!-- Upcoming scheduled queue -->
-      <div style="margin-top:20px">
-        <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Upcoming Scheduled</div>
-        <div id="calUpcomingList" class="cal-upcoming-list"></div>
-        <div id="calUpcomingEmpty" class="cs-empty" style="display:none">No upcoming scheduled posts.</div>
-      </div>
-
-      <!-- Reschedule modal -->
-      <div id="calModal" class="cal-modal" style="display:none">
-        <div class="cal-modal-inner">
-          <div style="font-size:14px;font-weight:600;margin-bottom:12px">Reschedule Post</div>
-          <div id="calModalTitle" style="font-size:12px;color:var(--text-muted);margin-bottom:10px"></div>
-          <input id="calModalDate" class="pub-input" type="datetime-local"
-                 style="width:100%;margin-bottom:14px" />
-          <div style="display:flex;gap:8px;justify-content:flex-end">
-            <button class="cal-nav-btn" onclick="window.calCloseModal()">Cancel</button>
-            <button class="pub-create-btn" onclick="window.calReschedule()">Reschedule</button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Brand Kit panel -->
-    <div id="csBrandPanel" style="display:none">
-      <div class="cs-brand-form" id="csBrandForm">
-        <div class="cs-brand-field">
-          <label>Brand Name</label>
-          <input id="csBrandName" class="cs-brand-input" type="text" placeholder="My Brand" />
-        </div>
-        <div class="cs-brand-field">
-          <label>Primary Color</label>
-          <input id="csBrandPrimary" class="cs-brand-input" type="color" value="#000000" />
-        </div>
-        <div class="cs-brand-field">
-          <label>Secondary Color</label>
-          <input id="csBrandSecondary" class="cs-brand-input" type="color" value="#ffffff" />
-        </div>
-        <div class="cs-brand-field">
-          <label>Accent Color</label>
-          <input id="csBrandAccent" class="cs-brand-input" type="color" value="#3B82F6" />
-        </div>
-        <div class="cs-brand-field">
-          <label>Font Family</label>
-          <input id="csBrandFont" class="cs-brand-input" type="text" placeholder="Inter" />
-        </div>
-        <div class="cs-brand-field">
-          <label>Logo URL</label>
-          <input id="csBrandLogo" class="cs-brand-input" type="text" placeholder="https://…" />
-        </div>
-        <div class="cs-brand-field" style="grid-column:1/-1">
-          <label>Style Description</label>
-          <input id="csBrandStyle" class="cs-brand-input" type="text" placeholder="Modern, clean, minimalist…" />
-        </div>
-        <button class="cs-brand-save" onclick="window.saveBrandKit()">Save Brand Kit</button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- Plan Usage Panel -->
-<div class="section" id="planUsageSection" style="display:none">
-  <div class="section-header">
-    <span class="section-title">Plan Usage</span>
-    <span class="section-subtitle" id="planUsagePeriod"></span>
-  </div>
-  <div class="section-body">
-    <div class="plan-usage-header">
-      <span class="plan-name-badge" id="planNameBadge"></span>
-      <span class="plan-price-label" id="planPriceLabel"></span>
-    </div>
-    <div class="plan-usage-meters" id="planUsageMeters"></div>
-  </div>
-</div>
-{% endblock %}
-
-<!-- Toast Container -->
-<div class="a7-toast-container" id="toastContainer"></div>
-
 <!-- Confirmation Modal -->
 <div id="confirmModal" class="modal-overlay" style="display:none" role="dialog" aria-modal="true">
   <div class="modal-box">
@@ -881,6 +981,8 @@
 .modal-actions .btn-secondary { background: transparent; color: #5d7499; border: 1px solid #1c2b42; }
 .modal-actions .btn-secondary:hover { background: #111827; color: #e8eeff; }
 </style>
+
+{% endblock %}
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>

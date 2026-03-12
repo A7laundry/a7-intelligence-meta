@@ -97,19 +97,91 @@
 
 <div class="demo-banner" id="demoBanner">Demo Mode — Showing sample data. Connect your Meta & Google Ads accounts for live metrics.</div>
 
-<main class="container">
-  {% block content %}{% endblock %}
-</main>
+<div class="app-layout">
+  <aside class="sidebar" id="appSidebar">
+    <nav class="sidebar-nav">
 
-<footer class="footer" id="footer">
-  <div class="footer-inner">
-    <span class="footer-brand">A7 Intelligence</span>
-    <span class="footer-sep">·</span>
-    <span class="footer-version">v{{ version }}</span>
-    <span class="footer-sep">·</span>
-    <span class="footer-copy">Growth Command Center</span>
+      <div class="nav-group">
+        <span class="nav-group-label">Command Center</span>
+        <a class="nav-item active" data-page="overview" href="#overview">
+          <span class="nav-icon">◈</span>Overview
+        </a>
+      </div>
+
+      <div class="nav-group">
+        <span class="nav-group-label">Operations</span>
+        <a class="nav-item" data-page="accounts" href="#accounts">
+          <span class="nav-icon">◉</span>Accounts
+        </a>
+        <a class="nav-item" data-page="campaigns" href="#campaigns">
+          <span class="nav-icon">◉</span>Campaigns
+        </a>
+        <a class="nav-item" data-page="budget" href="#budget">
+          <span class="nav-icon">◉</span>Budget
+        </a>
+        <a class="nav-item" data-page="automation" href="#automation">
+          <span class="nav-icon">◉</span>Automation
+        </a>
+        <a class="nav-item" data-page="creative" href="#creative">
+          <span class="nav-icon">◉</span>Creative
+        </a>
+        <a class="nav-item" data-page="content-studio" href="#content-studio">
+          <span class="nav-icon">◉</span>Content Studio
+        </a>
+      </div>
+
+      <div class="nav-group">
+        <span class="nav-group-label">Intelligence</span>
+        <a class="nav-item" data-page="ai-coach" href="#ai-coach">
+          <span class="nav-icon">◉</span>AI Coach
+        </a>
+        <a class="nav-item" data-page="insights" href="#insights">
+          <span class="nav-icon">◉</span>Insights
+        </a>
+        <a class="nav-item" data-page="alerts" href="#alerts">
+          <span class="nav-icon">◉</span>Alerts
+        </a>
+        <a class="nav-item" data-page="reports" href="#reports">
+          <span class="nav-icon">◉</span>Reports
+        </a>
+      </div>
+
+      <div class="nav-group">
+        <span class="nav-group-label">Copilot</span>
+        <a class="nav-item" data-page="copilot" href="#copilot">
+          <span class="nav-icon">◉</span>AI Copilot
+        </a>
+      </div>
+
+      <div class="nav-group">
+        <span class="nav-group-label">Settings</span>
+        <a class="nav-item" data-page="integrations" href="#integrations">
+          <span class="nav-icon">◉</span>Integrations
+        </a>
+        <a class="nav-item" data-page="billing" href="#billing">
+          <span class="nav-icon">◉</span>Billing
+        </a>
+      </div>
+
+    </nav>
+  </aside>
+
+  <div class="main-content">
+    <main class="container">
+      {% block content %}{% endblock %}
+    </main>
+
+    <footer class="footer" id="footer">
+      <div class="footer-inner">
+        <span class="footer-brand">A7 Intelligence</span>
+        <span class="footer-sep">·</span>
+        <span class="footer-version">v{{ version }}</span>
+        <span class="footer-sep">·</span>
+        <span class="footer-copy">Growth Command Center</span>
+      </div>
+    </footer>
   </div>
-</footer>
+</div>
 
 <div class="a7-toast-container" id="toastContainer"></div>
 

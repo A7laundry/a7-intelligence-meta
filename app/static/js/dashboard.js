@@ -571,7 +571,6 @@
     // Show content
     $('#loadingState').style.display = 'none';
     $('#kpiGrid').style.display = '';
-    $('#sectionsContainer').style.display = '';
 
     renderKPIs(data);
     renderTrendChart(data.daily_trend || []);
@@ -629,7 +628,6 @@
   async function load(range) {
     $('#loadingState').style.display = '';
     _showKpiSkeletons();
-    $('#sectionsContainer').style.display = 'none';
 
     try {
       const data = await fetchApi('/dashboard/' + range + (currentAccountId ? '?account_id=' + currentAccountId : ''));
@@ -1737,13 +1735,14 @@
       var data = await fetchApi('/accounts/overview?days=7');
       var accounts = data.accounts || [];
 
-      // Show section only when 2+ accounts
+      // With sidebar navigation, the page handles visibility.
+      // Show empty state for single account, full content for 2+.
       if (accounts.length < 2) {
-        section.style.display = 'none';
+        loading.style.display = 'none';
+        if (empty) empty.style.display = '';
         return;
       }
 
-      section.style.display = '';
       loading.style.display = 'none';
       content.style.display = '';
 
@@ -1756,7 +1755,8 @@
       renderCATable(accounts);
       loadAccountHealth();
     } catch (e) {
-      if (section) section.style.display = 'none';
+      if (loading) loading.style.display = 'none';
+      if (empty) empty.style.display = '';
     }
   }
 
@@ -2037,17 +2037,16 @@
     }
 
     function _handleRefClick(refType, refName, refId) {
-      var sectionMap = {
-        campaign: 'metaTable',
-        alert: 'alertsSection',
-        creative: 'creativeSection',
-        account: 'crossAccountSection',
+      var pageMap = {
+        campaign: 'campaigns',
+        alert: 'alerts',
+        creative: 'creative',
+        account: 'accounts',
       };
-      var sectionId = sectionMap[refType] || null;
-      if (sectionId) {
-        var el = document.getElementById(sectionId);
-        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        if (refType === 'campaign') _flashCampaignRow(refId || refName);
+      var page = pageMap[refType] || null;
+      if (page) {
+        window.a7Navigate(page);
+        if (refType === 'campaign') setTimeout(function() { _flashCampaignRow(refId || refName); }, 200);
       }
     }
 
@@ -3475,60 +3474,60 @@
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
 
-  /* ─── Hash-based Tab Routing ─── */
-  var _validHashSections = [
-    'coach', 'budget', 'alerts', 'forecast', 'reports',
-    'cross-platform', 'automation', 'creatives', 'copilot', 'content-studio', 'plan'
-  ];
+  /* ─── Sidebar Router ─── */
+  function _navigateTo(page) {
+    if (!page) page = 'overview';
 
-  var _hashSectionMap = {
-    'coach':          'coachSection',
-    'budget':         'budgetSection',
-    'alerts':         'alertsSection',
-    'forecast':       'forecastSection',
-    'reports':        'reportsSection',
-    'cross-platform': 'crossPlatformSection',
-    'automation':     'automationSection',
-    'creatives':      'creativeSection',
-    'copilot':        'copilotSection',
-    'content-studio': 'contentStudioSection',
-    'plan':           'planUsageSection',
-  };
-
-  function _scrollToHash(hash) {
-    var tab = hash.replace('#', '');
-    if (!tab || _validHashSections.indexOf(tab) === -1) return;
-    var sectionId = _hashSectionMap[tab];
-    if (!sectionId) return;
-    var el = document.getElementById(sectionId);
-    if (el) {
-      setTimeout(function() { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 400);
-    }
-  }
-
-  function _setHash(tabName) {
-    if (_validHashSections.indexOf(tabName) !== -1) {
-      history.replaceState(null, null, '#' + tabName);
-    }
-  }
-
-  // Expose for external use
-  window.a7SetHash = _setHash;
-
-  // Add click listeners to section headers for hash routing
-  document.querySelectorAll('.section-header .section-title').forEach(function(el) {
-    el.style.cursor = 'pointer';
-    el.title = 'Click to bookmark this section';
-    el.addEventListener('click', function() {
-      var section = el.closest('.section');
-      if (!section) return;
-      var id = section.id;
-      var tabName = Object.keys(_hashSectionMap).find(function(k) { return _hashSectionMap[k] === id; });
-      if (tabName) _setHash(tabName);
+    // Hide all page sections
+    document.querySelectorAll('.page-section').forEach(function(p) {
+      p.classList.remove('active');
     });
-  });
+
+    // Show target page
+    var target = document.getElementById('page-' + page);
+    if (!target) {
+      page = 'overview';
+      target = document.getElementById('page-overview');
+    }
+    if (target) target.classList.add('active');
+
+    // Update sidebar active state
+    document.querySelectorAll('.nav-item[data-page]').forEach(function(item) {
+      item.classList.remove('active');
+    });
+    var activeNav = document.querySelector('.nav-item[data-page="' + page + '"]');
+    if (activeNav) activeNav.classList.add('active');
+
+    // Update URL hash without scroll
+    history.replaceState(null, null, '#' + page);
+  }
+
+  // Expose for external calls
+  window.a7Navigate = _navigateTo;
+
+  function _initRouter() {
+    // Sidebar click handler
+    document.addEventListener('click', function(e) {
+      var navItem = e.target.closest('.nav-item[data-page]');
+      if (navItem) {
+        e.preventDefault();
+        _navigateTo(navItem.getAttribute('data-page'));
+      }
+    });
+
+    // Handle browser back/forward
+    window.addEventListener('hashchange', function() {
+      var hash = window.location.hash.replace('#', '').trim();
+      if (hash) _navigateTo(hash);
+    });
+
+    // Activate initial page from URL hash or default to overview
+    var initialPage = window.location.hash.replace('#', '').trim() || 'overview';
+    _navigateTo(initialPage);
+  }
 
   /* ─── Init ─── */
+  _initRouter();
   loadPlatformStatus();
   initAccountSelector();
   load(currentRange);
@@ -3545,10 +3544,5 @@
   loadContentStudio();
   loadPlanUsage();
   startAutoRefresh();
-
-  // Handle hash on page load
-  if (window.location.hash) {
-    _scrollToHash(window.location.hash);
-  }
 
 })();
