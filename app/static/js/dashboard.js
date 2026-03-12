@@ -2231,6 +2231,7 @@
       assets: 'csAssetsPanel',
       publishing: 'csPublishingPanel',
       brand: 'csBrandPanel',
+      calendar: 'csCalendarPanel',
     };
     Object.keys(panels).forEach(function(k) {
       var el = $(panels[k]);
@@ -2240,6 +2241,7 @@
     if (tab === 'assets') _csLoadAssets();
     if (tab === 'publishing') _pubLoad();
     if (tab === 'brand') _csLoadBrandKit();
+    if (tab === 'calendar') _calLoad();
   }
 
   async function _csLoadIdeas() {
@@ -2409,8 +2411,81 @@
   // ── Publishing Engine ─────────────────────────────────────────────────────
 
   async function _pubLoad() {
-    await Promise.all([_pubLoadPosts(), _pubLoadJobs()]);
+    await Promise.all([_pubLoadConnectors(), _pubLoadPosts(), _pubLoadJobs()]);
   }
+
+  async function _pubLoadConnectors() {
+    var container = $('#pubConnectorList');
+    if (!container) return;
+    try {
+      var connectors = await fetchApi('/content/connectors?' + _acctQs());
+      var PLATFORMS = ['instagram', 'facebook_page'];
+      var connMap = {};
+      if (Array.isArray(connectors)) {
+        connectors.forEach(function(c) { connMap[c.platform] = c; });
+      }
+      container.innerHTML = PLATFORMS.map(function(p) {
+        var c = connMap[p];
+        var status = c ? c.status : 'none';
+        var dotCls = 'pub-conn-' + status;
+        var label = p.replace('_', ' ');
+        var validated = c && c.last_validated_at ? c.last_validated_at.slice(0, 10) : '';
+        var hint = validated ? ' · ' + validated : (c ? '' : ' · not configured');
+        return '<div class="pub-connector-card">' +
+          '<span class="pub-conn-dot ' + dotCls + '"></span>' +
+          '<span style="font-weight:600;text-transform:capitalize">' + _esc(label) + '</span>' +
+          '<span style="color:var(--text-muted)">' + _esc(status) + _esc(hint) + '</span>' +
+        '</div>';
+      }).join('');
+    } catch (e) {
+      if (container) container.innerHTML = '<span style="color:var(--text-muted);font-size:12px">Connector status unavailable</span>';
+    }
+  }
+
+  window.pubSaveConnector = async function() {
+    var platform = ($('#pubConnPlatform') || {}).value || 'instagram';
+    var token    = ($('#pubConnToken')    || {}).value || '';
+    var igUser   = ($('#pubConnIgUser')   || {}).value || '';
+    var pageId   = ($('#pubConnPageId')   || {}).value || '';
+    if (!token) { alert('Access token is required.'); return; }
+    try {
+      var resp = await fetch('/api/content/connectors', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          account_id: currentAccountId || 1,
+          platform: platform, access_token: token,
+          ig_user_id: igUser, page_id: pageId,
+        }),
+      });
+      var data = await resp.json();
+      if (data && !data.error) {
+        if ($('#pubConnToken')) $('#pubConnToken').value = '';
+        await _pubLoadConnectors();
+        alert('Connector saved. Use "Validate" to test credentials.');
+      } else {
+        alert('Error: ' + (data.error || 'Unknown'));
+      }
+    } catch (e) { /* silently skip */ }
+  };
+
+  window.pubValidateConnector = async function() {
+    var platform = ($('#pubConnPlatform') || {}).value || 'instagram';
+    try {
+      var resp = await fetch('/api/content/connectors/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account_id: currentAccountId || 1, platform: platform }),
+      });
+      var data = await resp.json();
+      if (data.valid) {
+        alert('✅ Credentials valid! Connected as: ' + (data.name || data.user_id || 'OK'));
+      } else {
+        alert('❌ Validation failed: ' + (data.error || 'Unknown error'));
+      }
+      await _pubLoadConnectors();
+    } catch (e) { /* silently skip */ }
+  };
 
   async function _pubLoadPosts() {
     var tbody = $('#pubPostsBody');
@@ -2485,17 +2560,26 @@
         return;
       }
       if (empty) empty.style.display = 'none';
-      var jColors = { success: '#10b981', failed: 'var(--red)', running: '#6366f1',
-                      queued: 'var(--text-muted)', scheduled: '#f59e0b', cancelled: 'var(--text-muted)' };
+      var jColors = {
+        success: '#10b981', failed: 'var(--red)', running: '#6366f1',
+        queued: 'var(--text-muted)', scheduled: '#f59e0b', cancelled: 'var(--text-muted)',
+        uploading: '#6366f1', publishing: '#6366f1', retrying: '#f59e0b',
+      };
       tbody.innerHTML = jobs.map(function(j) {
         var jColor = jColors[j.status] || 'var(--text-muted)';
+        var retryBadge = (j.retry_count && j.retry_count > 0)
+          ? '<span style="font-size:9px;color:#f59e0b;margin-left:4px">retry×' + j.retry_count + '</span>'
+          : '';
+        var nextRetry = (j.status === 'retrying' && j.next_retry_at)
+          ? '<div style="font-size:9px;color:#f59e0b">next: ' + _esc(j.next_retry_at.slice(0,16)) + '</div>'
+          : '';
         return '<tr>' +
           '<td><span class="cs-badge cs-badge-src">' + _esc(j.job_type || '') + '</span></td>' +
           '<td>' + _esc(j.platform_target || '') + '</td>' +
-          '<td><span style="color:' + jColor + '">' + _esc(j.status || '') + '</span></td>' +
+          '<td><span style="color:' + jColor + '">' + _esc(j.status || '') + '</span>' + retryBadge + nextRetry + '</td>' +
           '<td style="font-size:11px;color:#f59e0b">' + _esc((j.scheduled_for || '').slice(0,16) || '—') + '</td>' +
           '<td style="font-size:11px;color:var(--text-muted)">' + _esc((j.executed_at || '').slice(0,16) || '—') + '</td>' +
-          '<td style="font-size:11px;color:var(--text-muted);max-width:180px;overflow:hidden;text-overflow:ellipsis">' + _esc(j.result_message || '') + '</td>' +
+          '<td style="font-size:11px;color:var(--text-muted);max-width:200px;white-space:normal">' + _esc((j.result_message || '').slice(0, 120)) + '</td>' +
         '</tr>';
       }).join('');
     } catch (e) {
@@ -2574,6 +2658,252 @@
       if (loading) loading.style.display = 'none';
     }
   }
+
+  // ── Content Calendar ──────────────────────────────────────────────────────
+
+  var _calView  = 'week';
+  var _calStart = null;    // YYYY-MM-DD
+  var _calRescheduleId = null;
+
+  var _calPlatformIcon = {
+    instagram: '📸', facebook: '📘', facebook_page: '📘',
+    tiktok: '🎵', linkedin: '💼', pinterest: '📌', google_display: '🎯',
+  };
+
+  async function _calLoad() {
+    var grid = $('#calGrid');
+    if (!grid) return;
+    if (!_calStart) {
+      _calStart = new Date().toISOString().substring(0, 10);
+    }
+    var qs = 'view=' + _calView + '&start=' + _calStart + '&' + _acctQs();
+    grid.innerHTML = '<div style="padding:20px;color:var(--text-muted);font-size:13px">Loading…</div>';
+    try {
+      var data = await fetchApi('/content/calendar?' + qs);
+      _calRender(data);
+      _calLoadUpcoming();
+    } catch (e) {
+      grid.innerHTML = '<div class="cs-empty">Failed to load calendar.</div>';
+    }
+  }
+
+  function _calRender(data) {
+    var grid = $('#calGrid');
+    if (!grid) return;
+    var label = $('#calPeriodLabel');
+    if (label) {
+      if (data.view === 'month') {
+        var md = new Date(data.start + 'T00:00:00');
+        label.textContent = md.toLocaleString('default', { month: 'long', year: 'numeric' });
+      } else {
+        label.textContent = _calFmtPeriod(data.start) + (data.view === 'week' ? ' – ' + _calFmtPeriod(data.end) : '');
+      }
+    }
+    if (data.view === 'week' || data.view === 'day') {
+      grid.innerHTML = _calBuildWeek(data);
+    } else {
+      grid.innerHTML = _calBuildMonth(data);
+    }
+  }
+
+  function _calFmtPeriod(dateStr) {
+    if (!dateStr) return '';
+    try {
+      var d = new Date(dateStr + 'T00:00:00');
+      return d.toLocaleDateString('default', { month: 'short', day: 'numeric' });
+    } catch (e) { return dateStr; }
+  }
+
+  function _calBuildWeek(data) {
+    var html = '<div class="cal-week-grid">';
+    data.days.forEach(function(day) {
+      var todayCls = day.is_today ? ' cal-day-today' : '';
+      html += '<div class="cal-day-col">' +
+        '<div class="cal-day-header' + todayCls + '">' +
+          '<span class="cal-day-label">' + _esc(day.label) + '</span>' +
+          '<span class="cal-day-num">'  + day.day_num + '</span>' +
+        '</div>' +
+        '<div class="cal-day-body">';
+      if (day.posts.length === 0) {
+        html += '<div style="padding:6px;font-size:10px;color:var(--text-muted);text-align:center">—</div>';
+      } else {
+        day.posts.forEach(function(p) { html += _calPostCard(p); });
+      }
+      html += '</div></div>';
+    });
+    html += '</div>';
+    return html;
+  }
+
+  function _calBuildMonth(data) {
+    var html = '<div class="cal-month-grid">';
+    ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].forEach(function(d) {
+      html += '<div class="cal-month-header">' + d + '</div>';
+    });
+    var firstWeekday = data.days.length > 0 ? data.days[0].weekday : 0;
+    for (var i = 0; i < firstWeekday; i++) {
+      html += '<div class="cal-month-cell cal-month-empty"></div>';
+    }
+    data.days.forEach(function(day) {
+      var todayCls = day.is_today ? ' cal-day-today' : '';
+      html += '<div class="cal-month-cell' + todayCls + '">' +
+        '<div class="cal-month-day-num">' + day.day_num + '</div>';
+      day.posts.slice(0, 3).forEach(function(p) { html += _calPostPill(p); });
+      if (day.posts.length > 3) {
+        html += '<div class="cal-more">+' + (day.posts.length - 3) + ' more</div>';
+      }
+      html += '</div>';
+    });
+    html += '</div>';
+    return html;
+  }
+
+  function _calPostCard(p) {
+    var status  = p.status || 'draft';
+    var icon    = _calPlatformIcon[p.platform_target] || '📢';
+    var time    = '';
+    var dtSrc   = status === 'published' ? p.published_at : p.scheduled_for;
+    if (dtSrc) {
+      try { time = new Date(dtSrc).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); } catch(e) {}
+    }
+    var thumb = p.thumbnail_url
+      ? '<img class="cal-thumb" src="' + _esc(p.thumbnail_url) + '" loading="lazy">'
+      : '';
+    var canReschedule = status !== 'published' && status !== 'publishing';
+    var reschedBtn = canReschedule
+      ? '<button class="cal-action-btn" title="Reschedule" onclick="window.calOpenReschedule(' +
+          p.id + ',\'' + _esc(p.scheduled_for || '') + '\',\'' + _esc(p.title || '') + '\')">⏰</button>'
+      : '';
+    return '<div class="cal-post-card cal-status-' + _esc(status) + '">' +
+      (thumb ? '<div>' + thumb + '</div>' : '') +
+      '<div class="cal-card-title">' + icon + ' ' + _esc((p.title || '(untitled)').substring(0, 28)) + '</div>' +
+      (time ? '<div class="cal-card-time">' + _esc(time) + '</div>' : '') +
+      '<div class="cal-card-footer">' +
+        '<span class="cal-badge cal-badge-' + _esc(status) + '">' + _esc(status) + '</span>' +
+        reschedBtn +
+      '</div>' +
+    '</div>';
+  }
+
+  function _calPostPill(p) {
+    var status = p.status || 'draft';
+    var icon   = _calPlatformIcon[p.platform_target] || '📢';
+    var canReschedule = status !== 'published' && status !== 'publishing';
+    var clickAttr = canReschedule
+      ? 'onclick="window.calOpenReschedule(' + p.id + ',\'' + _esc(p.scheduled_for || '') +
+        '\',\'' + _esc(p.title || '') + '\')"'
+      : '';
+    return '<div class="cal-post-pill cal-status-' + _esc(status) + '" ' + clickAttr +
+      ' title="' + _esc(p.title || '') + '">' +
+      icon + ' ' + _esc((p.title || '(untitled)').substring(0, 18)) +
+      '</div>';
+  }
+
+  async function _calLoadUpcoming() {
+    var list  = $('#calUpcomingList');
+    var empty = $('#calUpcomingEmpty');
+    if (!list) return;
+    try {
+      var items = await fetchApi('/content/calendar/upcoming?' + _acctQs());
+      if (!Array.isArray(items) || items.length === 0) {
+        list.innerHTML = '';
+        if (empty) empty.style.display = '';
+        return;
+      }
+      if (empty) empty.style.display = 'none';
+      list.innerHTML = items.map(function(p) {
+        var icon = _calPlatformIcon[p.platform_target] || '📢';
+        var dt   = p.scheduled_for ? new Date(p.scheduled_for) : null;
+        var ts   = dt
+          ? dt.toLocaleDateString('default', { month: 'short', day: 'numeric' }) + ' ' +
+            dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          : '';
+        return '<div class="cal-upcoming-item">' +
+          '<span class="cal-upcoming-icon">' + icon + '</span>' +
+          '<div class="cal-upcoming-info">' +
+            '<div class="cal-upcoming-title">' + _esc(p.title || '(untitled)') + '</div>' +
+            '<div class="cal-upcoming-time">' + _esc(ts) + '</div>' +
+          '</div>' +
+          '<button class="cal-action-btn" onclick="window.calOpenReschedule(' +
+            p.id + ',\'' + _esc(p.scheduled_for || '') + '\',\'' + _esc(p.title || '') +
+          '\')">Reschedule</button>' +
+        '</div>';
+      }).join('');
+    } catch (e) { /* silently skip */ }
+  }
+
+  // Navigation helpers
+  function _calNav(delta, unit) {
+    if (!_calStart) return;
+    var d = new Date(_calStart + 'T00:00:00');
+    if (unit === 'day')   d.setDate(d.getDate() + delta);
+    if (unit === 'week')  d.setDate(d.getDate() + delta * 7);
+    if (unit === 'month') { d.setMonth(d.getMonth() + delta); d.setDate(1); }
+    _calStart = d.toISOString().substring(0, 10);
+    _calLoad();
+  }
+
+  window.calPrev  = function() { _calNav(-1, _calView); };
+  window.calNext  = function() { _calNav(+1, _calView); };
+  window.calToday = function() {
+    _calStart = new Date().toISOString().substring(0, 10);
+    _calLoad();
+  };
+  window.calSetView = function(v) {
+    _calView = v;
+    var bw = $('#calBtnWeek');
+    var bm = $('#calBtnMonth');
+    if (bw) bw.classList.toggle('active', v === 'week');
+    if (bm) bm.classList.toggle('active', v === 'month');
+    _calLoad();
+  };
+
+  window.calOpenReschedule = function(postId, currentDt, title) {
+    _calRescheduleId = postId;
+    var modal = $('#calModal');
+    var input = $('#calModalDate');
+    var titleEl = $('#calModalTitle');
+    if (titleEl) titleEl.textContent = title || '';
+    if (modal) modal.style.display = '';
+    if (input && currentDt) {
+      try {
+        var d = new Date(currentDt);
+        input.value =
+          d.getFullYear() + '-' +
+          String(d.getMonth() + 1).padStart(2, '0') + '-' +
+          String(d.getDate()).padStart(2, '0') + 'T' +
+          String(d.getHours()).padStart(2, '0') + ':' +
+          String(d.getMinutes()).padStart(2, '0');
+      } catch (e) { input.value = ''; }
+    }
+  };
+
+  window.calCloseModal = function() {
+    var modal = $('#calModal');
+    if (modal) modal.style.display = 'none';
+    _calRescheduleId = null;
+  };
+
+  window.calReschedule = async function() {
+    if (!_calRescheduleId) return;
+    var input = $('#calModalDate');
+    if (!input || !input.value) { alert('Please select a date and time.'); return; }
+    try {
+      var res  = await fetch('/api/content/calendar/reschedule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          account_id: currentAccountId || 1,
+          post_id: _calRescheduleId,
+          scheduled_for: input.value,
+        }),
+      });
+      var data = await res.json();
+      if (data.error) { alert('Error: ' + data.error); return; }
+      window.calCloseModal();
+      _calLoad();
+    } catch (e) { alert('Failed to reschedule.'); }
+  };
 
   function _acctQs() {
     return currentAccountId ? 'account_id=' + currentAccountId : '';

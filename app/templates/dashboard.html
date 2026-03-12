@@ -524,6 +524,7 @@
       <button class="cs-tab" data-cs-tab="assets">Creative Library</button>
       <button class="cs-tab" data-cs-tab="publishing">Publishing</button>
       <button class="cs-tab" data-cs-tab="brand">Brand Kit</button>
+      <button class="cs-tab" data-cs-tab="calendar">&#128197; Calendar</button>
     </div>
 
     <!-- Ideas panel -->
@@ -598,6 +599,26 @@
       </div>
       <div id="pubPostsEmpty" class="cs-empty" style="display:none">No post drafts yet. Create one above.</div>
 
+      <!-- Connector Status panel -->
+      <div id="pubConnectorPanel" style="margin-bottom:16px">
+        <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Connector Status</div>
+        <div id="pubConnectorList" class="pub-connector-list"></div>
+        <details style="margin-top:8px">
+          <summary style="font-size:12px;color:var(--text-muted);cursor:pointer">+ Add / Update Connector</summary>
+          <div class="pub-connector-form" style="margin-top:8px">
+            <select id="pubConnPlatform" class="pub-input">
+              <option value="instagram">Instagram</option>
+              <option value="facebook_page">Facebook Page</option>
+            </select>
+            <input id="pubConnToken"  class="pub-input" type="password" placeholder="Access Token" style="flex:2" />
+            <input id="pubConnIgUser" class="pub-input" type="text" placeholder="IG User ID (Instagram only)" style="flex:1" />
+            <input id="pubConnPageId" class="pub-input" type="text" placeholder="Page ID (Facebook only)" style="flex:1" />
+            <button class="pub-create-btn" onclick="window.pubSaveConnector()">Save</button>
+            <button class="pub-create-btn" style="background:#6366f1" onclick="window.pubValidateConnector()">Validate</button>
+          </div>
+        </details>
+      </div>
+
       <!-- Publishing Jobs table -->
       <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin:14px 0 6px;text-transform:uppercase;letter-spacing:.5px">Publishing Jobs</div>
       <div class="table-wrap">
@@ -622,6 +643,48 @@
     <div id="csAssetsPanel" style="display:none">
       <div id="csAssetGrid" class="cs-asset-grid"></div>
       <div id="csAssetsEmpty" class="cs-empty" style="display:none">No creative assets yet.</div>
+    </div>
+
+    <!-- Calendar panel -->
+    <div id="csCalendarPanel" style="display:none">
+
+      <!-- Toolbar -->
+      <div class="cal-toolbar">
+        <div class="cal-nav">
+          <button class="cal-nav-btn" onclick="window.calPrev()">&#8592; Prev</button>
+          <button class="cal-nav-btn" onclick="window.calToday()">Today</button>
+          <button class="cal-nav-btn" onclick="window.calNext()">Next &#8594;</button>
+        </div>
+        <span id="calPeriodLabel" class="cal-period-label"></span>
+        <div class="cal-view-toggle">
+          <button id="calBtnWeek"  class="cal-view-btn active" onclick="window.calSetView('week')">Week</button>
+          <button id="calBtnMonth" class="cal-view-btn"        onclick="window.calSetView('month')">Month</button>
+        </div>
+      </div>
+
+      <!-- Dynamically rendered calendar grid -->
+      <div id="calGrid"></div>
+
+      <!-- Upcoming scheduled queue -->
+      <div style="margin-top:20px">
+        <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Upcoming Scheduled</div>
+        <div id="calUpcomingList" class="cal-upcoming-list"></div>
+        <div id="calUpcomingEmpty" class="cs-empty" style="display:none">No upcoming scheduled posts.</div>
+      </div>
+
+      <!-- Reschedule modal -->
+      <div id="calModal" class="cal-modal" style="display:none">
+        <div class="cal-modal-inner">
+          <div style="font-size:14px;font-weight:600;margin-bottom:12px">Reschedule Post</div>
+          <div id="calModalTitle" style="font-size:12px;color:var(--text-muted);margin-bottom:10px"></div>
+          <input id="calModalDate" class="pub-input" type="datetime-local"
+                 style="width:100%;margin-bottom:14px" />
+          <div style="display:flex;gap:8px;justify-content:flex-end">
+            <button class="cal-nav-btn" onclick="window.calCloseModal()">Cancel</button>
+            <button class="pub-create-btn" onclick="window.calReschedule()">Reschedule</button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Brand Kit panel -->

@@ -2709,3 +2709,274 @@ class TestSocialConnectors:
         assert c10["access_token"] == "tok_10"
         assert c20["access_token"] == "tok_20"
         assert svc.list_connectors(account_id=10) != svc.list_connectors(account_id=20)
+
+
+class TestCalendar:
+    """Phase 8E — Content Calendar tests."""
+
+    # ── helpers ─────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _make_post(account_id=1, status="scheduled", scheduled_for=None,
+                   published_at=None, title="Test Post", platform="instagram"):
+        from app.db.init_db import init_db
+        from app.services.publishing_service import PublishingService
+        init_db()
+        svc = PublishingService()
+        post = svc.create_post(account_id=account_id, title=title,
+                               platform_target=platform)
+        if scheduled_for:
+            from app.db.init_db import get_connection
+            conn = get_connection()
+            conn.execute(
+                "UPDATE content_posts SET scheduled_for=?, status=? WHERE id=?",
+                (scheduled_for, status, post["id"]),
+            )
+            if published_at:
+                conn.execute(
+                    "UPDATE content_posts SET published_at=?, status='published' WHERE id=?",
+                    (published_at, post["id"]),
+                )
+            conn.commit()
+            conn.close()
+            post = svc.get_post(post["id"])
+        return post
+
+    # ── calendar grouping ────────────────────────────────────────────────────
+
+    def test_calendar_week_grouping(self):
+        """Posts appear on the correct weekday cell."""
+        from app.db.init_db import init_db
+        from app.services.calendar_service import CalendarService
+        init_db()
+        # Use a fixed Monday as the week start
+        week_start = "2026-04-06"  # Monday
+        post = self._make_post(
+            account_id=1, scheduled_for="2026-04-08T10:00:00",  # Wednesday
+            title="Wed post"
+        )
+        svc = CalendarService()
+        cal = svc.get_calendar(account_id=1, view="week", start=week_start)
+        assert cal["view"] == "week"
+        assert len(cal["days"]) == 7
+        wed = next(d for d in cal["days"] if d["date"] == "2026-04-08")
+        assert any(p["id"] == post["id"] for p in wed["posts"])
+
+    def test_calendar_month_view(self):
+        """Month view returns the correct number of days."""
+        from app.db.init_db import init_db
+        from app.services.calendar_service import CalendarService
+        init_db()
+        svc = CalendarService()
+        cal = svc.get_calendar(account_id=1, view="month", start="2026-04-01")
+        assert cal["view"] == "month"
+        assert len(cal["days"]) == 30  # April has 30 days
+        assert cal["start"] == "2026-04-01"
+        assert cal["end"] == "2026-04-30"
+
+    def test_calendar_day_view(self):
+        """Day view returns exactly one day."""
+        from app.db.init_db import init_db
+        from app.services.calendar_service import CalendarService
+        init_db()
+        svc = CalendarService()
+        cal = svc.get_calendar(account_id=1, view="day", start="2026-04-15")
+        assert cal["view"] == "day"
+        assert len(cal["days"]) == 1
+        assert cal["days"][0]["date"] == "2026-04-15"
+
+    def test_calendar_published_post_appears(self):
+        """Published posts appear based on published_at date."""
+        from app.db.init_db import init_db
+        from app.services.calendar_service import CalendarService
+        from app.db.init_db import get_connection
+        init_db()
+        post = self._make_post(account_id=1, title="Published post")
+        # Mark as published with published_at
+        conn = get_connection()
+        conn.execute(
+            "UPDATE content_posts SET status='published', published_at=?, scheduled_for=NULL WHERE id=?",
+            ("2026-04-10T12:00:00", post["id"]),
+        )
+        conn.commit()
+        conn.close()
+        svc = CalendarService()
+        cal = svc.get_calendar(account_id=1, view="month", start="2026-04-01")
+        day10 = next(d for d in cal["days"] if d["date"] == "2026-04-10")
+        assert any(p["id"] == post["id"] for p in day10["posts"])
+
+    # ── account isolation ─────────────────────────────────────────────────────
+
+    def test_calendar_account_isolation(self):
+        """Posts from account 50 do not appear in account 51's calendar."""
+        from app.db.init_db import init_db
+        from app.services.calendar_service import CalendarService
+        init_db()
+        p50 = self._make_post(account_id=50, scheduled_for="2026-05-05T09:00:00",
+                              title="Acct50 post")
+        svc = CalendarService()
+        cal51 = svc.get_calendar(account_id=51, view="month", start="2026-05-01")
+        all_ids = [p["id"] for day in cal51["days"] for p in day["posts"]]
+        assert p50["id"] not in all_ids
+
+    # ── rescheduling ──────────────────────────────────────────────────────────
+
+    def test_reschedule_scheduled_post(self):
+        """Rescheduling a scheduled post updates scheduled_for and status."""
+        from app.db.init_db import init_db
+        from app.services.calendar_service import CalendarService
+        init_db()
+        post = self._make_post(
+            account_id=1, scheduled_for="2026-06-01T10:00:00", title="Reschedule me"
+        )
+        svc = CalendarService()
+        result = svc.reschedule_post(
+            account_id=1, post_id=post["id"], scheduled_for="2026-06-15T14:00:00"
+        )
+        assert "error" not in result
+        assert result["post"]["scheduled_for"] == "2026-06-15T14:00:00"
+        assert result["post"]["status"] == "scheduled"
+
+    def test_reschedule_draft_post(self):
+        """Rescheduling a draft post sets it to scheduled."""
+        from app.db.init_db import init_db
+        from app.services.calendar_service import CalendarService
+        from app.services.publishing_service import PublishingService
+        init_db()
+        draft = PublishingService().create_post(account_id=1, title="Draft reschedule")
+        svc = CalendarService()
+        result = svc.reschedule_post(
+            account_id=1, post_id=draft["id"], scheduled_for="2026-07-01T09:00:00"
+        )
+        assert "error" not in result
+        assert result["post"]["status"] == "scheduled"
+
+    def test_reschedule_published_post_blocked(self):
+        """Published posts cannot be rescheduled."""
+        from app.db.init_db import init_db
+        from app.services.calendar_service import CalendarService
+        from app.db.init_db import get_connection
+        init_db()
+        post = self._make_post(account_id=1, title="Published block test")
+        conn = get_connection()
+        conn.execute(
+            "UPDATE content_posts SET status='published', published_at=datetime('now') WHERE id=?",
+            (post["id"],),
+        )
+        conn.commit()
+        conn.close()
+        svc = CalendarService()
+        result = svc.reschedule_post(
+            account_id=1, post_id=post["id"], scheduled_for="2026-08-01T10:00:00"
+        )
+        assert "error" in result
+        assert "published" in result["error"].lower()
+
+    def test_reschedule_post_not_found(self):
+        """Rescheduling a non-existent post returns error."""
+        from app.db.init_db import init_db
+        from app.services.calendar_service import CalendarService
+        init_db()
+        svc = CalendarService()
+        result = svc.reschedule_post(
+            account_id=1, post_id=999999, scheduled_for="2026-09-01T10:00:00"
+        )
+        assert "error" in result
+        assert "not found" in result["error"].lower()
+
+    def test_reschedule_invalid_datetime(self):
+        """Invalid datetime string returns a validation error."""
+        from app.db.init_db import init_db
+        from app.services.calendar_service import CalendarService
+        from app.services.publishing_service import PublishingService
+        init_db()
+        draft = PublishingService().create_post(account_id=1, title="Invalid dt test")
+        svc = CalendarService()
+        result = svc.reschedule_post(
+            account_id=1, post_id=draft["id"], scheduled_for="not-a-date"
+        )
+        assert "error" in result
+
+    # ── upcoming queue ────────────────────────────────────────────────────────
+
+    def test_upcoming_queue_order(self):
+        """get_upcoming returns scheduled posts in chronological order."""
+        from app.db.init_db import init_db
+        from app.services.calendar_service import CalendarService
+        init_db()
+        # Create two future posts for a fresh account
+        acct = 777
+        p_late  = self._make_post(account_id=acct, scheduled_for="2027-01-10T10:00:00",
+                                  title="Second")
+        p_early = self._make_post(account_id=acct, scheduled_for="2027-01-05T08:00:00",
+                                  title="First")
+        svc = CalendarService()
+        upcoming = svc.get_upcoming(account_id=acct)
+        # At least the two posts we created must be present and correctly ordered
+        assert len(upcoming) >= 2
+        ids = [p["id"] for p in upcoming]
+        assert p_early["id"] in ids
+        assert p_late["id"] in ids
+        early_idx = ids.index(p_early["id"])
+        late_idx  = ids.index(p_late["id"])
+        assert early_idx < late_idx, "Earlier post should come before later post"
+
+    def test_upcoming_excludes_published(self):
+        """Published/failed posts do not appear in upcoming queue."""
+        from app.db.init_db import init_db
+        from app.services.calendar_service import CalendarService
+        from app.db.init_db import get_connection
+        init_db()
+        acct = 888
+        post = self._make_post(account_id=acct, scheduled_for="2027-02-01T10:00:00",
+                               title="Will be published")
+        conn = get_connection()
+        conn.execute(
+            "UPDATE content_posts SET status='published', published_at=datetime('now') WHERE id=?",
+            (post["id"],),
+        )
+        conn.commit()
+        conn.close()
+        svc = CalendarService()
+        upcoming = svc.get_upcoming(account_id=acct)
+        assert all(p["id"] != post["id"] for p in upcoming)
+
+    # ── API endpoints ─────────────────────────────────────────────────────────
+
+    def test_calendar_api_get(self, client):
+        """GET /api/content/calendar returns 200 with expected shape."""
+        resp = client.get("/api/content/calendar?account_id=1&view=week&start=2026-04-06")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["view"] == "week"
+        assert len(data["days"]) == 7
+        assert "total_posts" in data
+
+    def test_calendar_api_invalid_view(self, client):
+        """GET /api/content/calendar with invalid view returns 400."""
+        resp = client.get("/api/content/calendar?account_id=1&view=decade")
+        assert resp.status_code == 400
+
+    def test_reschedule_api_endpoint(self, client):
+        """POST /api/content/calendar/reschedule updates a post."""
+        from app.db.init_db import init_db
+        from app.services.publishing_service import PublishingService
+        init_db()
+        post = PublishingService().create_post(account_id=1, title="API reschedule")
+        resp = client.post(
+            "/api/content/calendar/reschedule",
+            json={
+                "account_id": 1,
+                "post_id": post["id"],
+                "scheduled_for": "2026-09-20T11:00:00",
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["post"]["scheduled_for"] == "2026-09-20T11:00:00"
+
+    def test_upcoming_api_endpoint(self, client):
+        """GET /api/content/calendar/upcoming returns a list."""
+        resp = client.get("/api/content/calendar/upcoming?account_id=1")
+        assert resp.status_code == 200
+        assert isinstance(resp.get_json(), list)
