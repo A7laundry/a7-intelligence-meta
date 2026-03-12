@@ -3474,6 +3474,69 @@
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
 
+  /* ─── Page Metadata ─── */
+  var _pageMeta = {
+    'overview':       { title: 'Overview',              subtitle: 'Growth Command Center',             icon: '◈' },
+    'accounts':       { title: 'Accounts',              subtitle: 'Cross-account performance',         icon: '⊞' },
+    'campaigns':      { title: 'Campaigns',             subtitle: 'Active campaigns & performance',    icon: '◫' },
+    'budget':         { title: 'Budget Intelligence',   subtitle: 'Allocation & efficiency analysis',  icon: '◎' },
+    'automation':     { title: 'Automation',            subtitle: 'Proposals & execution history',     icon: '⊗' },
+    'creative':       { title: 'Creative Intelligence', subtitle: 'Asset performance & insights',      icon: '◇' },
+    'content-studio': { title: 'Content Studio',        subtitle: 'Ideas · Creatives · Publishing',   icon: '◱' },
+    'ai-coach':       { title: 'AI Coach',              subtitle: 'AI-powered performance insights',   icon: '◉' },
+    'insights':       { title: 'Insights',              subtitle: 'Forecasts & cross-platform data',   icon: '◈' },
+    'alerts':         { title: 'Alerts',                subtitle: 'Active system alerts',              icon: '◬' },
+    'reports':        { title: 'Reports',               subtitle: 'Executive reporting suite',         icon: '▤'  },
+    'copilot':        { title: 'AI Marketing Copilot',  subtitle: 'Ask anything about performance',   icon: '◆' },
+    'integrations':   { title: 'Integrations',          subtitle: 'Connected platforms & credentials', icon: '⊕' },
+    'billing':        { title: 'Billing',               subtitle: 'Plan usage & limits',               icon: '◐' },
+  };
+
+  /* ─── Lazy Load Registry ─── */
+  // Maps page → load function names to call on first visit
+  var _pageLoaders = {
+    'overview':       ['loadGrowthScore'],
+    'accounts':       ['loadAccountOverview'],
+    'campaigns':      [],   // data loaded by main load() which runs for overview
+    'budget':         ['loadBudget'],
+    'automation':     ['loadAutomation'],
+    'creative':       ['loadCreatives'],
+    'content-studio': ['loadContentStudio'],
+    'ai-coach':       ['loadCoach'],
+    'insights':       ['loadForecast', 'loadCrossPlatform'],
+    'alerts':         ['loadAlerts'],
+    'reports':        ['loadReport'],
+    'copilot':        [],
+    'integrations':   [],
+    'billing':        ['loadPlanUsage'],
+  };
+  var _calledLoaders = new Set();
+
+  // Map function name strings to actual functions (set up after functions are defined, in init)
+  var _loaderFnMap = {};
+
+  function _runPageLoaders(page) {
+    var loaders = _pageLoaders[page] || [];
+    loaders.forEach(function(fnName) {
+      if (!_calledLoaders.has(fnName) && typeof _loaderFnMap[fnName] === 'function') {
+        _calledLoaders.add(fnName);
+        _loaderFnMap[fnName]();
+      }
+    });
+  }
+
+  /* ─── Workspace Header Update ─── */
+  function _updateWorkspaceHeader(page) {
+    var meta = _pageMeta[page] || { title: page, subtitle: '', icon: '◈' };
+
+    var iconEl  = document.getElementById('wsPageIcon');
+    var titleEl = document.getElementById('wsPageTitle');
+    var subEl   = document.getElementById('wsPageSubtitle');
+    if (iconEl)  iconEl.textContent  = meta.icon;
+    if (titleEl) titleEl.textContent = meta.title;
+    if (subEl)   subEl.textContent   = meta.subtitle;
+  }
+
   /* ─── Sidebar Router ─── */
   function _navigateTo(page) {
     if (!page) page = 'overview';
@@ -3497,6 +3560,12 @@
     });
     var activeNav = document.querySelector('.nav-item[data-page="' + page + '"]');
     if (activeNav) activeNav.classList.add('active');
+
+    // Update workspace header
+    _updateWorkspaceHeader(page);
+
+    // Lazy-load this page's data (first visit only)
+    _runPageLoaders(page);
 
     // Update URL hash without scroll
     history.replaceState(null, null, '#' + page);
@@ -3526,23 +3595,107 @@
     _navigateTo(initialPage);
   }
 
+  /* ─── Sidebar Collapse Toggle ─── */
+  (function initSidebarToggle() {
+    var btn = document.getElementById('sidebarToggleBtn');
+    if (!btn) return;
+
+    // Restore saved state
+    if (localStorage.getItem('a7_sidebar_collapsed') === '1') {
+      document.body.classList.add('sidebar-collapsed');
+    }
+
+    btn.addEventListener('click', function() {
+      var collapsed = document.body.classList.toggle('sidebar-collapsed');
+      localStorage.setItem('a7_sidebar_collapsed', collapsed ? '1' : '0');
+    });
+  })();
+
+  /* ─── Workspace Status Mirror ─── */
+  // Keep workspace header status in sync with global status indicator
+  var _origSetSysStatus = window._setSysStatus;
+  function _syncWsStatus(state) {
+    var dot   = document.getElementById('wsStatusDot2');
+    var label = document.getElementById('wsStatusLabel2');
+    var pill  = document.getElementById('wsStatusPill');
+    if (!dot || !label) return;
+
+    dot.className   = 'ws-status-dot'   + (state !== 'live' ? ' ' + state : '');
+    label.className = 'ws-status-label' + (state !== 'live' ? ' ' + state : '');
+    label.textContent = state === 'live' ? 'Live' : state === 'degraded' ? 'Degraded' : 'Offline';
+
+    if (pill) {
+      pill.style.background     = state === 'live' ? 'rgba(16,185,129,.07)' : state === 'degraded' ? 'rgba(245,158,11,.07)' : 'rgba(93,116,153,.07)';
+      pill.style.borderColor    = state === 'live' ? 'rgba(16,185,129,.18)' : state === 'degraded' ? 'rgba(245,158,11,.18)' : 'rgba(93,116,153,.18)';
+    }
+  }
+
+  /* ─── Workspace Account Badge ─── */
+  function _updateWsAccountBadge() {
+    var badge = document.getElementById('wsAccountBadge');
+    var dot   = document.getElementById('wsPlatformDot');
+    var name  = document.getElementById('wsAcctName');
+    if (!badge) return;
+
+    if (!currentAccountId || !_accountsCache.length) {
+      badge.style.display = 'none';
+      return;
+    }
+    var acc = _accountsCache.find(function(a) { return a.id == currentAccountId; });
+    if (!acc) { badge.style.display = 'none'; return; }
+
+    badge.style.display = 'flex';
+    if (dot) {
+      dot.className = 'ws-platform-dot' + (acc.platform === 'google' ? ' google' : '');
+    }
+    if (name) name.textContent = acc.account_name;
+  }
+
   /* ─── Init ─── */
+  // Wire loader function map (after all functions are declared)
+  _loaderFnMap = {
+    loadGrowthScore:    loadGrowthScore,
+    loadAccountOverview: loadAccountOverview,
+    loadBudget:         loadBudget,
+    loadAutomation:     loadAutomation,
+    loadCreatives:      loadCreatives,
+    loadContentStudio:  loadContentStudio,
+    loadCoach:          loadCoach,
+    loadForecast:       loadForecast,
+    loadCrossPlatform:  loadCrossPlatform,
+    loadAlerts:         loadAlerts,
+    loadReport:         loadReport,
+    loadPlanUsage:      loadPlanUsage,
+  };
+
+  // load() covers KPIs + campaigns; mark so lazy system doesn't re-run it
+  _calledLoaders.add('load');
+
+  // _initRouter() navigates to initial page and triggers its lazy loaders
+  // (loadGrowthScore runs via _pageLoaders['overview'] on first visit)
   _initRouter();
   loadPlatformStatus();
   initAccountSelector();
+  setTimeout(_updateWsAccountBadge, 800);
   load(currentRange);
-  loadGrowthScore();
-  loadCoach();
-  loadBudget();
-  loadAlerts();
-  loadForecast();
-  loadReport();
-  loadCrossPlatform();
-  loadAutomation();
-  loadCreatives();
-  loadAccountOverview();
-  loadContentStudio();
-  loadPlanUsage();
   startAutoRefresh();
+
+  // Patch account change to update workspace badge
+  var _origAccountChange = null;
+  (function patchAccountBadge() {
+    var sel = document.getElementById('accountSelect');
+    if (sel) {
+      sel.addEventListener('change', function() {
+        setTimeout(_updateWsAccountBadge, 50);
+      });
+    }
+  })();
+
+  // Patch _setSysStatus to also sync workspace header
+  var _origGlobalSysStatus = _setSysStatus;
+  _setSysStatus = function(state) {
+    _origGlobalSysStatus(state);
+    _syncWsStatus(state);
+  };
 
 })();

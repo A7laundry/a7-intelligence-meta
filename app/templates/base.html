@@ -99,67 +99,73 @@
 
 <div class="app-layout">
   <aside class="sidebar" id="appSidebar">
+    <!-- Sidebar collapse toggle -->
+    <button class="sidebar-toggle-btn" id="sidebarToggleBtn" title="Toggle sidebar" aria-label="Toggle sidebar">
+      <i class="sidebar-toggle-icon">&#xAB;</i>
+      <span class="sidebar-toggle-text">Collapse</span>
+    </button>
+
     <nav class="sidebar-nav">
 
       <div class="nav-group">
         <span class="nav-group-label">Command Center</span>
         <a class="nav-item active" data-page="overview" href="#overview">
-          <span class="nav-icon">◈</span>Overview
+          <span class="nav-icon">◈</span><span class="nav-label">Overview</span>
         </a>
       </div>
 
       <div class="nav-group">
         <span class="nav-group-label">Operations</span>
         <a class="nav-item" data-page="accounts" href="#accounts">
-          <span class="nav-icon">◉</span>Accounts
+          <span class="nav-icon">⊞</span><span class="nav-label">Accounts</span>
         </a>
         <a class="nav-item" data-page="campaigns" href="#campaigns">
-          <span class="nav-icon">◉</span>Campaigns
+          <span class="nav-icon">◫</span><span class="nav-label">Campaigns</span>
         </a>
         <a class="nav-item" data-page="budget" href="#budget">
-          <span class="nav-icon">◉</span>Budget
+          <span class="nav-icon">◎</span><span class="nav-label">Budget</span>
         </a>
         <a class="nav-item" data-page="automation" href="#automation">
-          <span class="nav-icon">◉</span>Automation
+          <span class="nav-icon">⊗</span><span class="nav-label">Automation</span>
         </a>
         <a class="nav-item" data-page="creative" href="#creative">
-          <span class="nav-icon">◉</span>Creative
+          <span class="nav-icon">◇</span><span class="nav-label">Creative</span>
         </a>
         <a class="nav-item" data-page="content-studio" href="#content-studio">
-          <span class="nav-icon">◉</span>Content Studio
+          <span class="nav-icon">◱</span><span class="nav-label">Content Studio</span>
         </a>
       </div>
 
       <div class="nav-group">
         <span class="nav-group-label">Intelligence</span>
         <a class="nav-item" data-page="ai-coach" href="#ai-coach">
-          <span class="nav-icon">◉</span>AI Coach
+          <span class="nav-icon">◉</span><span class="nav-label">AI Coach</span>
         </a>
         <a class="nav-item" data-page="insights" href="#insights">
-          <span class="nav-icon">◉</span>Insights
+          <span class="nav-icon">◈</span><span class="nav-label">Insights</span>
         </a>
         <a class="nav-item" data-page="alerts" href="#alerts">
-          <span class="nav-icon">◉</span>Alerts
+          <span class="nav-icon">◬</span><span class="nav-label">Alerts</span>
         </a>
         <a class="nav-item" data-page="reports" href="#reports">
-          <span class="nav-icon">◉</span>Reports
+          <span class="nav-icon">▤</span><span class="nav-label">Reports</span>
         </a>
       </div>
 
       <div class="nav-group">
         <span class="nav-group-label">Copilot</span>
         <a class="nav-item" data-page="copilot" href="#copilot">
-          <span class="nav-icon">◉</span>AI Copilot
+          <span class="nav-icon">◆</span><span class="nav-label">AI Copilot</span>
         </a>
       </div>
 
       <div class="nav-group">
         <span class="nav-group-label">Settings</span>
         <a class="nav-item" data-page="integrations" href="#integrations">
-          <span class="nav-icon">◉</span>Integrations
+          <span class="nav-icon">⊕</span><span class="nav-label">Integrations</span>
         </a>
         <a class="nav-item" data-page="billing" href="#billing">
-          <span class="nav-icon">◉</span>Billing
+          <span class="nav-icon">◐</span><span class="nav-label">Billing</span>
         </a>
       </div>
 
@@ -167,6 +173,28 @@
   </aside>
 
   <div class="main-content">
+    <!-- Workspace header: page title + account context -->
+    <div class="workspace-header" id="workspaceHeader">
+      <div class="ws-left">
+        <div class="ws-page-icon" id="wsPageIcon">◈</div>
+        <div class="ws-page-info">
+          <div class="ws-page-title" id="wsPageTitle">Overview</div>
+          <div class="ws-page-subtitle" id="wsPageSubtitle">Growth Command Center</div>
+        </div>
+      </div>
+      <div class="ws-right">
+        <div class="ws-account-badge" id="wsAccountBadge" style="display:none"
+             onclick="window.a7Navigate && window.a7Navigate('accounts')" title="View all accounts">
+          <span class="ws-platform-dot" id="wsPlatformDot"></span>
+          <span class="ws-acct-name" id="wsAcctName"></span>
+        </div>
+        <div class="ws-status-pill" id="wsStatusPill">
+          <span class="ws-status-dot" id="wsStatusDot2"></span>
+          <span class="ws-status-label" id="wsStatusLabel2">Live</span>
+        </div>
+      </div>
+    </div>
+
     <main class="container">
       {% block content %}{% endblock %}
     </main>
