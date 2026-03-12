@@ -61,6 +61,9 @@ def create_app():
     from app.routes.content import content_bp
     app.register_blueprint(content_bp, url_prefix="/api")
 
+    from app.routes.publishing import publishing_bp
+    app.register_blueprint(publishing_bp, url_prefix="/api")
+
     # Template context processor
     @app.context_processor
     def inject_globals():

@@ -516,12 +516,13 @@
 <div class="section" id="contentStudioSection" style="display:none">
   <div class="section-header">
     <span class="section-title">Content Studio</span>
-    <span class="section-subtitle">Ideas · Creatives · Brand Kit</span>
+    <span class="section-subtitle">Ideas · Creatives · Publishing · Brand Kit</span>
   </div>
   <div class="section-body">
     <div class="cs-tabs">
       <button class="cs-tab active" data-cs-tab="ideas">Content Ideas</button>
       <button class="cs-tab" data-cs-tab="assets">Creative Library</button>
+      <button class="cs-tab" data-cs-tab="publishing">Publishing</button>
       <button class="cs-tab" data-cs-tab="brand">Brand Kit</button>
     </div>
 
@@ -545,6 +546,76 @@
         </table>
       </div>
       <div id="csIdeasEmpty" class="cs-empty" style="display:none">No content ideas yet. Generate from insights or create manually.</div>
+    </div>
+
+    <!-- Publishing panel -->
+    <div id="csPublishingPanel" style="display:none">
+
+      <!-- Create Post form -->
+      <div class="pub-create-bar">
+        <input id="pubTitle" class="pub-input" type="text" placeholder="Post title…" style="flex:2" />
+        <select id="pubPlatform" class="pub-input" style="flex:1">
+          <option value="instagram">Instagram</option>
+          <option value="facebook">Facebook</option>
+          <option value="tiktok">TikTok</option>
+          <option value="linkedin">LinkedIn</option>
+          <option value="pinterest">Pinterest</option>
+          <option value="google_display">Google Display</option>
+        </select>
+        <select id="pubPostType" class="pub-input" style="flex:1">
+          <option value="image_post">Image Post</option>
+          <option value="reel">Reel</option>
+          <option value="story">Story</option>
+          <option value="carousel">Carousel</option>
+          <option value="banner">Banner</option>
+          <option value="ad_creative">Ad Creative</option>
+        </select>
+        <button class="pub-create-btn" onclick="window.pubCreatePost()">+ Create Draft</button>
+      </div>
+
+      <!-- Upcoming Scheduled Posts -->
+      <div id="pubUpcomingSection" style="display:none;margin-bottom:14px">
+        <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Upcoming Scheduled</div>
+        <div id="pubUpcomingList"></div>
+      </div>
+
+      <!-- Post Drafts table -->
+      <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Post Drafts</div>
+      <div class="table-wrap" style="margin-bottom:20px">
+        <table class="cs-ideas-table" id="pubPostsTable">
+          <thead>
+            <tr>
+              <th>Title</th>
+              <th>Platform</th>
+              <th>Type</th>
+              <th>Status</th>
+              <th>Scheduled For</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="pubPostsBody"></tbody>
+        </table>
+      </div>
+      <div id="pubPostsEmpty" class="cs-empty" style="display:none">No post drafts yet. Create one above.</div>
+
+      <!-- Publishing Jobs table -->
+      <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin:14px 0 6px;text-transform:uppercase;letter-spacing:.5px">Publishing Jobs</div>
+      <div class="table-wrap">
+        <table class="cs-ideas-table" id="pubJobsTable">
+          <thead>
+            <tr>
+              <th>Job Type</th>
+              <th>Platform</th>
+              <th>Status</th>
+              <th>Scheduled</th>
+              <th>Executed</th>
+              <th>Result</th>
+            </tr>
+          </thead>
+          <tbody id="pubJobsBody"></tbody>
+        </table>
+      </div>
+      <div id="pubJobsEmpty" class="cs-empty" style="display:none">No publishing jobs yet.</div>
     </div>
 
     <!-- Assets panel -->

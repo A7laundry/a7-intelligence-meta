@@ -357,3 +357,52 @@ CREATE INDEX IF NOT EXISTS idx_content_ideas_source   ON content_ideas(source);
 CREATE INDEX IF NOT EXISTS idx_creative_prompts_acct  ON creative_prompts(account_id);
 CREATE INDEX IF NOT EXISTS idx_creative_assets_acct   ON creative_assets(account_id);
 CREATE INDEX IF NOT EXISTS idx_creative_assets_status ON creative_assets(status);
+
+-- ─── Publishing Engine ────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS content_posts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id INTEGER DEFAULT 1,
+    content_idea_id INTEGER REFERENCES content_ideas(id),
+    creative_asset_id INTEGER REFERENCES creative_assets(id),
+    title TEXT NOT NULL DEFAULT '',
+    caption TEXT DEFAULT '',
+    platform_target TEXT DEFAULT 'instagram',
+    post_type TEXT DEFAULT 'image_post' CHECK(post_type IN (
+        'image_post','carousel','story','reel','banner','ad_creative'
+    )),
+    status TEXT DEFAULT 'draft' CHECK(status IN (
+        'draft','scheduled','publishing','published','failed','archived'
+    )),
+    scheduled_for TEXT,
+    published_at TEXT,
+    external_post_id TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS publishing_jobs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id INTEGER DEFAULT 1,
+    content_post_id INTEGER REFERENCES content_posts(id),
+    platform_target TEXT DEFAULT 'instagram',
+    job_type TEXT DEFAULT 'publish_now' CHECK(job_type IN ('publish_now','schedule','retry')),
+    status TEXT DEFAULT 'queued' CHECK(status IN (
+        'queued','scheduled','running','success','failed','cancelled'
+    )),
+    scheduled_for TEXT,
+    executed_at TEXT,
+    result_message TEXT DEFAULT '',
+    payload_json TEXT DEFAULT '{}',
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_content_posts_account   ON content_posts(account_id);
+CREATE INDEX IF NOT EXISTS idx_content_posts_status    ON content_posts(status);
+CREATE INDEX IF NOT EXISTS idx_content_posts_scheduled ON content_posts(scheduled_for);
+CREATE INDEX IF NOT EXISTS idx_content_posts_platform  ON content_posts(platform_target);
+CREATE INDEX IF NOT EXISTS idx_publishing_jobs_account ON publishing_jobs(account_id);
+CREATE INDEX IF NOT EXISTS idx_publishing_jobs_status  ON publishing_jobs(status);
+CREATE INDEX IF NOT EXISTS idx_publishing_jobs_sched   ON publishing_jobs(scheduled_for);
+CREATE INDEX IF NOT EXISTS idx_publishing_jobs_post    ON publishing_jobs(content_post_id);

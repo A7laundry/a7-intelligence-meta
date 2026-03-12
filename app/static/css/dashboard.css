@@ -1497,6 +1497,33 @@ tr.ca-health-red td:first-child { background: rgba(239,68,68,.04); }
 .cs-action-build:hover { background: #6366f1; color: #fff; border-color: #6366f1; }
 .cs-action-gen { border-color: #10b981; color: #10b981; }
 .cs-action-gen:hover { background: #10b981; color: #fff; border-color: #10b981; }
+
+/* Publishing Engine */
+.pub-create-bar {
+  display: flex; gap: 8px; align-items: center; margin-bottom: 14px; flex-wrap: wrap;
+}
+.pub-input {
+  padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border);
+  background: var(--bg-card); color: var(--text); font-size: 13px; min-width: 0;
+}
+.pub-create-btn {
+  padding: 6px 14px; border-radius: 6px; border: none; background: var(--meta);
+  color: #fff; font-size: 13px; cursor: pointer; white-space: nowrap;
+  transition: opacity .15s;
+}
+.pub-create-btn:hover { opacity: .85; }
+.pub-status-draft     { color: var(--text-muted); }
+.pub-status-scheduled { color: #f59e0b; }
+.pub-status-publishing{ color: #6366f1; }
+.pub-status-published { color: #10b981; }
+.pub-status-failed    { color: var(--red); }
+.pub-status-archived  { color: var(--text-muted); opacity: .6; }
+.pub-upcoming-item {
+  display: flex; gap: 10px; align-items: center; padding: 6px 10px;
+  background: rgba(99,102,241,.08); border-radius: 6px; margin-bottom: 4px;
+  font-size: 12px;
+}
+.pub-upcoming-time { color: #6366f1; font-weight: 600; min-width: 120px; }
 .cs-asset-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(140px,1fr)); gap: 12px;
 }

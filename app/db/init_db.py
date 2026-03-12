@@ -285,6 +285,61 @@ def _run_migrations(conn):
         conn.execute("ALTER TABLE creative_assets ADD COLUMN generation_cost REAL DEFAULT 0.0")
         conn.commit()
 
+    # Migration 10: Publishing Engine — content_posts and publishing_jobs
+    if not _table_exists(conn, "content_posts"):
+        conn.execute("""
+            CREATE TABLE content_posts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id INTEGER DEFAULT 1,
+                content_idea_id INTEGER,
+                creative_asset_id INTEGER,
+                title TEXT NOT NULL DEFAULT '',
+                caption TEXT DEFAULT '',
+                platform_target TEXT DEFAULT 'instagram',
+                post_type TEXT DEFAULT 'image_post' CHECK(post_type IN (
+                    'image_post','carousel','story','reel','banner','ad_creative'
+                )),
+                status TEXT DEFAULT 'draft' CHECK(status IN (
+                    'draft','scheduled','publishing','published','failed','archived'
+                )),
+                scheduled_for TEXT,
+                published_at TEXT,
+                external_post_id TEXT DEFAULT '',
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_content_posts_account   ON content_posts(account_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_content_posts_status    ON content_posts(status)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_content_posts_scheduled ON content_posts(scheduled_for)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_content_posts_platform  ON content_posts(platform_target)")
+        conn.commit()
+
+    if not _table_exists(conn, "publishing_jobs"):
+        conn.execute("""
+            CREATE TABLE publishing_jobs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id INTEGER DEFAULT 1,
+                content_post_id INTEGER,
+                platform_target TEXT DEFAULT 'instagram',
+                job_type TEXT DEFAULT 'publish_now' CHECK(job_type IN ('publish_now','schedule','retry')),
+                status TEXT DEFAULT 'queued' CHECK(status IN (
+                    'queued','scheduled','running','success','failed','cancelled'
+                )),
+                scheduled_for TEXT,
+                executed_at TEXT,
+                result_message TEXT DEFAULT '',
+                payload_json TEXT DEFAULT '{}',
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_publishing_jobs_account ON publishing_jobs(account_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_publishing_jobs_status  ON publishing_jobs(status)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_publishing_jobs_sched   ON publishing_jobs(scheduled_for)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_publishing_jobs_post    ON publishing_jobs(content_post_id)")
+        conn.commit()
+
     _migrate_snapshots_table(conn, "creatives",
         """CREATE TABLE creatives_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

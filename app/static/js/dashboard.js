@@ -2226,13 +2226,19 @@
   }
 
   function _renderCSTab(tab) {
-    var panels = { ideas: 'csIdeasPanel', assets: 'csAssetsPanel', brand: 'csBrandPanel' };
+    var panels = {
+      ideas: 'csIdeasPanel',
+      assets: 'csAssetsPanel',
+      publishing: 'csPublishingPanel',
+      brand: 'csBrandPanel',
+    };
     Object.keys(panels).forEach(function(k) {
       var el = $(panels[k]);
       if (el) el.style.display = k === tab ? '' : 'none';
     });
     if (tab === 'ideas') _csLoadIdeas();
     if (tab === 'assets') _csLoadAssets();
+    if (tab === 'publishing') _pubLoad();
     if (tab === 'brand') _csLoadBrandKit();
   }
 
@@ -2397,6 +2403,156 @@
         });
         _renderCSTab('assets');
       }
+    } catch (e) { /* silently skip */ }
+  };
+
+  // ── Publishing Engine ─────────────────────────────────────────────────────
+
+  async function _pubLoad() {
+    await Promise.all([_pubLoadPosts(), _pubLoadJobs()]);
+  }
+
+  async function _pubLoadPosts() {
+    var tbody = $('#pubPostsBody');
+    var empty = $('#pubPostsEmpty');
+    var upcomingSection = $('#pubUpcomingSection');
+    var upcomingList = $('#pubUpcomingList');
+    if (!tbody) return;
+    try {
+      var posts = await fetchApi('/content/posts?' + _acctQs());
+      if (!Array.isArray(posts) || posts.length === 0) {
+        tbody.innerHTML = '';
+        if (empty) empty.style.display = '';
+        if (upcomingSection) upcomingSection.style.display = 'none';
+        return;
+      }
+      if (empty) empty.style.display = 'none';
+
+      // Upcoming scheduled posts
+      var upcoming = posts.filter(function(p) {
+        return p.status === 'scheduled' && p.scheduled_for;
+      }).sort(function(a, b) { return a.scheduled_for < b.scheduled_for ? -1 : 1; });
+      if (upcoming.length && upcomingSection && upcomingList) {
+        upcomingSection.style.display = '';
+        upcomingList.innerHTML = upcoming.slice(0, 5).map(function(p) {
+          return '<div class="pub-upcoming-item">' +
+            '<span class="pub-upcoming-time">' + _esc(p.scheduled_for || '') + '</span>' +
+            '<span>' + _esc(p.title || '(untitled)') + '</span>' +
+            '<span style="color:var(--text-muted);margin-left:auto">' + _esc(p.platform_target || '') + '</span>' +
+          '</div>';
+        }).join('');
+      } else if (upcomingSection) {
+        upcomingSection.style.display = 'none';
+      }
+
+      var statusColors = {
+        draft: 'pub-status-draft', scheduled: 'pub-status-scheduled',
+        publishing: 'pub-status-publishing', published: 'pub-status-published',
+        failed: 'pub-status-failed', archived: 'pub-status-archived',
+      };
+      tbody.innerHTML = posts.map(function(p) {
+        var sCls = statusColors[p.status] || 'pub-status-draft';
+        var schedCell = p.scheduled_for
+          ? '<span style="color:#f59e0b;font-size:11px">' + _esc(p.scheduled_for.slice(0,16)) + '</span>'
+          : '—';
+        return '<tr>' +
+          '<td>' + _esc(p.title || '(untitled)') + '</td>' +
+          '<td>' + _esc(p.platform_target || '') + '</td>' +
+          '<td><span class="cs-badge cs-badge-type">' + _esc(p.post_type || '') + '</span></td>' +
+          '<td><span class="' + sCls + '">' + _esc(p.status || '') + '</span></td>' +
+          '<td>' + schedCell + '</td>' +
+          '<td>' +
+            '<button class="cs-action-btn cs-action-gen" onclick="pubPublishNow(' + p.id + ')" title="Publish now">Publish</button>' +
+            '<button class="cs-action-btn cs-action-build" onclick="pubSchedule(' + p.id + ')" title="Schedule">Schedule</button>' +
+            '<button class="cs-action-btn" onclick="pubArchive(' + p.id + ')" title="Archive">Archive</button>' +
+          '</td>' +
+        '</tr>';
+      }).join('');
+    } catch (e) {
+      if (tbody) tbody.innerHTML = '';
+    }
+  }
+
+  async function _pubLoadJobs() {
+    var tbody = $('#pubJobsBody');
+    var empty = $('#pubJobsEmpty');
+    if (!tbody) return;
+    try {
+      var jobs = await fetchApi('/content/jobs?' + _acctQs());
+      if (!Array.isArray(jobs) || jobs.length === 0) {
+        tbody.innerHTML = '';
+        if (empty) empty.style.display = '';
+        return;
+      }
+      if (empty) empty.style.display = 'none';
+      var jColors = { success: '#10b981', failed: 'var(--red)', running: '#6366f1',
+                      queued: 'var(--text-muted)', scheduled: '#f59e0b', cancelled: 'var(--text-muted)' };
+      tbody.innerHTML = jobs.map(function(j) {
+        var jColor = jColors[j.status] || 'var(--text-muted)';
+        return '<tr>' +
+          '<td><span class="cs-badge cs-badge-src">' + _esc(j.job_type || '') + '</span></td>' +
+          '<td>' + _esc(j.platform_target || '') + '</td>' +
+          '<td><span style="color:' + jColor + '">' + _esc(j.status || '') + '</span></td>' +
+          '<td style="font-size:11px;color:#f59e0b">' + _esc((j.scheduled_for || '').slice(0,16) || '—') + '</td>' +
+          '<td style="font-size:11px;color:var(--text-muted)">' + _esc((j.executed_at || '').slice(0,16) || '—') + '</td>' +
+          '<td style="font-size:11px;color:var(--text-muted);max-width:180px;overflow:hidden;text-overflow:ellipsis">' + _esc(j.result_message || '') + '</td>' +
+        '</tr>';
+      }).join('');
+    } catch (e) {
+      if (tbody) tbody.innerHTML = '';
+    }
+  }
+
+  window.pubCreatePost = async function() {
+    var title = ($('#pubTitle') || {}).value || '';
+    var platform = ($('#pubPlatform') || {}).value || 'instagram';
+    var postType = ($('#pubPostType') || {}).value || 'image_post';
+    if (!title.trim()) { alert('Please enter a post title.'); return; }
+    try {
+      await fetch('/api/content/posts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account_id: currentAccountId || 1, title: title,
+                               platform_target: platform, post_type: postType }),
+      });
+      if ($('#pubTitle')) $('#pubTitle').value = '';
+      await _pubLoadPosts();
+    } catch (e) { /* silently skip */ }
+  };
+
+  window.pubPublishNow = async function(postId) {
+    if (!confirm('Publish this post now?')) return;
+    try {
+      await fetch('/api/content/posts/' + postId + '/publish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account_id: currentAccountId || 1 }),
+      });
+      await _pubLoad();
+    } catch (e) { /* silently skip */ }
+  };
+
+  window.pubSchedule = async function(postId) {
+    var dt = prompt('Schedule for (ISO format, e.g. 2026-03-20T14:00:00):');
+    if (!dt) return;
+    try {
+      await fetch('/api/content/posts/' + postId + '/schedule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account_id: currentAccountId || 1, scheduled_for: dt }),
+      });
+      await _pubLoadPosts();
+    } catch (e) { /* silently skip */ }
+  };
+
+  window.pubArchive = async function(postId) {
+    try {
+      await fetch('/api/content/posts/' + postId + '/status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account_id: currentAccountId || 1, status: 'archived' }),
+      });
+      await _pubLoadPosts();
     } catch (e) { /* silently skip */ }
   };
 

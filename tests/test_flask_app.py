@@ -2298,3 +2298,164 @@ class TestContentStudioPhaseB:
         assert data["id"] == asset_id
         assert "provider" in data
         assert "generation_cost" in data
+
+
+class TestPublishingEngine:
+    """Phase 8C — Publishing Engine."""
+
+    def test_create_post_draft(self, client):
+        """create_post() inserts a draft and returns id + status."""
+        from app.db.init_db import init_db
+        from app.services.publishing_service import PublishingService
+        init_db()
+        svc = PublishingService()
+        result = svc.create_post(
+            account_id=1,
+            title="Winter Promo",
+            caption="Keep your home fresh this winter.",
+            platform_target="instagram",
+            post_type="image_post",
+        )
+        assert "id" in result
+        assert result["status"] == "draft"
+        assert result["platform_target"] == "instagram"
+        assert result["title"] == "Winter Promo"
+
+    def test_list_posts_filtered_by_account(self):
+        """list_posts() returns only posts for the given account."""
+        from app.db.init_db import init_db
+        from app.services.publishing_service import PublishingService
+        init_db()
+        svc = PublishingService()
+        svc.create_post(account_id=1, title="Post acct 1", platform_target="instagram")
+        svc.create_post(account_id=2, title="Post acct 2", platform_target="facebook")
+        posts_1 = svc.list_posts(account_id=1)
+        posts_2 = svc.list_posts(account_id=2)
+        assert all(p["account_id"] == 1 for p in posts_1)
+        assert all(p["account_id"] == 2 for p in posts_2)
+
+    def test_schedule_post(self):
+        """schedule_post() updates status to scheduled and creates a job."""
+        from app.db.init_db import init_db
+        from app.services.publishing_service import PublishingService
+        init_db()
+        svc = PublishingService()
+        post = svc.create_post(account_id=1, title="Scheduled post", platform_target="instagram")
+        result = svc.schedule_post(post["id"], account_id=1,
+                                   scheduled_for="2026-12-31T10:00:00")
+        assert result["status"] == "scheduled"
+        assert result["scheduled_for"] == "2026-12-31T10:00:00"
+        # Job created
+        jobs = svc.list_jobs(account_id=1)
+        assert any(j["content_post_id"] == post["id"] for j in jobs)
+
+    def test_publish_post_now_mock(self):
+        """publish_post_now() in mock mode marks post as published."""
+        from app.db.init_db import init_db
+        from app.services.publishing_service import PublishingService
+        import os
+        os.environ.pop("PUBLISHING_PROVIDER", None)
+        init_db()
+        svc = PublishingService()
+        post = svc.create_post(account_id=1, title="Publish now test",
+                               platform_target="instagram")
+        result = svc.publish_post_now(post["id"], account_id=1)
+        assert "post" in result
+        assert "result" in result
+        assert result["post"]["status"] == "published"
+        assert result["result"]["success"] is True
+        assert result["result"]["provider"] == "mock"
+        assert result["post"]["external_post_id"].startswith("mock_")
+
+    def test_publishing_jobs_created_on_publish(self):
+        """publish_post_now() creates a success job record."""
+        from app.db.init_db import init_db
+        from app.services.publishing_service import PublishingService
+        init_db()
+        svc = PublishingService()
+        post = svc.create_post(account_id=1, title="Jobs test", platform_target="facebook")
+        svc.publish_post_now(post["id"], account_id=1)
+        jobs = svc.list_jobs(account_id=1)
+        post_jobs = [j for j in jobs if j["content_post_id"] == post["id"]]
+        assert len(post_jobs) >= 1
+        assert post_jobs[-1]["status"] == "success"
+
+    def test_run_due_jobs(self):
+        """run_due_jobs() executes scheduled jobs whose time has passed."""
+        from app.db.init_db import init_db
+        from app.services.publishing_service import PublishingService
+        init_db()
+        svc = PublishingService()
+        post = svc.create_post(account_id=1, title="Due job test",
+                               platform_target="instagram")
+        # Schedule in the past (already due)
+        svc.schedule_post(post["id"], account_id=1, scheduled_for="2020-01-01T00:00:00")
+        result = svc.run_due_jobs(account_id=1)
+        assert "executed" in result
+        assert result["executed"] >= 1
+
+    def test_account_isolation_list_posts(self, client):
+        """GET /api/content/posts returns only posts for the requested account."""
+        from app.db.init_db import init_db
+        from app.services.publishing_service import PublishingService
+        init_db()
+        svc = PublishingService()
+        svc.create_post(account_id=1, title="Iso post acct1")
+        resp = client.get("/api/content/posts?account_id=1")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert isinstance(data, list)
+        assert all(p["account_id"] == 1 for p in data)
+
+    def test_usage_tracking_post_created(self):
+        """create_post() calls billing track_usage for post_created."""
+        from app.db.init_db import init_db, get_connection
+        from app.services.publishing_service import PublishingService
+        init_db()
+        conn = get_connection()
+        before = conn.execute(
+            "SELECT COUNT(*) FROM usage_metrics WHERE metric='post_created'"
+        ).fetchone()[0]
+        conn.close()
+        svc = PublishingService()
+        svc.create_post(account_id=1, title="Usage tracking test",
+                        platform_target="instagram")
+        conn = get_connection()
+        after = conn.execute(
+            "SELECT COUNT(*) FROM usage_metrics WHERE metric='post_created'"
+        ).fetchone()[0]
+        conn.close()
+        assert after > before
+
+    def test_create_post_endpoint(self, client):
+        """POST /api/content/posts returns 201 with post draft."""
+        from app.db.init_db import init_db
+        init_db()
+        payload = {
+            "account_id": 1,
+            "title": "API test post",
+            "caption": "Test caption",
+            "platform_target": "instagram",
+            "post_type": "image_post",
+        }
+        resp = client.post("/api/content/posts", json=payload,
+                           content_type="application/json")
+        assert resp.status_code == 201
+        data = resp.get_json()
+        assert "id" in data
+        assert data["status"] == "draft"
+
+    def test_publish_endpoint(self, client):
+        """POST /api/content/posts/<id>/publish returns published post."""
+        from app.db.init_db import init_db
+        from app.services.publishing_service import PublishingService
+        init_db()
+        post = PublishingService().create_post(account_id=1, title="Endpoint publish",
+                                               platform_target="instagram")
+        resp = client.post(f"/api/content/posts/{post['id']}/publish",
+                           json={"account_id": 1},
+                           content_type="application/json")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["post"]["status"] == "published"
+        assert data["result"]["success"] is True
