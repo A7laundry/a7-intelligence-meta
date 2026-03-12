@@ -512,6 +512,84 @@
   </div>
 </div>
 
+<!-- Content Studio -->
+<div class="section" id="contentStudioSection" style="display:none">
+  <div class="section-header">
+    <span class="section-title">Content Studio</span>
+    <span class="section-subtitle">Ideas · Creatives · Brand Kit</span>
+  </div>
+  <div class="section-body">
+    <div class="cs-tabs">
+      <button class="cs-tab active" data-cs-tab="ideas">Content Ideas</button>
+      <button class="cs-tab" data-cs-tab="assets">Creative Library</button>
+      <button class="cs-tab" data-cs-tab="brand">Brand Kit</button>
+    </div>
+
+    <!-- Ideas panel -->
+    <div id="csIdeasPanel">
+      <button class="cs-generate-btn" id="csGenerateBtn">&#x2728; Generate Ideas from Insights</button>
+      <div id="csIdeasLoading" style="display:none;color:var(--text-muted);font-size:13px;margin-bottom:12px">Generating ideas…</div>
+      <div class="table-wrap">
+        <table class="cs-ideas-table">
+          <thead>
+            <tr>
+              <th>Idea</th>
+              <th>Type</th>
+              <th>Platform</th>
+              <th>Source</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="csIdeasBody"></tbody>
+        </table>
+      </div>
+      <div id="csIdeasEmpty" class="cs-empty" style="display:none">No content ideas yet. Generate from insights or create manually.</div>
+    </div>
+
+    <!-- Assets panel -->
+    <div id="csAssetsPanel" style="display:none">
+      <div id="csAssetGrid" class="cs-asset-grid"></div>
+      <div id="csAssetsEmpty" class="cs-empty" style="display:none">No creative assets yet.</div>
+    </div>
+
+    <!-- Brand Kit panel -->
+    <div id="csBrandPanel" style="display:none">
+      <div class="cs-brand-form" id="csBrandForm">
+        <div class="cs-brand-field">
+          <label>Brand Name</label>
+          <input id="csBrandName" class="cs-brand-input" type="text" placeholder="My Brand" />
+        </div>
+        <div class="cs-brand-field">
+          <label>Primary Color</label>
+          <input id="csBrandPrimary" class="cs-brand-input" type="color" value="#000000" />
+        </div>
+        <div class="cs-brand-field">
+          <label>Secondary Color</label>
+          <input id="csBrandSecondary" class="cs-brand-input" type="color" value="#ffffff" />
+        </div>
+        <div class="cs-brand-field">
+          <label>Accent Color</label>
+          <input id="csBrandAccent" class="cs-brand-input" type="color" value="#3B82F6" />
+        </div>
+        <div class="cs-brand-field">
+          <label>Font Family</label>
+          <input id="csBrandFont" class="cs-brand-input" type="text" placeholder="Inter" />
+        </div>
+        <div class="cs-brand-field">
+          <label>Logo URL</label>
+          <input id="csBrandLogo" class="cs-brand-input" type="text" placeholder="https://…" />
+        </div>
+        <div class="cs-brand-field" style="grid-column:1/-1">
+          <label>Style Description</label>
+          <input id="csBrandStyle" class="cs-brand-input" type="text" placeholder="Modern, clean, minimalist…" />
+        </div>
+        <button class="cs-brand-save" onclick="window.saveBrandKit()">Save Brand Kit</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Plan Usage Panel -->
 <div class="section" id="planUsageSection" style="display:none">
   <div class="section-header">

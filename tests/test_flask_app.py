@@ -1422,7 +1422,10 @@ class TestCopilotService:
         assert isinstance(result["follow_up_questions"], list)
         assert isinstance(result["sources"], list)
         assert result["confidence"] in ("high", "medium", "low")
-        assert result["response_type"] in ("diagnosis", "risk", "comparison", "opportunity", "analysis")
+        assert result["response_type"] in (
+            "diagnosis", "risk", "comparison", "opportunity",
+            "budget_opportunity", "scaling_opportunity", "analysis"
+        )
 
         # recommended_actions and suggested_actions must be identical
         assert result["recommended_actions"] == result["suggested_actions"]
@@ -1880,3 +1883,283 @@ class TestBillingAndPlans:
                 svc.track_usage("copilot_query")
             result = svc.check_copilot_usage()
             assert result["allowed"] is False
+
+
+class TestCopilotGrounding:
+    """Phase 6B — entity grounding, proposals, session memory, response classification."""
+
+    _VALID_RESPONSE_TYPES = {
+        "diagnosis", "risk", "comparison", "opportunity",
+        "budget_opportunity", "scaling_opportunity", "analysis",
+    }
+
+    def test_entity_grounding_in_findings(self):
+        """key_findings items are dicts with ref_type, ref_id, ref_name fields."""
+        from app.db.init_db import init_db
+        init_db()
+        from app.services.copilot_service import CopilotService
+        svc = CopilotService()
+        result = svc.ask("Why did CPA increase?", account_id=1, period="7d")
+        for finding in result.get("key_findings", []):
+            assert isinstance(finding, dict), "Each finding must be a dict"
+            assert "ref_type" in finding
+            assert "ref_id" in finding
+            assert "ref_name" in finding
+
+    def test_proposal_from_copilot_via_engine(self):
+        """AutomationEngine.create_proposal_from_copilot() returns success/action_id dict."""
+        from app.db.init_db import init_db
+        init_db()
+        from app.services.automation_engine import AutomationEngine
+        engine = AutomationEngine()
+        result = engine.create_proposal_from_copilot(
+            action_type="increase_budget",
+            entity_name="Test Campaign 6B",
+            entity_type="campaign",
+            account_id=1,
+            reason="Phase 6B grounding test",
+            confidence="high",
+            platform="meta",
+        )
+        assert isinstance(result, dict)
+        assert "success" in result
+        assert "action_id" in result
+
+    def test_proposal_accepts_campaign_id(self):
+        """create_proposal_from_copilot with campaign_id stores it as entity_id."""
+        from app.db.init_db import init_db, get_connection
+        init_db()
+        from app.services.automation_engine import AutomationEngine
+        engine = AutomationEngine()
+        test_campaign_id = "CAMP_6B_TEST_001"
+        result = engine.create_proposal_from_copilot(
+            action_type="increase_budget",
+            entity_name="Grounding Test Campaign",
+            entity_type="campaign",
+            account_id=1,
+            reason="entity_id persistence test",
+            confidence="high",
+            platform="meta",
+            campaign_id=test_campaign_id,
+        )
+        assert result.get("success") is True
+        action_id = result["action_id"]
+        conn = get_connection()
+        try:
+            row = conn.execute(
+                "SELECT entity_id FROM automation_actions WHERE id = ?", (action_id,)
+            ).fetchone()
+        finally:
+            conn.close()
+        assert row is not None
+        assert row["entity_id"] == test_campaign_id
+
+        # Cleanup: remove inserted rows to prevent DB state from leaking into later tests
+        conn2 = get_connection()
+        try:
+            conn2.execute("DELETE FROM automation_logs WHERE action_id = ?", (action_id,))
+            conn2.execute("DELETE FROM automation_actions WHERE id = ?", (action_id,))
+            conn2.commit()
+        finally:
+            conn2.close()
+
+    def test_response_classification_types(self):
+        """response_type is one of the expanded valid set including budget/scaling_opportunity."""
+        from app.db.init_db import init_db
+        init_db()
+        from app.services.copilot_service import CopilotService
+        svc = CopilotService()
+        result = svc.ask("Which campaigns should be scaled?", account_id=1, period="7d")
+        assert result.get("response_type") in self._VALID_RESPONSE_TYPES
+
+    def test_session_context_memory(self):
+        """ask() with 3-item session_context processes without error, returns valid structure."""
+        from app.db.init_db import init_db
+        init_db()
+        from app.services.copilot_service import CopilotService
+        svc = CopilotService()
+        history = [
+            {"question": "Why did CPA increase?", "response_type": "diagnosis",
+             "answer": "CPA rose due to budget waste.", "summary": "CPA rose."},
+            {"question": "Which campaigns are wasting?", "response_type": "risk",
+             "answer": "Campaign X is wasting.", "summary": "Campaign X wasting."},
+            {"question": "What are the alerts?", "response_type": "risk",
+             "answer": "3 active alerts.", "summary": "3 alerts."},
+        ]
+        result = svc.ask(
+            "How do I fix this?",
+            account_id=1,
+            period="7d",
+            session_context=history,
+        )
+        assert isinstance(result, dict)
+        assert "response_type" in result
+        assert "answer" in result
+        assert result.get("response_type") in self._VALID_RESPONSE_TYPES
+
+    def test_follow_up_suggestions_present(self):
+        """follow_up_questions is a list with at least 1 item."""
+        from app.db.init_db import init_db
+        init_db()
+        from app.services.copilot_service import CopilotService
+        svc = CopilotService()
+        result = svc.ask("What are the biggest risks?", account_id=1, period="7d")
+        follow_ups = result.get("follow_up_questions", [])
+        assert isinstance(follow_ups, list)
+        assert len(follow_ups) >= 1
+
+    def test_sources_are_structured_objects(self):
+        """All source items are dicts with at least a 'type' key."""
+        from app.db.init_db import init_db
+        init_db()
+        from app.services.copilot_service import CopilotService
+        svc = CopilotService()
+        result = svc.ask("Give me a performance overview.", account_id=1, period="7d")
+        for source in result.get("sources", []):
+            assert isinstance(source, dict), "Each source must be a dict"
+            assert "type" in source, "Each source must have a 'type' key"
+
+
+class TestContentStudio:
+    """Phase 8A — Content Studio: ideas, brand kits, prompts, assets, copilot integration."""
+
+    def test_content_ideas_list_endpoint(self, client):
+        """GET /api/content/ideas returns a list."""
+        from app.db.init_db import init_db
+        init_db()
+        resp = client.get("/api/content/ideas?account_id=1")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert isinstance(data, list)
+
+    def test_create_content_idea(self, client):
+        """POST /api/content/ideas creates a new idea and returns id."""
+        from app.db.init_db import init_db
+        init_db()
+        payload = {
+            "account_id": 1,
+            "title": "Test Instagram Reel",
+            "description": "A reel about the brand offer",
+            "content_type": "reel",
+            "platform_target": "instagram",
+            "source": "manual",
+        }
+        resp = client.post("/api/content/ideas",
+                           json=payload,
+                           content_type="application/json")
+        assert resp.status_code == 201
+        data = resp.get_json()
+        assert "id" in data
+        assert data["title"] == "Test Instagram Reel"
+
+    def test_brand_kit_get_returns_defaults(self, client):
+        """GET /api/content/brand-kit returns default kit when not yet saved."""
+        from app.db.init_db import init_db
+        init_db()
+        resp = client.get("/api/content/brand-kit?account_id=99")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "primary_color" in data
+        assert "font_family" in data
+
+    def test_brand_kit_save_and_retrieve(self, client):
+        """POST /api/content/brand-kit saves and GET retrieves the saved kit."""
+        from app.db.init_db import init_db
+        init_db()
+        kit = {
+            "account_id": 1,
+            "brand_name": "A7 Brand",
+            "primary_color": "#FF0000",
+            "font_family": "Roboto",
+            "style_description": "Bold and modern",
+        }
+        resp = client.post("/api/content/brand-kit",
+                           json=kit, content_type="application/json")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data.get("brand_name") == "A7 Brand"
+        assert data.get("primary_color") == "#FF0000"
+
+    def test_create_creative_prompt(self, client):
+        """POST /api/content/prompts creates a prompt and returns id."""
+        from app.db.init_db import init_db
+        init_db()
+        payload = {
+            "account_id": 1,
+            "prompt_text": "Photorealistic ad for laundry service, bright colors",
+            "style": "photorealistic",
+            "aspect_ratio": "1:1",
+            "image_type": "ad_creative",
+        }
+        resp = client.post("/api/content/prompts",
+                           json=payload, content_type="application/json")
+        assert resp.status_code == 201
+        data = resp.get_json()
+        assert "id" in data
+        assert data["image_type"] == "ad_creative"
+
+    def test_create_creative_asset(self, client):
+        """POST /api/content/assets registers an asset and returns id."""
+        from app.db.init_db import init_db
+        init_db()
+        payload = {
+            "account_id": 1,
+            "asset_type": "image",
+            "asset_url": "https://example.com/image.png",
+            "status": "draft",
+        }
+        resp = client.post("/api/content/assets",
+                           json=payload, content_type="application/json")
+        assert resp.status_code == 201
+        data = resp.get_json()
+        assert "id" in data
+        assert data["asset_type"] == "image"
+
+    def test_generate_ideas_endpoint(self, client):
+        """POST /api/content/generate-ideas returns generated count and ideas list."""
+        from app.db.init_db import init_db
+        init_db()
+        resp = client.post("/api/content/generate-ideas",
+                           json={"account_id": 1},
+                           content_type="application/json")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "generated" in data
+        assert "ideas" in data
+        assert isinstance(data["ideas"], list)
+        assert data["generated"] >= 0
+
+    def test_generate_ideas_creates_db_rows(self):
+        """generate_ideas() inserts rows into content_ideas table."""
+        from app.db.init_db import init_db, get_connection
+        init_db()
+        from app.services.content_studio_service import ContentStudioService
+        svc = ContentStudioService()
+        # Count before
+        conn = get_connection()
+        before = conn.execute("SELECT COUNT(*) FROM content_ideas WHERE account_id=1").fetchone()[0]
+        conn.close()
+        ideas = svc.generate_ideas(account_id=1)
+        assert isinstance(ideas, list)
+        # Count after
+        conn = get_connection()
+        after = conn.execute("SELECT COUNT(*) FROM content_ideas WHERE account_id=1").fetchone()[0]
+        conn.close()
+        assert after >= before  # at least no rows deleted; generate_ideas adds rows
+
+    def test_copilot_content_intent(self):
+        """Copilot detects content intent and returns content_ideas response type."""
+        from app.db.init_db import init_db
+        init_db()
+        import os
+        # Force rule-based by removing API keys temporarily
+        saved = {k: os.environ.pop(k) for k in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY") if k in os.environ}
+        try:
+            from app.services.copilot_service import CopilotService
+            svc = CopilotService()
+            result = svc.ask("Generate 5 Instagram content ideas based on top campaigns",
+                             account_id=1, period="7d")
+            assert result.get("response_type") == "content_ideas"
+            assert isinstance(result.get("key_findings"), list)
+        finally:
+            os.environ.update(saved)

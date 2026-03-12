@@ -76,14 +76,16 @@ def propose():
     All guardrails apply — proposals that violate rules are blocked.
 
     Body (JSON):
-        action_type   (str, required): pause_campaign | increase_budget |
-                                       decrease_budget | refresh_creative | rotate_creative
-        entity_name   (str, required): campaign or creative name
-        entity_type   (str, optional): campaign | creative  — default campaign
-        account_id    (int, optional)
-        reason        (str, optional): rationale text from Copilot
-        confidence    (str, optional): high | medium | low  — default medium
-        platform      (str, optional): meta | google  — default meta
+        action_type          (str, required): pause_campaign | increase_budget |
+                                              decrease_budget | refresh_creative | rotate_creative
+        entity_name          (str, required): campaign or creative name
+        entity_type          (str, optional): campaign | creative  — default campaign
+        account_id           (int, optional)
+        reason               (str, optional): rationale text from Copilot
+        confidence           (str, optional): high | medium | low  — default medium
+        platform             (str, optional): meta | google  — default meta
+        campaign_id          (str, optional): Meta/Google campaign ID to store as entity_id
+        suggested_change_pct (int, optional): Override default % change for budget actions
 
     Returns:
         {"success": true,  "action_id": int}  or
@@ -111,6 +113,8 @@ def propose():
             reason=body.get("reason", "Copilot suggestion"),
             confidence=body.get("confidence", "medium"),
             platform=body.get("platform", "meta"),
+            campaign_id=body.get("campaign_id") or None,
+            suggested_change_pct=body.get("suggested_change_pct"),
         )
     except Exception as e:
         return jsonify({"success": False, "reason": str(e), "action_id": None}), 500

@@ -51,7 +51,9 @@ Classify your response as one of:
 - diagnosis   → explains WHY something happened (why/what happened questions)
 - risk        → identifies threats and problems (risk/alert/issue questions)
 - comparison  → compares periods, campaigns, or platforms (vs/change/trend questions)
-- opportunity → finds growth and optimization opportunities (scale/grow/budget questions)
+- opportunity         → finds growth and optimization opportunities (scale/grow/budget questions)
+- budget_opportunity  → identifies specific budget reallocation or reduction opportunities
+- scaling_opportunity → identifies campaigns ready for budget scaling/expansion
 
 For recommended_actions, set actionable=true ONLY when BOTH conditions hold:
 1. action_type is exactly one of: pause_campaign, increase_budget, decrease_budget, refresh_creative, rotate_creative
@@ -69,7 +71,7 @@ Confidence rules:
 
 Respond with valid JSON only — no markdown fences, no extra text:
 {
-  "response_type": "diagnosis|risk|comparison|opportunity",
+  "response_type": "diagnosis|risk|comparison|opportunity|budget_opportunity|scaling_opportunity",
   "summary": "1-2 sentence executive summary of the answer.",
   "answer": "2-4 sentence answer. Use **bold** for key numbers and metric names.",
   "key_findings": [
@@ -138,10 +140,11 @@ Respond with valid JSON only — no markdown fences, no extra text:
 
     def create_proposal(self, action_type, entity_name, entity_type="campaign",
                         account_id=None, reason="Copilot suggestion",
-                        confidence="medium", platform="meta"):
+                        confidence="medium", platform="meta",
+                        campaign_id=None, suggested_change_pct=None):
         """Convert a Copilot recommended action into an Automation Engine proposal.
 
-        Routes through AutomationEngine.generate_action_proposal() which runs full
+        Routes through AutomationEngine.create_proposal_from_copilot() which runs full
         guardrail validation. Does NOT execute — creates 'proposed' status for human
         review in the Automation Center.
 
@@ -151,7 +154,7 @@ Respond with valid JSON only — no markdown fences, no extra text:
         """
         from app.services.automation_engine import AutomationEngine
         engine = AutomationEngine()
-        return engine.generate_action_proposal(
+        return engine.create_proposal_from_copilot(
             action_type=action_type,
             entity_name=entity_name,
             entity_type=entity_type or "campaign",
@@ -159,6 +162,8 @@ Respond with valid JSON only — no markdown fences, no extra text:
             reason=reason,
             confidence=confidence or "medium",
             platform=platform or "meta",
+            campaign_id=campaign_id,
+            suggested_change_pct=suggested_change_pct,
         )
 
     # ══════════════════════════════════════════════════════════
@@ -167,7 +172,7 @@ Respond with valid JSON only — no markdown fences, no extra text:
 
     def _gather_context(self, account_id, days):
         """Pull live data from all services, preserving entity IDs for reference linking."""
-        ctx = {}
+        ctx = {"account_id_raw": account_id}
 
         # Dashboard summary + campaigns with IDs
         try:
@@ -349,7 +354,7 @@ Respond with valid JSON only — no markdown fences, no extra text:
 
         if session_context:
             history_lines = ["<conversation_history>"]
-            for entry in session_context[-2:]:
+            for entry in session_context[-3:]:
                 history_lines.append(f"Q: {entry.get('question', '')}")
                 history_lines.append(f"Type: {entry.get('response_type', 'unknown')}")
                 prev_answer = entry.get("answer", "")
@@ -509,7 +514,7 @@ Respond with valid JSON only — no markdown fences, no extra text:
                           "What's the budget efficiency breakdown?"]
 
         elif any(k in q for k in ("scale", "grow", "opportunit", "budget", "increase budget")):
-            rtype = "opportunity"
+            rtype = "scaling_opportunity" if ctx.get("budget_scale") else "budget_opportunity"
             answer = (f"Growth score is **{score}** with budget efficiency at **{eff}**. "
                       + (f"Top scaling opportunities: {', '.join(scale_names)}."
                          if scale_names else "No scaling opportunities identified with current data."))
@@ -562,6 +567,41 @@ Respond with valid JSON only — no markdown fences, no extra text:
             follow_ups = ["What triggered these alerts?",
                           "Which campaigns are most at risk?",
                           "How has performance changed this week?"]
+
+        elif any(k in q for k in ("content", "idea", "ideas", "instagram post", "reel", "story idea",
+                                     "generate content", "content idea", "creative idea")):
+            rtype = "content_ideas"
+            # Call ContentStudioService to generate and persist ideas
+            account_id_for_gen = ctx.get("account_id_raw", 1)
+            generated = []
+            try:
+                from app.services.content_studio_service import ContentStudioService
+                cs = ContentStudioService()
+                generated = cs.generate_ideas(account_id=account_id_for_gen or 1)
+            except Exception:
+                pass
+            count_gen = len(generated)
+            answer = (f"Generated **{count_gen} content idea{'s' if count_gen != 1 else ''}** "
+                      f"based on your account's performance signals. "
+                      + ("Ideas are now available in the Content Studio."
+                         if count_gen > 0 else "No signals found — default ideas created."))
+            findings = []
+            for idea in generated[:5]:
+                findings.append({
+                    "text": idea.get("title", ""),
+                    "ref_type": "content_idea",
+                    "ref_id": str(idea.get("id", "")),
+                    "ref_name": idea.get("title", ""),
+                })
+            actions = [
+                {"text": "Open Content Studio to review and approve generated ideas",
+                 "actionable": False, "action_type": None, "entity_name": None,
+                 "entity_type": None, "platform": None, "confidence_for_action": "high",
+                 "reason": "Content ideas ready for review in Content Studio"},
+            ]
+            follow_ups = ["Which ideas are best for Instagram?",
+                          "Create a prompt for the top idea",
+                          "Show creative library assets"]
 
         elif any(k in q for k in ("creative", "fatigue", "ad", "banner")):
             rtype = "diagnosis"
@@ -674,6 +714,13 @@ Respond with valid JSON only — no markdown fences, no extra text:
                 if cleaned.rstrip().endswith("```"):
                     cleaned = cleaned.rstrip()[:-3].rstrip()
             parsed = json.loads(cleaned)
+            # Normalise response_type — accept new budget/scaling types
+            _VALID_RTYPES = {
+                "diagnosis", "risk", "comparison", "opportunity",
+                "budget_opportunity", "scaling_opportunity", "content_ideas",
+            }
+            if parsed.get("response_type") not in _VALID_RTYPES:
+                parsed["response_type"] = "diagnosis"
         except Exception:
             parsed = {
                 "response_type": "analysis",
@@ -727,6 +774,39 @@ Respond with valid JSON only — no markdown fences, no extra text:
             s if isinstance(s, dict) else {"type": s}
             for s in parsed.get("sources", [])
         ]
+
+        # Ensure follow_up_questions is always a non-empty list
+        if not parsed.get("follow_up_questions"):
+            rtype = parsed.get("response_type", "diagnosis")
+            _DEFAULT_FOLLOWUPS = {
+                "diagnosis":          ["What campaigns contribute most to this issue?",
+                                       "How does this compare to last week?",
+                                       "What actions would fix this?"],
+                "risk":               ["What triggered these alerts?",
+                                       "Which campaigns are most at risk?",
+                                       "How has performance changed this week?"],
+                "comparison":         ["Which account is outperforming?",
+                                       "What drives the performance gap?",
+                                       "Which campaigns should be scaled?"],
+                "opportunity":        ["What budget is needed to capture this opportunity?",
+                                       "Which creatives support scaling?",
+                                       "What is the expected CPA impact?"],
+                "budget_opportunity": ["How much budget increase is recommended?",
+                                       "Which campaigns have the best ROI?",
+                                       "What is the current efficiency score?"],
+                "scaling_opportunity": ["Which campaigns have the best scaling potential?",
+                                        "What is the expected ROAS after scaling?",
+                                        "How much additional budget is needed?"],
+                "content_ideas":      ["Which ideas are best for Instagram?",
+                                        "Create a prompt for the top idea",
+                                        "Show creative library assets"],
+                "analysis":           ["What are the key performance drivers?",
+                                       "Which campaigns need attention?",
+                                       "What actions would improve results?"],
+            }
+            parsed["follow_up_questions"] = _DEFAULT_FOLLOWUPS.get(
+                rtype, _DEFAULT_FOLLOWUPS["analysis"]
+            )
 
         parsed["provider"] = provider
         return parsed

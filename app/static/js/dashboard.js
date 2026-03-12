@@ -310,7 +310,7 @@
     campaigns.forEach(c => {
       const sc = statusClass(c.status);
       const isActive = (c.status || '').toUpperCase() === 'ACTIVE';
-      html += '<tr>' +
+      html += '<tr data-campaign-id="' + (c.campaign_id || c.id || '') + '">' +
         '<td style="font-weight:600">' + c.name + '</td>' +
         '<td><span class="status-badge ' + sc + '">' + c.status + '</span></td>' +
         '<td>' + fmtMoney(c.spend) + '</td>' +
@@ -1754,7 +1754,7 @@
         // Ref links
         var ref = e.target.closest('.cop-ref');
         if (ref) {
-          _handleRefClick(ref.dataset.refType, ref.dataset.refName);
+          _handleRefClick(ref.dataset.refType, ref.dataset.refName, ref.dataset.refId);
           return;
         }
         // Propose buttons
@@ -1765,7 +1765,7 @@
       });
     }
 
-    function _handleRefClick(refType, refName) {
+    function _handleRefClick(refType, refName, refId) {
       var sectionMap = {
         campaign: 'metaTable',
         alert: 'alertsSection',
@@ -1776,7 +1776,29 @@
       if (sectionId) {
         var el = document.getElementById(sectionId);
         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        if (refType === 'campaign') _flashCampaignRow(refId || refName);
       }
+    }
+
+    function _flashCampaignRow(campaignId) {
+      if (!campaignId) return;
+      var tbody = document.getElementById('metaTableBody');
+      if (!tbody) return;
+      // Try exact data-campaign-id match first
+      var row = tbody.querySelector('tr[data-campaign-id="' + campaignId + '"]');
+      // Fallback: find by campaign name in first cell
+      if (!row) {
+        var rows = tbody.querySelectorAll('tr');
+        for (var i = 0; i < rows.length; i++) {
+          var cell = rows[i].querySelector('td');
+          if (cell && cell.textContent.trim() === campaignId) { row = rows[i]; break; }
+        }
+      }
+      if (!row) return;
+      row.classList.remove('ca-row-flash'); // reset if already animating
+      void row.offsetWidth; // force reflow
+      row.classList.add('ca-row-flash');
+      setTimeout(function() { row.classList.remove('ca-row-flash'); }, 2000);
     }
 
     async function _handlePropose(btn) {
@@ -1958,12 +1980,14 @@
       if (typeof f === 'string') return _esc(f);
       var text = _esc(f.text || '');
       if (f.ref_name && f.ref_type && f.ref_type !== 'null') {
-        var badge =
-          '<span class="cop-ref cop-ref-' + _esc(f.ref_type) + '" ' +
-          'data-ref-type="' + _esc(f.ref_type) + '" ' +
+        var dataAttrs = 'data-ref-type="' + _esc(f.ref_type) + '" ' +
           'data-ref-id="' + _esc(f.ref_id || '') + '" ' +
-          'data-ref-name="' + _esc(f.ref_name) + '" ' +
-          'title="Click to navigate">' + _esc(f.ref_name) + '</span>';
+          'data-ref-name="' + _esc(f.ref_name) + '"';
+        var badge =
+          '<span class="cop-ref cop-ref-' + _esc(f.ref_type) + '" ' + dataAttrs +
+          ' title="Click to navigate">' + _esc(f.ref_name) + '</span>' +
+          '<span class="cop-nav-link cop-ref" ' + dataAttrs +
+          ' title="View ' + _esc(f.ref_name) + '">View \u2192</span>';
         var escapedName = _esc(f.ref_name);
         text = text.includes(escapedName) ? text.replace(escapedName, badge) : text + ' ' + badge;
       }
@@ -1973,6 +1997,10 @@
     function _renderAction(a) {
       if (typeof a === 'string') return _esc(a);
       var text = _esc(a.text || '');
+      if (a.suggested_change_pct !== undefined && a.suggested_change_pct !== null && a.suggested_change_pct !== 0) {
+        var pct = a.suggested_change_pct;
+        text += ' <span class="action-pct-hint">(' + (pct > 0 ? '+' : '') + pct + '%)</span>';
+      }
       if (a.actionable && a.action_type && a.entity_name) {
         text += ' <button class="cop-propose-btn" ' +
           'data-action-type="' + _esc(a.action_type) + '" ' +
@@ -2172,6 +2200,192 @@
     }
   }
 
+  /* ─── Content Studio ─── */
+
+  var _csActiveTab = 'ideas';
+
+  function loadContentStudio() {
+    var section = $('#contentStudioSection');
+    if (!section) return;
+    section.style.display = '';
+    _renderCSTab(_csActiveTab);
+    // Tab click handlers
+    document.querySelectorAll('.cs-tab').forEach(function(btn) {
+      btn.onclick = function() {
+        document.querySelectorAll('.cs-tab').forEach(function(b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        _csActiveTab = btn.getAttribute('data-cs-tab');
+        _renderCSTab(_csActiveTab);
+      };
+    });
+    // Generate button
+    var genBtn = $('#csGenerateBtn');
+    if (genBtn) {
+      genBtn.onclick = function() { _csGenerateIdeas(); };
+    }
+  }
+
+  function _renderCSTab(tab) {
+    var panels = { ideas: 'csIdeasPanel', assets: 'csAssetsPanel', brand: 'csBrandPanel' };
+    Object.keys(panels).forEach(function(k) {
+      var el = $(panels[k]);
+      if (el) el.style.display = k === tab ? '' : 'none';
+    });
+    if (tab === 'ideas') _csLoadIdeas();
+    if (tab === 'assets') _csLoadAssets();
+    if (tab === 'brand') _csLoadBrandKit();
+  }
+
+  async function _csLoadIdeas() {
+    var tbody = $('#csIdeasBody');
+    var empty = $('#csIdeasEmpty');
+    if (!tbody) return;
+    try {
+      var ideas = await fetchApi('/content/ideas?' + _acctQs());
+      if (!Array.isArray(ideas) || ideas.length === 0) {
+        tbody.innerHTML = '';
+        if (empty) empty.style.display = '';
+        return;
+      }
+      if (empty) empty.style.display = 'none';
+      tbody.innerHTML = ideas.map(function(i) {
+        var statusCls = 'cs-badge cs-badge-' + (i.status || 'idea');
+        return '<tr>' +
+          '<td>' + _esc(i.title) + '<br><span style="font-size:11px;color:var(--text-muted)">' + _esc(i.description || '') + '</span></td>' +
+          '<td><span class="cs-badge cs-badge-type">' + _esc(i.content_type || '') + '</span></td>' +
+          '<td>' + _esc(i.platform_target || '') + '</td>' +
+          '<td><span class="cs-badge cs-badge-src">' + _esc(i.source || '') + '</span></td>' +
+          '<td><span class="' + statusCls + '">' + _esc(i.status || '') + '</span></td>' +
+          '<td>' +
+            '<button class="cs-action-btn" onclick="csApproveIdea(' + i.id + ')">Approve</button>' +
+            '<button class="cs-action-btn" onclick="csRejectIdea(' + i.id + ')">Reject</button>' +
+          '</td>' +
+        '</tr>';
+      }).join('');
+    } catch (e) {
+      if (tbody) tbody.innerHTML = '';
+    }
+  }
+
+  async function _csLoadAssets() {
+    var grid = $('#csAssetGrid');
+    var empty = $('#csAssetsEmpty');
+    if (!grid) return;
+    try {
+      var assets = await fetchApi('/content/assets?' + _acctQs());
+      if (!Array.isArray(assets) || assets.length === 0) {
+        grid.innerHTML = '';
+        if (empty) empty.style.display = '';
+        return;
+      }
+      if (empty) empty.style.display = 'none';
+      var icons = { image: '🖼️', video: '🎬', design: '🎨', mockup: '📐' };
+      grid.innerHTML = assets.map(function(a) {
+        var icon = icons[a.asset_type] || '📄';
+        var thumb = a.thumbnail_url
+          ? '<img src="' + _esc(a.thumbnail_url) + '" style="width:100%;height:100%;object-fit:cover">'
+          : icon;
+        return '<div class="cs-asset-card">' +
+          '<div class="cs-asset-thumb">' + thumb + '</div>' +
+          '<div class="cs-asset-info">' +
+            '<div class="cs-asset-type">' + _esc(a.asset_type || '') + '</div>' +
+            '<div class="cs-asset-status" style="color:var(--text-muted)">' + _esc(a.status || '') + '</div>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+    } catch (e) {
+      if (grid) grid.innerHTML = '';
+    }
+  }
+
+  async function _csLoadBrandKit() {
+    try {
+      var kit = await fetchApi('/content/brand-kit?' + _acctQs());
+      if (!kit) return;
+      _setVal('csBrandName', kit.brand_name || '');
+      _setVal('csBrandPrimary', kit.primary_color || '#000000');
+      _setVal('csBrandSecondary', kit.secondary_color || '#ffffff');
+      _setVal('csBrandAccent', kit.accent_color || '#3B82F6');
+      _setVal('csBrandFont', kit.font_family || 'Inter');
+      _setVal('csBrandLogo', kit.logo_url || '');
+      _setVal('csBrandStyle', kit.style_description || '');
+    } catch (e) { /* silently skip */ }
+  }
+
+  function _setVal(id, val) {
+    var el = $(id);
+    if (el) el.value = val;
+  }
+
+  window.saveBrandKit = async function() {
+    try {
+      var payload = {
+        account_id: currentAccountId || 1,
+        brand_name: ($('#csBrandName') || {}).value || '',
+        primary_color: ($('#csBrandPrimary') || {}).value || '#000000',
+        secondary_color: ($('#csBrandSecondary') || {}).value || '#ffffff',
+        accent_color: ($('#csBrandAccent') || {}).value || '#3B82F6',
+        font_family: ($('#csBrandFont') || {}).value || 'Inter',
+        logo_url: ($('#csBrandLogo') || {}).value || '',
+        style_description: ($('#csBrandStyle') || {}).value || '',
+      };
+      await fetch('/api/content/brand-kit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    } catch (e) { /* silently skip */ }
+  };
+
+  window.csApproveIdea = async function(id) {
+    try {
+      await fetch('/api/content/ideas/' + id + '/status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'approved' }),
+      });
+      _csLoadIdeas();
+    } catch (e) { /* silently skip */ }
+  };
+
+  window.csRejectIdea = async function(id) {
+    try {
+      await fetch('/api/content/ideas/' + id + '/status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'rejected' }),
+      });
+      _csLoadIdeas();
+    } catch (e) { /* silently skip */ }
+  };
+
+  async function _csGenerateIdeas() {
+    var btn = $('#csGenerateBtn');
+    var loading = $('#csIdeasLoading');
+    if (btn) { btn.disabled = true; btn.textContent = 'Generating…'; }
+    if (loading) loading.style.display = '';
+    try {
+      await fetch('/api/content/generate-ideas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account_id: currentAccountId || 1 }),
+      });
+      await _csLoadIdeas();
+    } catch (e) { /* silently skip */ }
+    finally {
+      if (btn) { btn.disabled = false; btn.textContent = '✨ Generate Ideas from Insights'; }
+      if (loading) loading.style.display = 'none';
+    }
+  }
+
+  function _acctQs() {
+    return currentAccountId ? 'account_id=' + currentAccountId : '';
+  }
+
+  function _esc(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
   /* ─── Init ─── */
   loadPlatformStatus();
   initAccountSelector();
@@ -2186,6 +2400,7 @@
   loadAutomation();
   loadCreatives();
   loadAccountOverview();
+  loadContentStudio();
   loadPlanUsage();
   startAutoRefresh();
 

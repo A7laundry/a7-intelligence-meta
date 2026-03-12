@@ -297,3 +297,60 @@ CREATE TABLE IF NOT EXISTS usage_metrics (
 CREATE INDEX IF NOT EXISTS idx_usage_metrics_org    ON usage_metrics(organization_id);
 CREATE INDEX IF NOT EXISTS idx_usage_metrics_metric ON usage_metrics(metric, period);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_org    ON subscriptions(organization_id);
+
+-- ─── Content Studio ──────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS content_ideas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id INTEGER DEFAULT 1,
+    title TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    content_type TEXT DEFAULT 'post' CHECK(content_type IN ('post','reel','story','ad_creative','carousel','banner')),
+    platform_target TEXT DEFAULT 'instagram' CHECK(platform_target IN ('instagram','facebook','google_display','tiktok','linkedin')),
+    status TEXT DEFAULT 'idea' CHECK(status IN ('idea','draft','approved','rejected')),
+    source TEXT DEFAULT 'manual' CHECK(source IN ('copilot','ai_coach','manual','creative_intelligence')),
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS brand_kits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id INTEGER NOT NULL,
+    brand_name TEXT DEFAULT '',
+    primary_color TEXT DEFAULT '#000000',
+    secondary_color TEXT DEFAULT '#ffffff',
+    accent_color TEXT DEFAULT '#3B82F6',
+    font_family TEXT DEFAULT 'Inter',
+    logo_url TEXT DEFAULT '',
+    style_description TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(account_id)
+);
+
+CREATE TABLE IF NOT EXISTS creative_prompts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id INTEGER DEFAULT 1,
+    content_idea_id INTEGER REFERENCES content_ideas(id),
+    prompt_text TEXT NOT NULL,
+    style TEXT DEFAULT 'photorealistic',
+    aspect_ratio TEXT DEFAULT '1:1',
+    image_type TEXT DEFAULT 'social_post' CHECK(image_type IN ('ad_creative','social_post','story','banner')),
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS creative_assets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id INTEGER DEFAULT 1,
+    content_idea_id INTEGER REFERENCES content_ideas(id),
+    asset_type TEXT DEFAULT 'image' CHECK(asset_type IN ('image','video','design','mockup')),
+    asset_url TEXT DEFAULT '',
+    thumbnail_url TEXT DEFAULT '',
+    status TEXT DEFAULT 'draft' CHECK(status IN ('draft','approved','published','archived')),
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_content_ideas_account  ON content_ideas(account_id);
+CREATE INDEX IF NOT EXISTS idx_content_ideas_status   ON content_ideas(status);
+CREATE INDEX IF NOT EXISTS idx_content_ideas_source   ON content_ideas(source);
+CREATE INDEX IF NOT EXISTS idx_creative_prompts_acct  ON creative_prompts(account_id);
+CREATE INDEX IF NOT EXISTS idx_creative_assets_acct   ON creative_assets(account_id);
+CREATE INDEX IF NOT EXISTS idx_creative_assets_status ON creative_assets(status);

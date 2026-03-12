@@ -58,6 +58,9 @@ def create_app():
     from app.routes.billing import billing_bp
     app.register_blueprint(billing_bp, url_prefix="/api")
 
+    from app.routes.content import content_bp
+    app.register_blueprint(content_bp, url_prefix="/api")
+
     # Template context processor
     @app.context_processor
     def inject_globals():

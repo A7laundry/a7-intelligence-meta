@@ -204,6 +204,76 @@ def _run_migrations(conn):
         conn.execute("CREATE INDEX IF NOT EXISTS idx_subscriptions_org    ON subscriptions(organization_id)")
         conn.commit()
 
+    # Migration 8: Content Studio — ideas, brand kits, prompts, assets
+    if not _table_exists(conn, "content_ideas"):
+        conn.execute("""
+            CREATE TABLE content_ideas (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id INTEGER DEFAULT 1,
+                title TEXT NOT NULL,
+                description TEXT DEFAULT '',
+                content_type TEXT DEFAULT 'post',
+                platform_target TEXT DEFAULT 'instagram',
+                status TEXT DEFAULT 'idea',
+                source TEXT DEFAULT 'manual',
+                created_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_content_ideas_account ON content_ideas(account_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_content_ideas_status  ON content_ideas(status)")
+        conn.commit()
+
+    if not _table_exists(conn, "brand_kits"):
+        conn.execute("""
+            CREATE TABLE brand_kits (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id INTEGER NOT NULL,
+                brand_name TEXT DEFAULT '',
+                primary_color TEXT DEFAULT '#000000',
+                secondary_color TEXT DEFAULT '#ffffff',
+                accent_color TEXT DEFAULT '#3B82F6',
+                font_family TEXT DEFAULT 'Inter',
+                logo_url TEXT DEFAULT '',
+                style_description TEXT DEFAULT '',
+                created_at TEXT DEFAULT (datetime('now')),
+                UNIQUE(account_id)
+            )
+        """)
+        conn.commit()
+
+    if not _table_exists(conn, "creative_prompts"):
+        conn.execute("""
+            CREATE TABLE creative_prompts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id INTEGER DEFAULT 1,
+                content_idea_id INTEGER,
+                prompt_text TEXT NOT NULL DEFAULT '',
+                style TEXT DEFAULT 'photorealistic',
+                aspect_ratio TEXT DEFAULT '1:1',
+                image_type TEXT DEFAULT 'social_post',
+                created_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_creative_prompts_acct ON creative_prompts(account_id)")
+        conn.commit()
+
+    if not _table_exists(conn, "creative_assets"):
+        conn.execute("""
+            CREATE TABLE creative_assets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id INTEGER DEFAULT 1,
+                content_idea_id INTEGER,
+                asset_type TEXT DEFAULT 'image',
+                asset_url TEXT DEFAULT '',
+                thumbnail_url TEXT DEFAULT '',
+                status TEXT DEFAULT 'draft',
+                created_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_creative_assets_acct   ON creative_assets(account_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_creative_assets_status ON creative_assets(status)")
+        conn.commit()
+
     _migrate_snapshots_table(conn, "creatives",
         """CREATE TABLE creatives_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

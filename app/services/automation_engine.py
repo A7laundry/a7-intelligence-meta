@@ -516,6 +516,42 @@ class AutomationEngine:
         }
         return self.queue_proposal(proposal)
 
+    def create_proposal_from_copilot(self, action_type, entity_name, entity_type="campaign",
+                                      account_id=1, reason="Copilot suggestion",
+                                      confidence="medium", platform="meta",
+                                      campaign_id=None, suggested_change_pct=None):
+        """Named Copilot entry-point for Phase 6B — accepts campaign_id and suggested_change_pct.
+
+        Validates action_type, builds a proposal dict (entity_id=campaign_id when provided),
+        then routes through queue_proposal() for full guardrail validation and persistence.
+        Copilot NEVER executes directly — proposals are created with status='proposed'.
+
+        Returns:
+            {"success": True,  "action_id": int}
+            {"success": False, "reason": str, "action_id": None}
+        """
+        if action_type not in self.VALID_ACTION_TYPES:
+            return {
+                "success": False,
+                "reason": f"action_type '{action_type}' is not supported",
+                "action_id": None,
+            }
+        change_pct = (suggested_change_pct
+                      if suggested_change_pct is not None
+                      else self._CHANGE_PCT_DEFAULTS.get(action_type, 0))
+        proposal = {
+            "action_type": action_type,
+            "platform": platform or "meta",
+            "entity_type": entity_type or "campaign",
+            "entity_id": campaign_id or "",
+            "entity_name": entity_name,
+            "reason": f"[Copilot] {reason}",
+            "confidence": confidence or "medium",
+            "suggested_change_pct": change_pct,
+            "account_id": account_id or 1,
+        }
+        return self.queue_proposal(proposal)
+
     def queue_proposal(self, proposal):
         """Validate and queue a single manually constructed proposal.
 

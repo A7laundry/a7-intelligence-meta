@@ -1090,6 +1090,35 @@ tr:last-child td{border-bottom:none}
   color: #f87171;
 }
 
+/* Copilot — campaign row flash on ref-click */
+@keyframes caRowFlash {
+  0%   { background-color: rgba(251,191,36,.35); }
+  60%  { background-color: rgba(251,191,36,.15); }
+  100% { background-color: transparent; }
+}
+.ca-row-flash { animation: caRowFlash 2s ease-out forwards; }
+
+/* Copilot — "View →" nav link next to ref badge */
+.cop-nav-link {
+  display: inline;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--meta);
+  cursor: pointer;
+  opacity: .7;
+  text-decoration: underline;
+  margin-left: 2px;
+}
+.cop-nav-link:hover { opacity: 1; }
+
+/* Action % hint */
+.action-pct-hint {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-left: 3px;
+}
+
 /* Copilot — follow-up chips */
 .cop-followups {
   display: flex;
@@ -1430,3 +1459,73 @@ tr.ca-health-red td:first-child { background: rgba(239,68,68,.04); }
 .pum-bar.warn  { background: #f59e0b; }
 .pum-bar.danger { background: var(--red); }
 .pum-unlimited { font-size: 11px; color: var(--text-muted); }
+
+/* ── Content Studio ─────────────────────────────────────────────────────── */
+.cs-tabs { display: flex; gap: 4px; margin-bottom: 16px; }
+.cs-tab {
+  padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: 600;
+  cursor: pointer; border: 1px solid var(--border); background: var(--bg-card);
+  color: var(--text-muted); transition: all .15s;
+}
+.cs-tab.active { background: var(--meta); color: #fff; border-color: var(--meta); }
+.cs-ideas-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.cs-ideas-table th {
+  text-align: left; padding: 8px 10px;
+  border-bottom: 1px solid var(--border); color: var(--text-muted);
+  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+}
+.cs-ideas-table td { padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.cs-ideas-table tr:last-child td { border-bottom: none; }
+.cs-ideas-table tr:hover td { background: var(--bg-hover); }
+.cs-badge {
+  display: inline-block; padding: 2px 8px; border-radius: 4px;
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+}
+.cs-badge-type    { background: rgba(59,130,246,.15); color: #3B82F6; }
+.cs-badge-src     { background: rgba(139,92,246,.15);  color: #8B5CF6; }
+.cs-badge-idea    { background: rgba(156,163,175,.2);  color: var(--text-muted); }
+.cs-badge-draft   { background: rgba(251,191,36,.2);   color: #f59e0b; }
+.cs-badge-approved { background: rgba(16,185,129,.2);  color: #10b981; }
+.cs-badge-rejected { background: rgba(239,68,68,.2);   color: var(--red); }
+.cs-action-btn {
+  font-size: 11px; padding: 3px 9px; border-radius: 5px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--bg-card); color: var(--text);
+  margin-right: 3px; transition: background .15s;
+}
+.cs-action-btn:hover { background: var(--meta); color: #fff; border-color: var(--meta); }
+.cs-asset-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(140px,1fr)); gap: 12px;
+}
+.cs-asset-card {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
+  overflow: hidden; transition: box-shadow .15s;
+}
+.cs-asset-card:hover { box-shadow: 0 2px 12px rgba(0,0,0,.15); }
+.cs-asset-thumb {
+  width: 100%; aspect-ratio: 1; background: var(--bg-hover);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 28px; color: var(--text-muted);
+}
+.cs-asset-info { padding: 6px 8px; }
+.cs-asset-type { font-size: 10px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; }
+.cs-brand-form { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.cs-brand-field { display: flex; flex-direction: column; gap: 4px; }
+.cs-brand-field label { font-size: 11px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; }
+.cs-brand-input {
+  padding: 7px 10px; border-radius: 6px; border: 1px solid var(--border);
+  background: var(--bg-card); color: var(--text); font-size: 13px;
+  width: 100%; box-sizing: border-box;
+}
+.cs-brand-input:focus { outline: none; border-color: var(--meta); }
+.cs-brand-save {
+  grid-column: 1 / -1; justify-self: start;
+  padding: 8px 20px; border-radius: 6px; border: none; cursor: pointer;
+  background: var(--meta); color: #fff; font-size: 13px; font-weight: 600;
+}
+.cs-brand-save:hover { opacity: .9; }
+.cs-empty { text-align: center; padding: 32px 16px; color: var(--text-muted); font-size: 13px; }
+.cs-generate-btn {
+  padding: 7px 16px; border-radius: 6px; border: none; cursor: pointer;
+  background: var(--meta); color: #fff; font-size: 12px; font-weight: 600; margin-bottom: 12px;
+}
+.cs-generate-btn:disabled { opacity: .5; cursor: default; }
