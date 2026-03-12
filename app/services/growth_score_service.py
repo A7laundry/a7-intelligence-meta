@@ -25,12 +25,19 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
+from app.services.cache import growth_cache
+
 
 class GrowthScoreService:
     """Computes unified growth score from all intelligence modules."""
 
     def build_growth_score(self, days=7, platform=None, account_id=None):
         """Compute the unified growth score."""
+        cache_key = f"growth_score_{account_id}_{days}_{platform}"
+        cached = growth_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         # Gather component scores
         account_health = self._get_account_health(days, platform, account_id=account_id)
         budget_efficiency = self._get_budget_efficiency(days, platform, account_id=account_id)
@@ -77,7 +84,7 @@ class GrowthScoreService:
         # Summary
         summary = self._build_summary(score, label, top_positive, top_negative)
 
-        return {
+        result = {
             "score": score,
             "label": label,
             "components": {k: v["score"] for k, v in components.items()},
@@ -96,6 +103,8 @@ class GrowthScoreService:
             "period_days": days,
             "generated_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
+        growth_cache.set(cache_key, result)
+        return result
 
     def _get_account_health(self, days, platform, account_id=None):
         """Get account health from AI Coach."""
@@ -214,22 +223,26 @@ class GrowthScoreService:
             return {"score": 50, "detail": "No channel data"}
 
     def _get_alert_cleanliness(self):
-        """Score based on unresolved critical alerts (fewer = better)."""
+        """Score based on unresolved critical alerts (fewer = better).
+
+        Uses a single GROUP BY query to count both severities in one round-trip,
+        replacing the previous two sequential SELECT COUNT(*) queries.
+        """
         try:
             from app.db.init_db import get_connection
             conn = get_connection()
             try:
-                row = conn.execute(
-                    "SELECT COUNT(*) as cnt FROM alerts WHERE resolved = 0 AND severity = 'critical'"
-                ).fetchone()
-                critical_count = row["cnt"] if row else 0
-
-                row2 = conn.execute(
-                    "SELECT COUNT(*) as cnt FROM alerts WHERE resolved = 0 AND severity = 'warning'"
-                ).fetchone()
-                warning_count = row2["cnt"] if row2 else 0
+                rows = conn.execute(
+                    "SELECT severity, COUNT(*) as cnt FROM alerts "
+                    "WHERE resolved = 0 AND severity IN ('critical', 'warning') "
+                    "GROUP BY severity"
+                ).fetchall()
             finally:
                 conn.close()
+
+            counts = {r["severity"]: r["cnt"] for r in rows}
+            critical_count = counts.get("critical", 0)
+            warning_count = counts.get("warning", 0)
 
             # 0 critical = 100, each critical = -20, each warning = -5
             score = max(0, 100 - (critical_count * 20) - (warning_count * 5))

@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 from app.services.snapshot_service import SnapshotService
 from app.services.account_service import AccountService
+from app.services.cache import dashboard_cache
 
 
 RANGES = {
@@ -42,9 +43,17 @@ class DashboardService:
         try:
             from config_default import GOOGLE_ADS_CONFIG
             if GOOGLE_ADS_CONFIG.get("developer_token") and GOOGLE_ADS_CONFIG["developer_token"] not in ("", "SEU_DEVELOPER_TOKEN"):
-                from google_client import GoogleAdsApiClient
-                self.google_client = GoogleAdsApiClient()
-                self.google_available = True
+                try:
+                    from app.services.google_ads_client import GoogleAdsApiClient
+                except ImportError:
+                    import logging as _logging
+                    _logging.getLogger(__name__).warning(
+                        "google_ads_client not available — Google Ads integration disabled"
+                    )
+                    GoogleAdsApiClient = None
+                if GoogleAdsApiClient is not None:
+                    self.google_client = GoogleAdsApiClient()
+                    self.google_available = True
         except Exception:
             pass
 
@@ -97,6 +106,12 @@ class DashboardService:
         """Get dashboard data — tries live first, falls back to DB."""
         if account_id is None:
             account_id = AccountService.resolve_account_id(None)
+
+        cache_key = f"dashboard_{account_id}_{range_key}"
+        cached = dashboard_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         cfg = RANGES.get(range_key, RANGES["7d"])
 
         meta_data = self._fetch_meta(cfg["meta_preset"], account_id=account_id)
@@ -106,12 +121,15 @@ class DashboardService:
             # Try database
             db_data = self._build_from_db(range_key, cfg["days"], account_id=account_id)
             if db_data:
+                dashboard_cache.set(cache_key, db_data)
                 return db_data
             # Fall back to demo
             from dashboard_fetcher import DashboardFetcher
             return DashboardFetcher.generate_demo_data(range_key)
 
-        return self._build_payload(meta_data, google_data, range_key, cfg, account_id=account_id)
+        result = self._build_payload(meta_data, google_data, range_key, cfg, account_id=account_id)
+        dashboard_cache.set(cache_key, result)
+        return result
 
     def _fetch_meta(self, date_preset: str, account_id: int = None):
         """Fetch Meta data using existing dashboard_fetcher logic."""

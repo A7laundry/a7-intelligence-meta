@@ -15,6 +15,7 @@ Usage:
   python run.py --automation-generate  # Generate and queue automation proposals
   python run.py --automation-run       # Execute approved automation actions
   python run.py --automation-status    # Show automation queue status
+  python run.py --publishing-loop      # Run one publishing scheduler pass
 """
 
 import argparse
@@ -139,6 +140,17 @@ def run_cli_operation(args):
         print(f"    Cooldown: {config['cooldown_hours']}h")
         return True
 
+    if args.publishing_loop:
+        from app.services.scheduler_loop_service import run_publishing_loop
+        init_db()
+        result = run_publishing_loop()
+        status = "OK" if result.get("failed", 0) == 0 else "WARN"
+        print(
+            f"[{status}] Publishing loop: {result['executed']} executed, "
+            f"{result['failed']} failed, {result['stuck_resolved']} stuck resolved"
+        )
+        return True
+
     return False
 
 
@@ -164,6 +176,9 @@ def main():
     parser.add_argument("--automation-generate", action="store_true", help="Generate and queue automation proposals")
     parser.add_argument("--automation-run", action="store_true", help="Execute approved automation actions")
     parser.add_argument("--automation-status", action="store_true", help="Show automation queue status")
+
+    # Publishing
+    parser.add_argument("--publishing-loop", action="store_true", help="Run one publishing scheduler pass")
 
     args = parser.parse_args()
 

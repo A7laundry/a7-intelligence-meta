@@ -4,6 +4,7 @@ from flask import Blueprint, jsonify, request
 
 from app.services.automation_engine import AutomationEngine
 from app.services.account_service import AccountService
+from app.routes.billing import enforce_automation_limit
 
 automation_bp = Blueprint("automation", __name__)
 
@@ -50,6 +51,10 @@ def pending_actions():
 @automation_bp.route("/automation/generate", methods=["POST"])
 def generate_proposals():
     """Generate new automation proposals and queue them."""
+    guard = enforce_automation_limit()
+    if guard:
+        return guard
+
     days = request.args.get("days", 7, type=int)
     platform = request.args.get("platform")
     account_id = AccountService.resolve_account_id(request.args.get("account_id"))
@@ -85,6 +90,10 @@ def reject_action(action_id):
 @automation_bp.route("/automation/<int:action_id>/execute", methods=["POST"])
 def execute_action(action_id):
     """Execute an approved action."""
+    guard = enforce_automation_limit()
+    if guard:
+        return guard
+
     try:
         result = _get_engine().execute_action(action_id)
     except Exception as e:

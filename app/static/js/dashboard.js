@@ -12,6 +12,79 @@
   let currentAccountId = null;
   let _accountsCache = [];
 
+  /* ─── Toast Notification System ─── */
+  function showToast(message, type) {
+    type = type || 'info';
+    var container = document.getElementById('toastContainer');
+    if (!container) return;
+
+    var icons = { info: 'ℹ', success: '✓', error: '✕', warning: '⚠' };
+
+    var toast = document.createElement('div');
+    toast.className = 'a7-toast ' + type;
+    toast.innerHTML =
+      '<span class="a7-toast-icon">' + (icons[type] || 'ℹ') + '</span>' +
+      '<span class="a7-toast-msg">' + String(message).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</span>' +
+      '<button class="a7-toast-close" aria-label="Close">\u00D7</button>';
+
+    toast.querySelector('.a7-toast-close').addEventListener('click', function() {
+      _dismissToast(toast);
+    });
+
+    container.appendChild(toast);
+    // Force reflow then animate in
+    void toast.offsetWidth;
+    toast.classList.add('a7-toast-visible');
+
+    var timer = setTimeout(function() { _dismissToast(toast); }, 4000);
+    toast._dismissTimer = timer;
+  }
+
+  function _dismissToast(toast) {
+    if (toast._dismissTimer) clearTimeout(toast._dismissTimer);
+    toast.classList.remove('a7-toast-visible');
+    setTimeout(function() {
+      if (toast.parentNode) toast.parentNode.removeChild(toast);
+    }, 300);
+  }
+
+  /* ─── Confirmation Modal ─── */
+  function confirmAction(message, onConfirm) {
+    var modal = document.getElementById('confirmModal');
+    var msgEl = document.getElementById('confirmMsg');
+    var okBtn = document.getElementById('confirmOk');
+    var cancelBtn = document.getElementById('confirmCancel');
+    if (!modal) return;
+
+    msgEl.textContent = message;
+    modal.style.display = 'flex';
+
+    function _close() {
+      modal.style.display = 'none';
+      okBtn.onclick = null;
+      cancelBtn.onclick = null;
+    }
+
+    okBtn.onclick = function() { _close(); onConfirm(); };
+    cancelBtn.onclick = _close;
+  }
+
+  /* ─── Tab Cache ─── */
+  var _tabCache = {};
+  var _tabCacheTTL = 120000; // 2 minutes
+
+  function _isTabCacheValid(tab) {
+    return _tabCache[tab] && (Date.now() - _tabCache[tab].loadedAt < _tabCacheTTL);
+  }
+
+  function _markTabLoaded(tab) {
+    _tabCache[tab] = { loadedAt: Date.now() };
+  }
+
+  function _invalidateTabCache(tab) {
+    delete _tabCache[tab];
+  }
+
   function getAccountIdFromUrl() {
     return new URLSearchParams(window.location.search).get('account_id');
   }
@@ -303,7 +376,7 @@
   function renderCampaignTable(campaigns, tbodyId, showActions) {
     const tbody = document.getElementById(tbodyId);
     if (!campaigns || campaigns.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:20px">No campaigns</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state"><p>No campaigns found.</p><p class="empty-hint">Connect a Meta or Google Ads account to see campaigns.</p></div></td></tr>';
       return;
     }
     let html = '';
@@ -333,14 +406,16 @@
   }
 
   /* ─── Toggle Campaign Status ─── */
-  window.toggleCampaign = async function (campaignId, newStatus) {
-    if (!confirm('Change campaign status to ' + newStatus + '?')) return;
-    try {
-      await postApi('/campaigns/' + campaignId + '/status', { status: newStatus });
-      load(currentRange);
-    } catch (e) {
-      alert('Error: ' + e.message);
-    }
+  window.toggleCampaign = function (campaignId, newStatus) {
+    confirmAction('Change campaign status to ' + newStatus + '?', async function() {
+      try {
+        await postApi('/campaigns/' + campaignId + '/status', { status: newStatus });
+        _invalidateTabCache('campaigns');
+        load(currentRange);
+      } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+      }
+    });
   };
 
   /* ─── Platform Status ─── */
@@ -410,10 +485,30 @@
     }) + (data.demo ? ' (Demo Data)' : '') + (data.source === 'database' ? ' (Cached)' : '');
   }
 
+  /* ─── Skeleton Helpers ─── */
+  function _showKpiSkeletons() {
+    var grid = $('#kpiGrid');
+    if (!grid) return;
+    var skeletonCard = '<div class="kpi-card">' +
+      '<div class="skeleton skeleton-text" style="width:60%;height:28px;margin-bottom:6px"></div>' +
+      '<div class="skeleton skeleton-text" style="width:40%"></div>' +
+    '</div>';
+    grid.innerHTML = skeletonCard.repeat(6);
+    grid.style.display = '';
+  }
+
+  function _showCoachSkeleton() {
+    var loading = document.getElementById('coachLoading');
+    if (!loading) return;
+    loading.innerHTML =
+      '<div class="skeleton skeleton-text" style="width:80%;margin:0 auto 8px"></div>' +
+      '<div class="skeleton skeleton-card" style="margin:0 auto;max-width:400px"></div>';
+  }
+
   /* ─── Load Data ─── */
   async function load(range) {
     $('#loadingState').style.display = '';
-    $('#kpiGrid').style.display = 'none';
+    _showKpiSkeletons();
     $('#sectionsContainer').style.display = 'none';
 
     try {
@@ -421,6 +516,7 @@
       render(data);
     } catch (e) {
       $('#loadingState').innerHTML = 'Error loading data. Check if the server is running.';
+      $('#kpiGrid').style.display = 'none';
     }
   }
 
@@ -633,14 +729,17 @@
       var alerts = data.alerts || [];
       if (alerts.length === 0) {
         list.innerHTML = '';
-        empty.style.display = '';
+        if (empty) {
+          empty.innerHTML = '<div class="empty-state"><p>No active alerts.</p><p class="empty-hint">System is operating normally. Alerts appear here when thresholds are breached.</p></div>';
+          empty.style.display = '';
+        }
         return;
       }
-      empty.style.display = 'none';
+      if (empty) empty.style.display = 'none';
       renderAlerts(list, alerts);
     } catch (e) {
       list.innerHTML = '';
-      empty.style.display = '';
+      if (empty) empty.style.display = '';
     }
   }
 
@@ -669,18 +768,21 @@
   window.resolveAlert = async function(id) {
     try {
       await postApi('/alerts/' + id + '/resolve', {});
+      _invalidateTabCache('alerts');
       await loadAlerts();
     } catch (e) {
-      alert('Error: ' + e.message);
+      showToast('Error: ' + e.message, 'error');
     }
   };
 
   window.refreshAlerts = async function() {
     try {
       await postApi('/alerts/refresh', {});
+      _invalidateTabCache('alerts');
       await loadAlerts();
+      showToast('Alerts refreshed', 'success');
     } catch (e) {
-      alert('Error refreshing alerts: ' + e.message);
+      showToast('Error refreshing alerts: ' + e.message, 'error');
     }
   };
 
@@ -692,6 +794,10 @@
     if (!loading) return;
 
     loading.style.display = '';
+    loading.innerHTML =
+      '<div class="skeleton skeleton-text" style="width:70%;margin:0 auto 8px"></div>' +
+      '<div class="skeleton skeleton-card" style="margin:0 auto;max-width:500px"></div>' +
+      '<div class="skeleton skeleton-card" style="margin:4px auto;max-width:500px"></div>';
     content.style.display = 'none';
     empty.style.display = 'none';
 
@@ -817,9 +923,11 @@
   window.refreshCoach = async function() {
     try {
       await postApi('/ai-coach/refresh', {});
+      _invalidateTabCache('coach');
       await loadCoach();
+      showToast('AI Coach refreshed', 'success');
     } catch (e) {
-      alert('Error refreshing AI Coach: ' + e.message);
+      showToast('Error refreshing AI Coach: ' + e.message, 'error');
     }
   };
 
@@ -1331,48 +1439,57 @@
   window.approveAction = async function(id) {
     try {
       await postApi('/automation/' + id + '/approve', {});
+      _invalidateTabCache('automation');
       await loadAutomation();
-    } catch (e) { alert('Error: ' + e.message); }
+      showToast('Action approved', 'success');
+    } catch (e) { showToast('Error: ' + e.message, 'error'); }
   };
 
   window.rejectAction = async function(id) {
     try {
       await postApi('/automation/' + id + '/reject', {});
+      _invalidateTabCache('automation');
       await loadAutomation();
-    } catch (e) { alert('Error: ' + e.message); }
+      showToast('Action rejected', 'info');
+    } catch (e) { showToast('Error: ' + e.message, 'error'); }
   };
 
-  window.executeAction = async function(id) {
-    if (!confirm('Execute this automation action?')) return;
-    try {
-      var result = await postApi('/automation/' + id + '/execute', {});
-      alert(result.message || 'Action executed');
-      await loadAutomation();
-    } catch (e) { alert('Error: ' + e.message); }
+  window.executeAction = function(id) {
+    confirmAction('Execute this automation action?', async function() {
+      try {
+        var result = await postApi('/automation/' + id + '/execute', {});
+        showToast(result.message || 'Action executed', 'success');
+        _invalidateTabCache('automation');
+        await loadAutomation();
+      } catch (e) { showToast('Error: ' + e.message, 'error'); }
+    });
   };
 
   window.generateAutomation = async function() {
     try {
       var result = await postApi('/automation/generate', {});
-      alert('Generated ' + (result.queued_count || 0) + ' proposals (' + (result.blocked_count || 0) + ' blocked)');
+      showToast('Generated ' + (result.queued_count || 0) + ' proposals (' + (result.blocked_count || 0) + ' blocked)', 'info');
+      _invalidateTabCache('automation');
       await loadAutomation();
-    } catch (e) { alert('Error: ' + e.message); }
+    } catch (e) { showToast('Error: ' + e.message, 'error'); }
   };
 
-  window.runAutomation = async function() {
-    if (!confirm('Execute all approved automation actions?')) return;
-    try {
-      // Execute each approved action
-      var pending = await fetchApi('/automation/actions?status=approved' + acctParam());
-      var actions = pending.actions || [];
-      var executed = 0;
-      for (var i = 0; i < actions.length; i++) {
-        await postApi('/automation/' + actions[i].id + '/execute', {});
-        executed++;
-      }
-      alert('Executed ' + executed + ' actions');
-      await loadAutomation();
-    } catch (e) { alert('Error: ' + e.message); }
+  window.runAutomation = function() {
+    confirmAction('Execute all approved automation actions?', async function() {
+      try {
+        // Execute each approved action
+        var pending = await fetchApi('/automation/actions?status=approved' + acctParam());
+        var actions = pending.actions || [];
+        var executed = 0;
+        for (var i = 0; i < actions.length; i++) {
+          await postApi('/automation/' + actions[i].id + '/execute', {});
+          executed++;
+        }
+        showToast('Executed ' + executed + ' actions', 'success');
+        _invalidateTabCache('automation');
+        await loadAutomation();
+      } catch (e) { showToast('Error: ' + e.message, 'error'); }
+    });
   };
 
   /* ─── Creative Intelligence ─── */
@@ -1446,9 +1563,11 @@
   window.collectCreatives = async function () {
     try {
       await postApi('/creatives/collect', {});
+      _invalidateTabCache('creatives');
       await loadCreatives();
+      showToast('Creatives synced', 'success');
     } catch (e) {
-      alert('Error collecting creatives: ' + e.message);
+      showToast('Error collecting creatives: ' + e.message, 'error');
     }
   };
 
@@ -1801,15 +1920,15 @@
       setTimeout(function() { row.classList.remove('ca-row-flash'); }, 2000);
     }
 
-    async function _handlePropose(btn) {
+    function _handlePropose(btn) {
       var d = btn.dataset;
-      var confirmMsg = 'Create automation proposal?\n\n' +
-        'Action: ' + (d.actionType || '') + '\n' +
-        'Campaign: ' + (d.entityName || '') + '\n\n' +
-        'This will be queued for your review in the Automation Center.\n' +
-        'No execution happens until you approve it there.';
-      if (!confirm(confirmMsg)) return;
+      var confirmMsg = 'Create automation proposal?\n\nAction: ' + (d.actionType || '') +
+        '\nCampaign: ' + (d.entityName || '') +
+        '\n\nThis will be queued for your review in the Automation Center. No execution happens until you approve it there.';
+      confirmAction(confirmMsg, function() { _doPropose(btn, d); });
+    }
 
+    async function _doPropose(btn, d) {
       btn.disabled = true;
       btn.textContent = '…';
 
@@ -2240,7 +2359,7 @@
     });
     if (tab === 'ideas') _csLoadIdeas();
     if (tab === 'assets') _csLoadAssets();
-    if (tab === 'publishing') _pubLoad();
+    if (tab === 'publishing') { _pubLoad(); _schedLoad(); }
     if (tab === 'brand') _csLoadBrandKit();
     if (tab === 'calendar') _calLoad();
     if (tab === 'intelligence') _intelLoad();
@@ -2386,28 +2505,30 @@
       });
       var data = await res.json();
       if (data && data.prompt_text) {
-        alert('Prompt built:\n\n' + data.prompt_text.slice(0, 300) + (data.prompt_text.length > 300 ? '…' : ''));
+        showToast('Prompt built and ready (' + data.prompt_text.length + ' chars)', 'success');
       }
     } catch (e) { /* silently skip */ }
   };
 
-  window.csGenerateImage = async function(ideaId) {
-    if (!confirm('Generate an AI image for this idea? (uses image generation credits)')) return;
-    try {
-      var res = await fetch('/api/content/assets/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ account_id: currentAccountId || 1, content_idea_id: ideaId }),
-      });
-      var data = await res.json();
-      if (data && data.asset) {
-        _csActiveTab = 'assets';
-        document.querySelectorAll('.cs-tab').forEach(function(b) {
-          b.classList.toggle('active', b.getAttribute('data-cs-tab') === 'assets');
+  window.csGenerateImage = function(ideaId) {
+    confirmAction('Generate an AI image for this idea? (uses image generation credits)', async function() {
+      try {
+        var res = await fetch('/api/content/assets/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ account_id: currentAccountId || 1, content_idea_id: ideaId }),
         });
-        _renderCSTab('assets');
-      }
-    } catch (e) { /* silently skip */ }
+        var data = await res.json();
+        if (data && data.asset) {
+          _csActiveTab = 'assets';
+          document.querySelectorAll('.cs-tab').forEach(function(b) {
+            b.classList.toggle('active', b.getAttribute('data-cs-tab') === 'assets');
+          });
+          _renderCSTab('assets');
+          showToast('Image generated successfully', 'success');
+        }
+      } catch (e) { /* silently skip */ }
+    });
   };
 
   // ── Publishing Engine ─────────────────────────────────────────────────────
@@ -2449,7 +2570,7 @@
     var token    = ($('#pubConnToken')    || {}).value || '';
     var igUser   = ($('#pubConnIgUser')   || {}).value || '';
     var pageId   = ($('#pubConnPageId')   || {}).value || '';
-    if (!token) { alert('Access token is required.'); return; }
+    if (!token) { showToast('Access token is required.', 'warning'); return; }
     try {
       var resp = await fetch('/api/content/connectors', {
         method: 'POST',
@@ -2464,9 +2585,9 @@
       if (data && !data.error) {
         if ($('#pubConnToken')) $('#pubConnToken').value = '';
         await _pubLoadConnectors();
-        alert('Connector saved. Use "Validate" to test credentials.');
+        showToast('Connector saved. Use "Validate" to test credentials.', 'success');
       } else {
-        alert('Error: ' + (data.error || 'Unknown'));
+        showToast('Error: ' + (data.error || 'Unknown'), 'error');
       }
     } catch (e) { /* silently skip */ }
   };
@@ -2481,9 +2602,9 @@
       });
       var data = await resp.json();
       if (data.valid) {
-        alert('✅ Credentials valid! Connected as: ' + (data.name || data.user_id || 'OK'));
+        showToast('Credentials valid! Connected as: ' + (data.name || data.user_id || 'OK'), 'success');
       } else {
-        alert('❌ Validation failed: ' + (data.error || 'Unknown error'));
+        showToast('Validation failed: ' + (data.error || 'Unknown error'), 'error');
       }
       await _pubLoadConnectors();
     } catch (e) { /* silently skip */ }
@@ -2593,7 +2714,7 @@
     var title = ($('#pubTitle') || {}).value || '';
     var platform = ($('#pubPlatform') || {}).value || 'instagram';
     var postType = ($('#pubPostType') || {}).value || 'image_post';
-    if (!title.trim()) { alert('Please enter a post title.'); return; }
+    if (!title.trim()) { showToast('Please enter a post title.', 'warning'); return; }
     try {
       await fetch('/api/content/posts', {
         method: 'POST',
@@ -2606,16 +2727,18 @@
     } catch (e) { /* silently skip */ }
   };
 
-  window.pubPublishNow = async function(postId) {
-    if (!confirm('Publish this post now?')) return;
-    try {
-      await fetch('/api/content/posts/' + postId + '/publish', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ account_id: currentAccountId || 1 }),
-      });
-      await _pubLoad();
-    } catch (e) { /* silently skip */ }
+  window.pubPublishNow = function(postId) {
+    confirmAction('Publish this post now?', async function() {
+      try {
+        await fetch('/api/content/posts/' + postId + '/publish', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ account_id: currentAccountId || 1 }),
+        });
+        showToast('Post publishing started', 'success');
+        await _pubLoad();
+      } catch (e) { showToast('Publish failed: ' + e.message, 'error'); }
+    });
   };
 
   window.pubSchedule = async function(postId) {
@@ -2631,15 +2754,18 @@
     } catch (e) { /* silently skip */ }
   };
 
-  window.pubArchive = async function(postId) {
-    try {
-      await fetch('/api/content/posts/' + postId + '/status', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ account_id: currentAccountId || 1, status: 'archived' }),
-      });
-      await _pubLoadPosts();
-    } catch (e) { /* silently skip */ }
+  window.pubArchive = function(postId) {
+    confirmAction('Archive this post draft? This cannot be undone.', async function() {
+      try {
+        await fetch('/api/content/posts/' + postId + '/status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ account_id: currentAccountId || 1, status: 'archived' }),
+        });
+        showToast('Post archived', 'info');
+        await _pubLoadPosts();
+      } catch (e) { /* silently skip */ }
+    });
   };
 
   async function _csGenerateIdeas() {
@@ -2862,6 +2988,51 @@
       await _intelLoad();
     } catch (e) {
       if (status) status.textContent = '✗ Sync failed';
+    }
+  };
+
+  // ── Publishing Monitor (Phase 8G) ─────────────────────────────────────────
+
+  async function _schedLoad() {
+    try {
+      var res = await fetch('/api/content/scheduler/status');
+      var data = await res.json();
+      var badge = document.getElementById('schedBadge');
+      var label = document.getElementById('schedLabel');
+      if (badge) {
+        badge.textContent = data.running ? 'Running' : 'Stopped';
+        badge.className = 'sched-badge ' + (data.running ? 'running' : 'stopped');
+      }
+      if (label) {
+        label.textContent = data.running
+          ? ('Started ' + (data.started_at ? _schedFmt(data.started_at) : '—'))
+          : 'Scheduler not running (started with web server)';
+      }
+      var el;
+      el = document.getElementById('schedExec');   if (el) el.textContent = data.jobs_executed  != null ? data.jobs_executed  : '—';
+      el = document.getElementById('schedFailed'); if (el) el.textContent = data.jobs_failed    != null ? data.jobs_failed    : '—';
+      el = document.getElementById('schedStuck');  if (el) el.textContent = data.stuck_resolved != null ? data.stuck_resolved : '—';
+      el = document.getElementById('schedLastRun'); if (el) el.textContent = data.last_run_at ? _schedFmt(data.last_run_at) : '—';
+    } catch (e) { /* ignore */ }
+  }
+
+  function _schedFmt(ts) {
+    try { return new Date(ts).toLocaleString(); } catch (e) { return ts; }
+  }
+
+  window.schedRefresh = function() { _schedLoad(); };
+
+  window.schedRunNow = async function() {
+    try {
+      var btn = document.querySelector('.sched-run-btn');
+      if (btn) { var orig = btn.textContent; btn.textContent = '…'; btn.disabled = true; }
+      var res = await fetch('/api/content/scheduler/run', { method: 'POST' });
+      var data = await res.json();
+      if (btn) { btn.textContent = orig; btn.disabled = false; }
+      showToast('Pass complete: ' + data.executed + ' executed, ' + data.failed + ' failed, ' + data.stuck_resolved + ' stuck resolved.', 'info');
+      _schedLoad();
+    } catch (e) {
+      showToast('Scheduler run failed.', 'error');
     }
   };
 
@@ -3093,7 +3264,7 @@
   window.calReschedule = async function() {
     if (!_calRescheduleId) return;
     var input = $('#calModalDate');
-    if (!input || !input.value) { alert('Please select a date and time.'); return; }
+    if (!input || !input.value) { showToast('Please select a date and time.', 'warning'); return; }
     try {
       var res  = await fetch('/api/content/calendar/reschedule', {
         method: 'POST',
@@ -3105,10 +3276,11 @@
         }),
       });
       var data = await res.json();
-      if (data.error) { alert('Error: ' + data.error); return; }
+      if (data.error) { showToast('Error: ' + data.error, 'error'); return; }
+      showToast('Post rescheduled', 'success');
       window.calCloseModal();
       _calLoad();
-    } catch (e) { alert('Failed to reschedule.'); }
+    } catch (e) { showToast('Failed to reschedule.', 'error'); }
   };
 
   function _acctQs() {
@@ -3118,6 +3290,59 @@
   function _esc(s) {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
+
+  /* ─── Hash-based Tab Routing ─── */
+  var _validHashSections = [
+    'coach', 'budget', 'alerts', 'forecast', 'reports',
+    'cross-platform', 'automation', 'creatives', 'copilot', 'content-studio', 'plan'
+  ];
+
+  var _hashSectionMap = {
+    'coach':          'coachSection',
+    'budget':         'budgetSection',
+    'alerts':         'alertsSection',
+    'forecast':       'forecastSection',
+    'reports':        'reportsSection',
+    'cross-platform': 'crossPlatformSection',
+    'automation':     'automationSection',
+    'creatives':      'creativeSection',
+    'copilot':        'copilotSection',
+    'content-studio': 'contentStudioSection',
+    'plan':           'planUsageSection',
+  };
+
+  function _scrollToHash(hash) {
+    var tab = hash.replace('#', '');
+    if (!tab || _validHashSections.indexOf(tab) === -1) return;
+    var sectionId = _hashSectionMap[tab];
+    if (!sectionId) return;
+    var el = document.getElementById(sectionId);
+    if (el) {
+      setTimeout(function() { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 400);
+    }
+  }
+
+  function _setHash(tabName) {
+    if (_validHashSections.indexOf(tabName) !== -1) {
+      history.replaceState(null, null, '#' + tabName);
+    }
+  }
+
+  // Expose for external use
+  window.a7SetHash = _setHash;
+
+  // Add click listeners to section headers for hash routing
+  document.querySelectorAll('.section-header .section-title').forEach(function(el) {
+    el.style.cursor = 'pointer';
+    el.title = 'Click to bookmark this section';
+    el.addEventListener('click', function() {
+      var section = el.closest('.section');
+      if (!section) return;
+      var id = section.id;
+      var tabName = Object.keys(_hashSectionMap).find(function(k) { return _hashSectionMap[k] === id; });
+      if (tabName) _setHash(tabName);
+    });
+  });
 
   /* ─── Init ─── */
   loadPlatformStatus();
@@ -3136,5 +3361,10 @@
   loadContentStudio();
   loadPlanUsage();
   startAutoRefresh();
+
+  // Handle hash on page load
+  if (window.location.hash) {
+    _scrollToHash(window.location.hash);
+  }
 
 })();

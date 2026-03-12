@@ -3,6 +3,7 @@
 from flask import Blueprint, jsonify, request
 
 from app.services.account_service import AccountService
+from app.routes.billing import enforce_copilot_limit
 
 copilot_bp = Blueprint("copilot", __name__)
 
@@ -33,6 +34,11 @@ def ask():
          follow_up_questions, confidence, confidence_reason, sources,
          context_summary, provider, generated_at}
     """
+    # Enforce copilot usage limit before doing any work
+    guard = enforce_copilot_limit()
+    if guard:
+        return guard
+
     body = request.get_json(silent=True) or {}
     question = (body.get("question") or "").strip()
     if not question:

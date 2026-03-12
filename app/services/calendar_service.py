@@ -194,7 +194,7 @@ class CalendarService:
     # Upcoming queue
     # ------------------------------------------------------------------
 
-    def get_upcoming(self, account_id, limit=20):
+    def get_upcoming(self, account_id, limit=50):
         """Return next N scheduled posts ordered by scheduled_for ASC."""
         conn = get_connection()
         try:

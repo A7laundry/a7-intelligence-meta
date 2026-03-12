@@ -4,7 +4,10 @@ import os
 import sqlite3
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-DB_PATH = os.path.join(BASE_DIR, "data", "a7_intelligence.db")
+_DEFAULT_DB_PATH = os.path.join(BASE_DIR, "data", "a7_intelligence.db")
+# A7_DB_PATH allows overriding the database location via environment variable.
+# On Railway, set A7_DB_PATH to a path on a persistent volume (e.g. /data/a7_intelligence.db).
+DB_PATH = os.environ.get("A7_DB_PATH", _DEFAULT_DB_PATH)
 SCHEMA_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "schema.sql")
 
 
@@ -454,6 +457,38 @@ def _run_migrations(conn):
         conn.execute("CREATE INDEX IF NOT EXISTS idx_content_insights_type    ON content_insights(insight_type)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_content_insights_post    ON content_insights(content_post_id)")
         conn.commit()
+
+    # Migration 13: composite indexes (idempotent — CREATE INDEX IF NOT EXISTS)
+    composite_indexes = [
+        "CREATE INDEX IF NOT EXISTS idx_metrics_account_date ON daily_snapshots(account_id, date DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_metrics_campaign_date ON campaign_snapshots(campaign_id, date DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_jobs_status_scheduled ON publishing_jobs(status, scheduled_for)",
+        "CREATE INDEX IF NOT EXISTS idx_ops_log_type_ts ON operations_log(operation_type, started_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_alerts_account_ts ON alerts(account_id, created_at DESC)",
+    ]
+    for idx_sql in composite_indexes:
+        try:
+            conn.execute(idx_sql)
+        except Exception:
+            pass
+    conn.commit()
+
+    # Migration 14: currency column on ad_accounts
+    if _table_exists(conn, "ad_accounts") and not _column_exists(conn, "ad_accounts", "currency"):
+        conn.execute("ALTER TABLE ad_accounts ADD COLUMN currency TEXT DEFAULT 'USD'")
+        conn.commit()
+
+    # Migration 15: frequency, reach, cpm columns on ad_metrics (if table exists)
+    if _table_exists(conn, "ad_metrics"):
+        if not _column_exists(conn, "ad_metrics", "frequency"):
+            conn.execute("ALTER TABLE ad_metrics ADD COLUMN frequency REAL")
+            conn.commit()
+        if not _column_exists(conn, "ad_metrics", "reach"):
+            conn.execute("ALTER TABLE ad_metrics ADD COLUMN reach INTEGER")
+            conn.commit()
+        if not _column_exists(conn, "ad_metrics", "cpm"):
+            conn.execute("ALTER TABLE ad_metrics ADD COLUMN cpm REAL")
+            conn.commit()
 
     _migrate_snapshots_table(conn, "creatives",
         """CREATE TABLE creatives_new (

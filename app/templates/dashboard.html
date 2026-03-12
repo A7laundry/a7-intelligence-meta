@@ -638,6 +638,23 @@
         </table>
       </div>
       <div id="pubJobsEmpty" class="cs-empty" style="display:none">No publishing jobs yet.</div>
+
+      <!-- Publishing Monitor (Phase 8G) -->
+      <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin:20px 0 8px;text-transform:uppercase;letter-spacing:.5px">Publishing Monitor</div>
+      <div class="sched-monitor">
+        <div class="sched-status-row">
+          <span class="sched-badge" id="schedBadge">—</span>
+          <span class="sched-label" id="schedLabel">Scheduler not started</span>
+          <button class="sched-run-btn" onclick="window.schedRunNow()">▶ Run Now</button>
+          <button class="sched-run-btn" style="background:var(--surface-alt);color:var(--text-muted)" onclick="window.schedRefresh()">↻ Refresh</button>
+        </div>
+        <div class="sched-kpi-row">
+          <div class="sched-kpi"><span class="sched-kpi-val" id="schedExec">—</span><span class="sched-kpi-lbl">Executed</span></div>
+          <div class="sched-kpi"><span class="sched-kpi-val" id="schedFailed">—</span><span class="sched-kpi-lbl">Failed</span></div>
+          <div class="sched-kpi"><span class="sched-kpi-val" id="schedStuck">—</span><span class="sched-kpi-lbl">Stuck Resolved</span></div>
+          <div class="sched-kpi"><span class="sched-kpi-val" id="schedLastRun" style="font-size:11px">—</span><span class="sched-kpi-lbl">Last Run</span></div>
+        </div>
+      </div>
     </div>
 
     <!-- Assets panel -->
@@ -773,6 +790,20 @@
   </div>
 </div>
 {% endblock %}
+
+<!-- Toast Container -->
+<div class="a7-toast-container" id="toastContainer"></div>
+
+<!-- Confirmation Modal -->
+<div id="confirmModal" class="modal-overlay" style="display:none">
+  <div class="modal-box">
+    <p id="confirmMsg">Are you sure?</p>
+    <div class="modal-actions">
+      <button id="confirmCancel" class="btn-secondary">Cancel</button>
+      <button id="confirmOk" class="btn-primary">Confirm</button>
+    </div>
+  </div>
+</div>
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>

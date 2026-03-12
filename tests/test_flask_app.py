@@ -3284,3 +3284,258 @@ class TestContentIntelligence:
         resp = client.get("/api/content/intelligence/reuse?account_id=1&days=30")
         assert resp.status_code == 200
         assert isinstance(resp.get_json(), list)
+
+
+# ── Phase 8G: Scheduler Loop ──────────────────────────────────────────────────
+
+class TestSchedulerLoop:
+    """Tests for Phase 8G: Content Scheduler + Auto-Publish Loop."""
+
+    ACCT = 400
+
+    # ── Scheduler status endpoint ─────────────────────────────────────────────
+
+    def test_scheduler_status_endpoint(self, client):
+        """GET /api/content/scheduler/status returns a status dict."""
+        resp = client.get("/api/content/scheduler/status")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "running" in data
+        assert "jobs_executed" in data
+        assert "jobs_failed" in data
+        assert "stuck_resolved" in data
+
+    def test_scheduler_status_has_expected_shape(self, client):
+        """Scheduler status contains all expected fields with correct types."""
+        resp = client.get("/api/content/scheduler/status")
+        data = resp.get_json()
+        assert isinstance(data["running"], bool)
+        assert isinstance(data["jobs_executed"], int)
+        assert isinstance(data["jobs_failed"], int)
+        assert isinstance(data["stuck_resolved"], int)
+
+    # ── Manual run endpoint ───────────────────────────────────────────────────
+
+    def test_scheduler_run_now_endpoint(self, client):
+        """POST /api/content/scheduler/run executes a pass and returns results."""
+        resp = client.post("/api/content/scheduler/run")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "executed" in data
+        assert "failed" in data
+        assert "stuck_resolved" in data
+        assert "run_at" in data
+
+    def test_scheduler_run_now_returns_numeric_counts(self, client):
+        """run_now returns non-negative integer counts."""
+        resp = client.post("/api/content/scheduler/run")
+        data = resp.get_json()
+        assert isinstance(data["executed"], int)
+        assert isinstance(data["failed"], int)
+        assert isinstance(data["stuck_resolved"], int)
+        assert data["executed"] >= 0
+        assert data["failed"] >= 0
+        assert data["stuck_resolved"] >= 0
+
+    # ── Webhook ingestion ─────────────────────────────────────────────────────
+
+    def test_webhook_requires_post_id(self, client):
+        """POST /api/content/publish/webhook without post_id returns 400."""
+        resp = client.post(
+            "/api/content/publish/webhook",
+            json={"status": "published"},
+            content_type="application/json",
+        )
+        assert resp.status_code == 400
+
+    def test_webhook_unknown_post_returns_404(self, client):
+        """POST /api/content/publish/webhook with unknown post_id returns 404."""
+        resp = client.post(
+            "/api/content/publish/webhook",
+            json={"post_id": 999999, "status": "published"},
+            content_type="application/json",
+        )
+        assert resp.status_code == 404
+
+    def test_webhook_updates_post_status(self, client):
+        """Webhook callback with status='published' marks the post published."""
+        from app.services.publishing_service import PublishingService
+        svc = PublishingService()
+        post = svc.create_post(account_id=self.ACCT, title="Webhook Test",
+                               platform_target="instagram")
+        assert "id" in post
+
+        resp = client.post(
+            "/api/content/publish/webhook",
+            json={
+                "post_id": post["id"],
+                "external_post_id": "ext_webhook_123",
+                "status": "published",
+            },
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data.get("success") is True
+        assert data.get("ingested") is True
+
+        updated = svc.get_post(post["id"], account_id=self.ACCT)
+        assert updated["status"] == "published"
+        assert updated["external_post_id"] == "ext_webhook_123"
+
+    def test_webhook_ingests_metrics(self, client):
+        """Webhook callback with metrics dict upserts into content_metrics."""
+        from app.services.publishing_service import PublishingService
+        from app.db.init_db import get_connection
+
+        svc = PublishingService()
+        post = svc.create_post(account_id=self.ACCT + 1, title="Webhook Metrics",
+                               platform_target="facebook")
+        assert "id" in post
+
+        resp = client.post(
+            "/api/content/publish/webhook",
+            json={
+                "post_id": post["id"],
+                "status": "published",
+                "metrics": {
+                    "impressions": 1500,
+                    "reach": 1200,
+                    "clicks": 80,
+                    "engagement": 100,
+                    "likes": 60,
+                    "comments": 20,
+                    "shares": 10,
+                    "saves": 10,
+                    "ctr": 0.053,
+                },
+            },
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+
+        conn = get_connection()
+        row = conn.execute(
+            "SELECT * FROM content_metrics WHERE content_post_id=?", (post["id"],)
+        ).fetchone()
+        conn.close()
+        assert row is not None
+        assert row["impressions"] == 1500
+        assert row["likes"] == 60
+
+    def test_webhook_idempotent_on_repeat(self, client):
+        """Calling webhook twice does not create duplicate metrics rows."""
+        from app.services.publishing_service import PublishingService
+        from app.db.init_db import get_connection
+
+        svc = PublishingService()
+        post = svc.create_post(account_id=self.ACCT + 2, title="Idempotent Webhook",
+                               platform_target="instagram")
+
+        payload = {
+            "post_id": post["id"],
+            "status": "published",
+            "metrics": {"impressions": 500, "likes": 30, "ctr": 0.02},
+        }
+        client.post("/api/content/publish/webhook", json=payload,
+                    content_type="application/json")
+        client.post("/api/content/publish/webhook", json=payload,
+                    content_type="application/json")
+
+        conn = get_connection()
+        count = conn.execute(
+            "SELECT COUNT(*) FROM content_metrics WHERE content_post_id=?", (post["id"],)
+        ).fetchone()[0]
+        conn.close()
+        assert count == 1  # Idempotent: only one row per post per day
+
+    # ── Stuck job detection ───────────────────────────────────────────────────
+
+    def test_stuck_job_detection(self, client):
+        """Stuck jobs in 'publishing' state older than threshold are resolved."""
+        from app.services.publishing_service import PublishingService
+        from app.db.init_db import get_connection
+        from datetime import datetime, timezone, timedelta
+
+        svc = PublishingService()
+        post = svc.create_post(account_id=self.ACCT + 3, title="Stuck Job Post",
+                               platform_target="instagram")
+
+        # Create a job and manually set it to 'publishing' with old timestamp
+        job = svc._create_job(
+            account_id=self.ACCT + 3,
+            post_id=post["id"],
+            platform_target="instagram",
+            job_type="publish_now",
+            status="publishing",
+        )
+        old_ts = (datetime.now(timezone.utc) - timedelta(minutes=15)).strftime(
+            "%Y-%m-%dT%H:%M:%S"
+        )
+        conn = get_connection()
+        conn.execute(
+            "UPDATE publishing_jobs SET updated_at=? WHERE id=?",
+            (old_ts, job["id"]),
+        )
+        conn.commit()
+        conn.close()
+
+        # Run the scheduler loop — should detect and resolve the stuck job
+        resp = client.post("/api/content/scheduler/run")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["stuck_resolved"] >= 1
+
+        conn = get_connection()
+        row = conn.execute(
+            "SELECT status FROM publishing_jobs WHERE id=?", (job["id"],)
+        ).fetchone()
+        conn.close()
+        assert row["status"] == "failed"
+
+    # ── Service-level run_publishing_loop ─────────────────────────────────────
+
+    def test_run_publishing_loop_returns_expected_keys(self, client):
+        """run_publishing_loop() returns dict with required keys."""
+        from app.services.scheduler_loop_service import run_publishing_loop
+        result = run_publishing_loop()
+        assert "run_at" in result
+        assert "executed" in result
+        assert "failed" in result
+        assert "stuck_resolved" in result
+
+    def test_scheduler_status_tracks_totals(self, client):
+        """get_scheduler_status accumulates totals across multiple passes."""
+        from app.services import scheduler_loop_service as sls
+        # Reset status counters for this test
+        with sls._status_lock:
+            sls._status["jobs_executed"] = 0
+            sls._status["jobs_failed"] = 0
+            sls._status["stuck_resolved"] = 0
+
+        sls.run_publishing_loop()
+        sls.run_publishing_loop()
+
+        status = sls.get_scheduler_status()
+        assert isinstance(status["jobs_executed"], int)
+        assert isinstance(status["jobs_failed"], int)
+        assert status["last_run_at"] is not None
+
+    def test_operations_log_records_loop_pass(self, client):
+        """Each scheduler pass writes a record to operations_log."""
+        from app.db.init_db import get_connection
+        from app.services.scheduler_loop_service import run_publishing_loop
+
+        before_count_row = get_connection().execute(
+            "SELECT COUNT(*) FROM operations_log WHERE operation_type='publishing_loop'"
+        ).fetchone()
+        before_count = before_count_row[0]
+
+        run_publishing_loop()
+
+        conn = get_connection()
+        after_count = conn.execute(
+            "SELECT COUNT(*) FROM operations_log WHERE operation_type='publishing_loop'"
+        ).fetchone()[0]
+        conn.close()
+        assert after_count == before_count + 1

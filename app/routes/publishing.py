@@ -5,6 +5,7 @@ from flask import Blueprint, jsonify, request
 publishing_bp = Blueprint("publishing", __name__)
 
 _svc = None
+_conn_svc = None
 
 
 def _get_svc():
@@ -13,6 +14,14 @@ def _get_svc():
         from app.services.publishing_service import PublishingService
         _svc = PublishingService()
     return _svc
+
+
+def _get_conn_svc():
+    global _conn_svc
+    if _conn_svc is None:
+        from app.services.social_connector_service import SocialConnectorService
+        _conn_svc = SocialConnectorService()
+    return _conn_svc
 
 
 def _account_id():
@@ -130,6 +139,110 @@ def run_due_jobs():
     acct = body.get("account_id") or _account_id()
     try:
         result = _get_svc().run_due_jobs(account_id=acct)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ── Social Connectors ────────────────────────────────────────────────────────
+
+
+@publishing_bp.route("/content/connectors", methods=["GET"])
+def list_connectors():
+    acct = _account_id() or 1
+    try:
+        connectors = _get_conn_svc().list_connectors(account_id=acct)
+        # Strip sensitive access_token from list response
+        for c in connectors:
+            if "access_token" in c:
+                c["access_token"] = "***" if c["access_token"] else ""
+        return jsonify(connectors)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@publishing_bp.route("/content/connectors", methods=["POST"])
+def save_connector():
+    body = request.get_json(silent=True) or {}
+    acct = body.get("account_id") or _account_id() or 1
+    platform = body.get("platform")
+    if not platform:
+        return jsonify({"error": "platform is required"}), 400
+    try:
+        result = _get_conn_svc().save_connector(
+            account_id=acct,
+            platform=platform,
+            access_token=body.get("access_token", ""),
+            page_id=body.get("page_id", ""),
+            ig_user_id=body.get("ig_user_id", ""),
+        )
+        if "error" in result:
+            return jsonify(result), 422
+        # Mask token in response
+        if "access_token" in result:
+            result["access_token"] = "***" if result["access_token"] else ""
+        return jsonify(result), 201
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@publishing_bp.route("/content/connectors/validate", methods=["POST"])
+def validate_connector():
+    body = request.get_json(silent=True) or {}
+    acct = body.get("account_id") or _account_id() or 1
+    platform = body.get("platform")
+    if not platform:
+        return jsonify({"error": "platform is required"}), 400
+    try:
+        result = _get_conn_svc().validate_connector(account_id=acct, platform=platform)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ── Webhook ──────────────────────────────────────────────────────────────────
+
+
+@publishing_bp.route("/content/publish/webhook", methods=["POST"])
+def publish_webhook():
+    """Ingest provider webhook callbacks to update post/job status and metrics."""
+    body = request.get_json(silent=True) or {}
+    post_id = body.get("post_id") or body.get("content_post_id")
+    if not post_id:
+        return jsonify({"error": "post_id is required"}), 400
+    try:
+        result = _get_svc().ingest_webhook(
+            post_id=int(post_id),
+            external_post_id=body.get("external_post_id", ""),
+            status=body.get("status", ""),
+            metrics=body.get("metrics") or {},
+        )
+        if "error" in result:
+            return jsonify(result), 404
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ── Scheduler status ──────────────────────────────────────────────────────────
+
+
+@publishing_bp.route("/content/scheduler/status", methods=["GET"])
+def scheduler_status():
+    """Return the current publishing scheduler status."""
+    try:
+        from app.services.scheduler_loop_service import get_scheduler_status
+        return jsonify(get_scheduler_status())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@publishing_bp.route("/content/scheduler/run", methods=["POST"])
+def scheduler_run_now():
+    """Trigger a single scheduler pass immediately (for manual/testing use)."""
+    try:
+        from app.services.scheduler_loop_service import run_publishing_loop
+        result = run_publishing_loop()
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e)}), 500

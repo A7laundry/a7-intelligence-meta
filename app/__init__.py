@@ -1,8 +1,11 @@
 """A7 Intelligence — Flask Application Factory."""
 
+import os
+
 from flask import Flask
 
 from app.db.init_db import init_db, get_connection
+from app.version import VERSION
 
 
 def create_app():
@@ -13,8 +16,23 @@ def create_app():
         static_folder="static",
     )
 
-    app.config["SECRET_KEY"] = "a7-intelligence-dev-key"
+    secret_key = os.environ.get("SECRET_KEY")
+    if not secret_key:
+        if os.environ.get("FLASK_ENV") == "production" or os.environ.get("RAILWAY_ENVIRONMENT"):
+            # On Railway without SECRET_KEY set, generate a stable-per-process key
+            # and warn loudly — user should set SECRET_KEY in Railway env vars.
+            import warnings
+            warnings.warn(
+                "SECRET_KEY env var is not set. Sessions will not persist across "
+                "restarts. Set SECRET_KEY in Railway environment variables.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+        secret_key = "a7-intelligence-dev-key"
+
+    app.config["SECRET_KEY"] = secret_key
     app.config["JSON_SORT_KEYS"] = False
+    app.config["VERSION"] = VERSION
 
     # Initialize database on first request
     init_db()
@@ -70,9 +88,28 @@ def create_app():
     from app.routes.content_intelligence import content_intelligence_bp
     app.register_blueprint(content_intelligence_bp, url_prefix="/api")
 
+    # Register API key middleware (no-op if A7_API_KEY not set)
+    from app.middleware.auth import register_auth_middleware
+    register_auth_middleware(app)
+
+    # Start background publishing scheduler (skip during testing or when disabled)
+    scheduler_enabled = (
+        not app.testing
+        and os.environ.get("A7_DISABLE_SCHEDULER") != "1"
+    )
+    if scheduler_enabled:
+        from app.services.scheduler_loop_service import start_publishing_scheduler
+        start_publishing_scheduler(app)
+
+    env_label = os.environ.get("RAILWAY_ENVIRONMENT", os.environ.get("FLASK_ENV", "development"))
+    print(
+        f"[A7] v{VERSION} started | env={env_label} | "
+        f"scheduler={'enabled' if scheduler_enabled else 'disabled'}"
+    )
+
     # Template context processor
     @app.context_processor
     def inject_globals():
-        return {"app_name": "A7 Intelligence", "version": "2.0.0"}
+        return {"app_name": "A7 Intelligence", "version": VERSION}
 
     return app

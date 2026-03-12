@@ -472,3 +472,10 @@ CREATE INDEX IF NOT EXISTS idx_content_metrics_date     ON content_metrics(metri
 CREATE INDEX IF NOT EXISTS idx_content_insights_account ON content_insights(account_id);
 CREATE INDEX IF NOT EXISTS idx_content_insights_type    ON content_insights(insight_type);
 CREATE INDEX IF NOT EXISTS idx_content_insights_post    ON content_insights(content_post_id);
+
+-- High-impact composite indexes
+CREATE INDEX IF NOT EXISTS idx_metrics_account_date ON daily_snapshots(account_id, date DESC);
+CREATE INDEX IF NOT EXISTS idx_metrics_campaign_date ON campaign_snapshots(campaign_id, date DESC);
+CREATE INDEX IF NOT EXISTS idx_jobs_status_scheduled ON publishing_jobs(status, scheduled_for);
+CREATE INDEX IF NOT EXISTS idx_ops_log_type_ts ON operations_log(operation_type, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_alerts_account_ts ON alerts(account_id, created_at DESC);
