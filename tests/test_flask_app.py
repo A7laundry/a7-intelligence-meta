@@ -2459,3 +2459,253 @@ class TestPublishingEngine:
         data = resp.get_json()
         assert data["post"]["status"] == "published"
         assert data["result"]["success"] is True
+
+
+class TestSocialConnectors:
+    """Phase 8D — Social Connector Integration."""
+
+    def test_save_and_get_connector(self):
+        """save_connector() upserts and get_connector() retrieves credentials."""
+        from app.db.init_db import init_db
+        from app.services.social_connector_service import SocialConnectorService
+        init_db()
+        svc = SocialConnectorService()
+        result = svc.save_connector(
+            account_id=1, platform="instagram",
+            access_token="test_access_token", ig_user_id="12345",
+        )
+        assert "id" in result
+        assert result["platform"] == "instagram"
+        assert result["ig_user_id"] == "12345"
+        # Retrieve
+        connector = svc.get_connector(account_id=1, platform="instagram")
+        assert connector is not None
+        assert connector["access_token"] == "test_access_token"
+
+    def test_save_connector_upsert(self):
+        """Calling save_connector twice updates the same row."""
+        from app.db.init_db import init_db, get_connection
+        from app.services.social_connector_service import SocialConnectorService
+        init_db()
+        svc = SocialConnectorService()
+        svc.save_connector(account_id=1, platform="facebook_page",
+                           access_token="tok_v1", page_id="page_001")
+        svc.save_connector(account_id=1, platform="facebook_page",
+                           access_token="tok_v2", page_id="page_001")
+        conn = get_connection()
+        count = conn.execute(
+            "SELECT COUNT(*) FROM social_connectors WHERE account_id=1 AND platform='facebook_page'"
+        ).fetchone()[0]
+        conn.close()
+        assert count == 1
+        connector = svc.get_connector(account_id=1, platform="facebook_page")
+        assert connector["access_token"] == "tok_v2"
+
+    def test_list_connectors(self):
+        """list_connectors() returns all connectors for an account."""
+        from app.db.init_db import init_db
+        from app.services.social_connector_service import SocialConnectorService
+        init_db()
+        svc = SocialConnectorService()
+        svc.save_connector(account_id=99, platform="instagram", access_token="tok_ig")
+        svc.save_connector(account_id=99, platform="facebook_page", access_token="tok_fb")
+        connectors = svc.list_connectors(account_id=99)
+        assert len(connectors) == 2
+        platforms = [c["platform"] for c in connectors]
+        assert "instagram" in platforms
+        assert "facebook_page" in platforms
+
+    def test_connector_validation_mocked_http(self):
+        """validate_connector() updates status to connected when mock returns valid user."""
+        from app.db.init_db import init_db
+        from app.services.social_connector_service import SocialConnectorService
+        from app.services.publishing_connector_service import PublishingConnectorService
+        init_db()
+        conn_svc = SocialConnectorService()
+        conn_svc.save_connector(account_id=1, platform="instagram",
+                                access_token="fake_token", ig_user_id="12345")
+        # Mock the HTTP layer
+        pub_conn = PublishingConnectorService()
+        pub_conn._http_get = lambda url, params=None: {"id": "12345", "name": "Test User"}
+        # Patch it in module scope for the validate call
+        import unittest.mock
+        with unittest.mock.patch.object(PublishingConnectorService, '_http_get',
+                                        lambda self, url, params=None: {"id": "12345", "name": "Test User"}):
+            result = conn_svc.validate_connector(account_id=1, platform="instagram")
+        assert result["valid"] is True
+        assert result["user_id"] == "12345"
+        # Status updated
+        connector = conn_svc.get_connector(account_id=1, platform="instagram")
+        assert connector["status"] == "connected"
+
+    def test_connector_validation_failed_http(self):
+        """validate_connector() marks status invalid on error response."""
+        from app.db.init_db import init_db
+        from app.services.social_connector_service import SocialConnectorService
+        from app.services.publishing_connector_service import PublishingConnectorService
+        init_db()
+        conn_svc = SocialConnectorService()
+        conn_svc.save_connector(account_id=1, platform="facebook_page",
+                                access_token="bad_token", page_id="page_001")
+        import unittest.mock
+        with unittest.mock.patch.object(
+            PublishingConnectorService, '_http_get',
+            lambda self, url, params=None: {"error": {"message": "Invalid OAuth token", "code": 190}}
+        ):
+            result = conn_svc.validate_connector(account_id=1, platform="facebook_page")
+        assert result["valid"] is False
+        connector = conn_svc.get_connector(account_id=1, platform="facebook_page")
+        assert connector["status"] == "invalid"
+
+    def test_instagram_publish_with_mocked_http(self):
+        """publish_post_now uses real IG connector when credentials configured (mocked HTTP)."""
+        from app.db.init_db import init_db
+        from app.services.social_connector_service import SocialConnectorService
+        from app.services.publishing_service import PublishingService
+        from app.services.publishing_connector_service import PublishingConnectorService
+        import unittest.mock
+        init_db()
+        # Configure connected connector
+        conn_svc = SocialConnectorService()
+        conn_svc.save_connector(account_id=1, platform="instagram",
+                                access_token="valid_token", ig_user_id="ig_123",
+                                status="connected")
+        # Ensure it's marked connected
+        conn_svc.update_status(1, "instagram", "connected")
+        # Create asset so asset_url is non-empty (required for IG publish)
+        from app.services.content_studio_service import ContentStudioService
+        asset = ContentStudioService().create_asset(
+            account_id=1,
+            asset_url="https://placehold.co/1024x1024/3B82F6/ffffff?text=test",
+            thumbnail_url="https://placehold.co/256x256/3B82F6/ffffff?text=test",
+        )
+        # Create post
+        post = PublishingService().create_post(
+            account_id=1, title="IG real test", platform_target="instagram",
+            creative_asset_id=asset["id"]
+        )
+        # Mock two-step IG publish
+        call_log = []
+        def fake_http_post_form(self_inner, url, data):
+            call_log.append(url)
+            if "media_publish" in url:
+                return {"id": "post_789"}
+            return {"id": "container_123"}
+        with unittest.mock.patch.object(PublishingConnectorService, '_http_post_form',
+                                        fake_http_post_form):
+            result = PublishingService().publish_post_now(post["id"], account_id=1)
+        assert result["post"]["status"] == "published"
+        assert result["post"]["external_post_id"] == "post_789"
+        assert result["result"]["provider"] == "instagram"
+        assert len(call_log) == 2  # container create + publish
+
+    def test_facebook_publish_with_mocked_http(self):
+        """publish_post_now uses FB Page connector when configured (mocked HTTP)."""
+        from app.db.init_db import init_db
+        from app.services.social_connector_service import SocialConnectorService
+        from app.services.publishing_service import PublishingService
+        from app.services.publishing_connector_service import PublishingConnectorService
+        import unittest.mock
+        init_db()
+        conn_svc = SocialConnectorService()
+        conn_svc.save_connector(account_id=1, platform="facebook_page",
+                                access_token="fb_token", page_id="pg_456",
+                                status="connected")
+        conn_svc.update_status(1, "facebook_page", "connected")
+        from app.services.content_studio_service import ContentStudioService
+        fb_asset = ContentStudioService().create_asset(
+            account_id=1,
+            asset_url="https://placehold.co/1024x1024/3B82F6/ffffff?text=fb",
+            thumbnail_url="https://placehold.co/256x256/3B82F6/ffffff?text=fb",
+        )
+        post = PublishingService().create_post(
+            account_id=1, title="FB page test", platform_target="facebook_page",
+            creative_asset_id=fb_asset["id"]
+        )
+        def fake_http_post_form(self_inner, url, data):
+            return {"post_id": "fb_post_999", "id": "99999"}
+        with unittest.mock.patch.object(PublishingConnectorService, '_http_post_form',
+                                        fake_http_post_form):
+            result = PublishingService().publish_post_now(post["id"], account_id=1)
+        assert result["post"]["status"] == "published"
+        assert result["post"]["external_post_id"] == "fb_post_999"
+        assert result["result"]["provider"] == "facebook_page"
+
+    def test_fallback_to_mock_when_no_connector(self):
+        """publish_post_now falls back to mock when no connector configured."""
+        from app.db.init_db import init_db
+        from app.services.publishing_service import PublishingService
+        import os
+        os.environ.pop("PUBLISHING_PROVIDER", None)
+        init_db()
+        post = PublishingService().create_post(
+            account_id=98, title="No connector fallback", platform_target="tiktok"
+        )
+        result = PublishingService().publish_post_now(post["id"], account_id=98)
+        assert result["post"]["status"] == "published"
+        assert result["result"]["provider"] == "mock"
+
+    def test_retry_scheduled_on_transient_failure(self):
+        """Failed publish (non-credential) schedules a retry job."""
+        from app.db.init_db import init_db
+        from app.services.social_connector_service import SocialConnectorService
+        from app.services.publishing_service import PublishingService
+        from app.services.publishing_connector_service import PublishingConnectorService
+        import unittest.mock
+        init_db()
+        conn_svc = SocialConnectorService()
+        conn_svc.save_connector(account_id=1, platform="instagram",
+                                access_token="ok_token", ig_user_id="ig_retry",
+                                status="connected")
+        conn_svc.update_status(1, "instagram", "connected")
+        post = PublishingService().create_post(
+            account_id=1, title="Retry test post", platform_target="instagram"
+        )
+        # Simulate transient network error (not credential error)
+        def fake_post_form(self_inner, url, data):
+            raise Exception("Connection timeout")
+        with unittest.mock.patch.object(PublishingConnectorService, '_http_post_form',
+                                        fake_post_form):
+            result = PublishingService().publish_post_now(post["id"], account_id=1)
+        assert result["post"]["status"] == "failed"
+        # Job should be in retrying state
+        jobs = PublishingService().list_jobs(account_id=1)
+        post_jobs = [j for j in jobs if j["content_post_id"] == post["id"]]
+        assert len(post_jobs) >= 1
+        retry_jobs = [j for j in post_jobs if j["status"] == "retrying"]
+        assert len(retry_jobs) >= 1
+        assert retry_jobs[0]["retry_count"] == 1
+        assert retry_jobs[0]["next_retry_at"] is not None
+
+    def test_connector_endpoints(self, client):
+        """POST + GET /api/content/connectors round-trip works."""
+        from app.db.init_db import init_db
+        init_db()
+        resp = client.post("/api/content/connectors",
+                           json={"account_id": 1, "platform": "instagram",
+                                 "access_token": "api_test_tok", "ig_user_id": "api_ig"},
+                           content_type="application/json")
+        assert resp.status_code == 201
+        data = resp.get_json()
+        assert data["platform"] == "instagram"
+        assert data["access_token"] == "***"  # masked in response
+        # List
+        resp2 = client.get("/api/content/connectors?account_id=1")
+        assert resp2.status_code == 200
+        connectors = resp2.get_json()
+        assert isinstance(connectors, list)
+        assert any(c["platform"] == "instagram" for c in connectors)
+
+    def test_account_isolation_connectors(self):
+        """Connectors are scoped per account."""
+        from app.db.init_db import init_db
+        from app.services.social_connector_service import SocialConnectorService
+        init_db()
+        svc = SocialConnectorService()
+        svc.save_connector(account_id=10, platform="instagram", access_token="tok_10")
+        svc.save_connector(account_id=20, platform="instagram", access_token="tok_20")
+        c10 = svc.get_connector(account_id=10, platform="instagram")
+        c20 = svc.get_connector(account_id=20, platform="instagram")
+        assert c10["access_token"] == "tok_10"
+        assert c20["access_token"] == "tok_20"
+        assert svc.list_connectors(account_id=10) != svc.list_connectors(account_id=20)
