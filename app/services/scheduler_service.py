@@ -30,22 +30,33 @@ class SchedulerService:
     """Manages scheduled job execution with logging and observability."""
 
     def run_snapshot_job(self):
-        """Collect metrics snapshot from live APIs and store in database."""
+        """Collect metrics snapshot for ALL accounts and store in database."""
         started = datetime.utcnow()
         try:
             init_db()
             from app.services.dashboard_service import DashboardService
+            from app.services.account_service import AccountService
             svc = DashboardService()
-            data = svc.fetch_and_store("today")
-            spend = data.get("summary", {}).get("total", {}).get("spend", 0)
-            conv = data.get("summary", {}).get("total", {}).get("conversions", 0)
-            msg = f"Snapshot stored. Spend: ${spend:.2f}, Conversions: {conv}"
-            self._log_operation("snapshot", "success", msg, {"spend": spend, "conversions": conv}, started)
-            return {"status": "success", "message": msg, "spend": spend, "conversions": conv}
+            accounts = AccountService.get_all()
+            total_spend = 0
+            total_conv = 0
+            for acc in accounts:
+                acc_id = acc["id"]
+                try:
+                    data = svc.fetch_and_store("today", account_id=acc_id)
+                    spend = data.get("summary", {}).get("total", {}).get("spend", 0)
+                    conv = data.get("summary", {}).get("total", {}).get("conversions", 0)
+                    total_spend += spend
+                    total_conv += conv
+                    AccountService.update_last_sync(acc_id)
+                except Exception:
+                    pass
+            msg = f"Snapshot stored. Spend: ${total_spend:.2f}, Conversions: {total_conv}"
+            self._log_operation("snapshot", "success", msg, {"spend": total_spend, "conversions": total_conv}, started)
+            return {"status": "success", "message": msg, "spend": total_spend, "conversions": total_conv}
         except Exception as e:
             msg = f"Snapshot failed: {str(e)}"
             self._log_operation("snapshot", "failed", msg, {"error": str(e)}, started)
-            # Create alert for snapshot failure
             self._create_failure_alert("snapshot_failure", msg)
             return {"status": "failed", "message": msg}
 
