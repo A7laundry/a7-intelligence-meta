@@ -8,6 +8,12 @@
   let currentRange = document.querySelector('.range-btn.active')?.getAttribute('data-range') || '7d';
   let trendChart = null;
 
+  // Command Center chart instances (destroyed/recreated on reload)
+  let _ccSpendChart    = null;
+  let _ccConvChart     = null;
+  let _ccCtrCpcChart   = null;
+  let _ccTopCampChart  = null;
+
   /* ─── Account Context ─── */
   let currentAccountId = null;
   let _accountsCache = [];
@@ -272,6 +278,8 @@
   });
 
   function loadAllSections() {
+    // Reset lazy-loader cache so account-specific pages reload fresh
+    _calledLoaders.clear();
     loadGrowthScore();
     loadBudget();
     loadAlerts();
@@ -280,6 +288,12 @@
     loadAutoLogs();
     loadCreatives();
     loadAccountOverview();
+    // Re-run current page's lazy loaders (e.g. Command Center on overview)
+    var activePage = document.querySelector('.page-section.active');
+    if (activePage) {
+      var pageId = activePage.id.replace('page-', '');
+      _runPageLoaders(pageId);
+    }
   }
 
   const $ = (sel) => document.querySelector(sel);
@@ -378,6 +392,21 @@
       $('#kpiGoogleImpressions').textContent = 'G: ' + fmt(g.impressions);
       $('#kpiMetaClicks').textContent = 'M: ' + fmt(m.clicks);
       $('#kpiGoogleClicks').textContent = 'G: ' + fmt(g.clicks);
+    }
+
+    // Extended KPIs
+    _animateKpiEl($('#kpiRoas'), t.roas, function(v) { return (v || 0).toFixed(2) + 'x'; });
+    $('#kpiRoasChange').innerHTML = '';
+
+    const cs = data.campaign_stats || {};
+    if ($('#kpiActiveCampaigns')) {
+      $('#kpiActiveCampaigns').textContent = cs.active != null ? cs.active : '—';
+      $('#kpiCampaignTotal').textContent = cs.total != null ? 'of ' + cs.total + ' total' : '';
+    }
+    if ($('#kpiTopCampaign')) {
+      $('#kpiTopCampaign').textContent = cs.top_campaign || '—';
+      $('#kpiWorstCampaign').textContent = cs.worst_campaign && cs.worst_campaign !== '—'
+        ? 'Worst CPA: ' + cs.worst_campaign : '';
     }
   }
 
@@ -740,7 +769,7 @@
     refreshBtn.addEventListener('click', async () => {
       refreshBtn.classList.add('spinning');
       try {
-        await postApi('/dashboard/refresh', {});
+        await postApi('/dashboard/refresh' + (currentAccountId ? '?account_id=' + currentAccountId : ''), {});
         await load(currentRange);
         showToast('Data refreshed', 'success');
       } catch (e) {
@@ -1027,7 +1056,7 @@
               document.querySelector('[onclick*="refreshAlerts"]');
     setButtonLoading(btn, true, 'Refreshing...');
     try {
-      await postApi('/alerts/refresh', {});
+      await postApi('/alerts/refresh' + (currentAccountId ? '?account_id=' + currentAccountId : ''), {});
       _invalidateTabCache('alerts');
       await loadAlerts();
       showToast('Alerts refreshed', 'success');
@@ -1246,7 +1275,7 @@
               document.querySelector('[onclick*="refreshCoach"]');
     setButtonLoading(btn, true, 'Refreshing...');
     try {
-      await postApi('/ai-coach/refresh', {});
+      await postApi('/ai-coach/refresh' + (currentAccountId ? '?account_id=' + currentAccountId : ''), {});
       _invalidateTabCache('coach');
       await loadCoach();
       showToast('AI Coach refreshed', 'success');
@@ -2044,7 +2073,7 @@
               document.querySelector('[onclick*="collectCreatives"]');
     setButtonLoading(btn, true, 'Syncing...');
     try {
-      await postApi('/creatives/collect', {});
+      await postApi('/creatives/collect' + (currentAccountId ? '?account_id=' + currentAccountId : ''), {});
       _invalidateTabCache('creatives');
       await loadCreatives();
       showToast('Creatives synced', 'success');
@@ -4517,7 +4546,13 @@
       var data = await res.json();
       if (!res.ok) throw new Error(data.error || 'API error');
 
+      _renderCCPulse(data.insights || [], data.period_comparison || null);
       _renderCCKpis(data.kpis);
+      _renderCCTrends(data.trend || []);
+      _renderCCTopCamps(data.top_campaigns || []);
+      _renderCCWorst(data.worst_campaigns || []);
+      _renderCCDist(data.campaign_distribution || {});
+      _renderCCAlertCluster(data.alert_severity || {});
       _renderCCAttention(data.attention);
       _renderCCOpps(data.opportunities || []);
       _renderCCHealth(data.health);
@@ -4528,6 +4563,204 @@
       loadWrap.innerHTML = '<div class="cc-empty">Failed to load command center — ' + _escCC(String(e.message)) + '</div>';
     }
   }
+
+  /* ─── Command Center: Performance Pulse Strip ─── */
+
+  var _PULSE_ICONS = {
+    critical: '●',
+    negative: '▼',
+    warning:  '◬',
+    positive: '▲',
+    neutral:  '◆',
+  };
+
+  function _pulseDir(ch) {
+    if (ch === null || ch === undefined) return 'flat';
+    return ch > 0 ? 'up' : ch < 0 ? 'down' : 'flat';
+  }
+
+  function _pulseFmt(ch, invertSign) {
+    // invertSign=true for metrics where up is bad (CPA, CPC)
+    if (ch === null || ch === undefined) return null;
+    var sign = ch > 0 ? '+' : '';
+    var dir  = invertSign ? (ch > 0 ? 'down' : ch < 0 ? 'up' : 'flat') : _pulseDir(ch);
+    return { text: sign + ch.toFixed(1) + '%', dir: dir };
+  }
+
+  function _renderCCPulse(insights, comparison) {
+    var strip   = document.getElementById('ccPulseStrip');
+    var deltas  = document.getElementById('ccPulseDeltas');
+    var list    = document.getElementById('ccPulseList');
+    if (!strip) return;
+
+    // Hide strip when there's nothing to show
+    if (!insights.length && !comparison) { strip.style.display = 'none'; return; }
+    strip.style.display = '';
+
+    // ── Period delta summary (compact badges) ──────────────────────────────
+    if (deltas && comparison && comparison.changes) {
+      var ch = comparison.changes;
+      var badges = [
+        { label: 'Spend',  fmt: _pulseFmt(ch.spend, false) },
+        { label: 'Conv',   fmt: _pulseFmt(ch.conversions, false) },
+        { label: 'CPA',    fmt: _pulseFmt(ch.cpa, true) },
+        { label: 'CTR',    fmt: _pulseFmt(ch.ctr, false) },
+        { label: 'CPC',    fmt: _pulseFmt(ch.cpc, true) },
+      ].filter(function(b) { return b.fmt !== null; });
+
+      deltas.innerHTML = badges.map(function(b) {
+        if (!b.fmt) return '';
+        return (
+          '<span class="cc-pulse-delta ' + b.fmt.dir + '">' +
+            b.label + ' ' + b.fmt.text +
+          '</span>'
+        );
+      }).join('');
+    }
+
+    // ── Insight rows ──────────────────────────────────────────────────────
+    if (!list) return;
+    if (!insights.length) {
+      list.innerHTML = '<div class="cc-pulse-empty">No significant changes detected vs. prior period.</div>';
+      return;
+    }
+
+    var _STATE_LABELS = { 'new': 'NEW', persistent: 'Persistent', reviewed: 'Reviewed', resolved: 'Resolved', recovered: 'Recovered' };
+    var _STATE_CSS    = { 'new': 'state-new', persistent: 'state-persistent', reviewed: 'state-reviewed', resolved: 'state-resolved', recovered: 'state-recovered' };
+
+    list.innerHTML = insights.map(function(ins) {
+      var icon    = _PULSE_ICONS[ins.signal] || '◆';
+      var destMap = { budget: 'budget', campaigns: 'campaigns', creative: 'creative', 'ai-coach': 'ai-coach', alerts: 'alerts' };
+      var dest    = destMap[ins.action_page] || ins.action_page || 'overview';
+
+      var state   = ins._state || null;
+      var dbId    = ins._db_id || null;
+      var occ     = ins._occurrence_count || 1;
+      var daysAct = ins._days_active || 0;
+
+      var stateBadge = state
+        ? '<span class="cc-pulse-state-badge ' + _escCC(_STATE_CSS[state] || '') + '">' + _escCC(_STATE_LABELS[state] || state) + '</span>'
+        : '';
+
+      var metaParts = [];
+      if (daysAct > 0) metaParts.push('Active ' + daysAct + 'd');
+      if (occ > 1)     metaParts.push(occ + 'x seen');
+      var meta = metaParts.length
+        ? '<span class="cc-pulse-meta">' + metaParts.join(' · ') + '</span>'
+        : '';
+
+      var stateActions = '';
+      if (dbId && state && state !== 'resolved') {
+        var acctId = currentAccountId || 1;
+        stateActions = (
+          (state !== 'reviewed'
+            ? '<button class="cc-pulse-state-btn reviewed" onclick="ccPulseMarkReviewed(' + dbId + ',' + acctId + ',this)">Mark Reviewed</button>'
+            : '') +
+          '<button class="cc-pulse-state-btn resolved" onclick="ccPulseMarkResolved(' + dbId + ',' + acctId + ',this)">Resolve</button>'
+        );
+      }
+
+      var histToggle = (dbId && occ > 1)
+        ? '<button class="cc-pulse-history-btn" onclick="ccPulseToggleHistory(this,' + dbId + ',' + (currentAccountId || 1) + ')">History ▾</button>'
+        : '';
+
+      return [
+        '<div class="cc-pulse-row" data-signal="' + _escCC(ins.signal) + '" data-db-id="' + (dbId || '') + '">',
+          '<span class="cc-pulse-sig-bar"></span>',
+          '<span class="cc-pulse-icon ' + _escCC(ins.signal) + '">' + icon + '</span>',
+          '<div class="cc-pulse-text">',
+            '<div class="cc-pulse-title-row">',
+              '<span class="cc-pulse-title">' + _escCC(ins.title) + '</span>',
+              stateBadge,
+              meta,
+            '</div>',
+            '<div class="cc-pulse-body">' + _escCC(ins.body) + '</div>',
+            stateActions ? '<div class="cc-pulse-state-actions">' + stateActions + '</div>' : '',
+            '<div class="cc-pulse-history-drawer" style="display:none"></div>',
+          '</div>',
+          ins.metric
+            ? '<span class="cc-pulse-metric ' + _escCC(ins.signal) + '">' + _escCC(ins.metric) + '</span>'
+            : '',
+          '<div class="cc-pulse-right-actions">',
+            histToggle,
+            '<button class="cc-pulse-action" onclick="window.a7Navigate&&window.a7Navigate(\'' + _escCC(dest) + '\')">' +
+              _escCC(ins.action_label) + ' →' +
+            '</button>',
+          '</div>',
+        '</div>',
+      ].join('');
+    }).join('');
+  }
+
+  window.ccPulseMarkReviewed = function(id, accountId, btn) {
+    var row = btn.closest && btn.closest('.cc-pulse-row');
+    fetch('/api/insights/' + id + '/reviewed', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ account_id: accountId }),
+    }).then(function(r) { return r.json(); }).then(function(data) {
+      if (data.status === 'reviewed' && row) {
+        var badge = row.querySelector('.cc-pulse-state-badge');
+        if (badge) { badge.className = 'cc-pulse-state-badge state-reviewed'; badge.textContent = 'Reviewed'; }
+        var rb = row.querySelector('.cc-pulse-state-btn.reviewed');
+        if (rb) rb.remove();
+      }
+    }).catch(function() {});
+  };
+
+  window.ccPulseMarkResolved = function(id, accountId, btn) {
+    var row = btn.closest && btn.closest('.cc-pulse-row');
+    fetch('/api/insights/' + id + '/resolved', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ account_id: accountId }),
+    }).then(function(r) { return r.json(); }).then(function(data) {
+      if (data.status === 'resolved' && row) {
+        row.style.opacity = '0.45';
+        var badge = row.querySelector('.cc-pulse-state-badge');
+        if (badge) { badge.className = 'cc-pulse-state-badge state-resolved'; badge.textContent = 'Resolved'; }
+        var sa = row.querySelector('.cc-pulse-state-actions');
+        if (sa) sa.remove();
+      }
+    }).catch(function() {});
+  };
+
+  window.ccPulseToggleHistory = function(btn, id, accountId) {
+    var row    = btn.closest && btn.closest('.cc-pulse-row');
+    var drawer = row && row.querySelector('.cc-pulse-history-drawer');
+    if (!drawer) return;
+    if (drawer.style.display !== 'none') {
+      drawer.style.display = 'none';
+      btn.textContent = 'History ▾';
+      return;
+    }
+    btn.textContent = 'Loading…';
+    fetch('/api/insights/' + id + '/history?account_id=' + accountId)
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        var entries = data.history || [];
+        if (!entries.length) {
+          drawer.innerHTML = '<div class="cc-history-empty">No prior occurrences recorded.</div>';
+        } else {
+          drawer.innerHTML = entries.slice().reverse().map(function(e) {
+            return (
+              '<div class="cc-history-entry">' +
+                '<span class="cc-history-ts">' + _escCC((e.ts || '—').slice(0, 16)) + '</span>' +
+                (e.metric ? '<span class="cc-history-metric">' + _escCC(e.metric) + '</span>' : '') +
+                '<span class="cc-history-sig ' + _escCC(e.signal || '') + '">' + _escCC(e.signal || 'neutral') + '</span>' +
+              '</div>'
+            );
+          }).join('');
+        }
+        drawer.style.display = '';
+        btn.textContent = 'History ▴';
+      })
+      .catch(function() {
+        drawer.innerHTML = '<div class="cc-history-empty">Failed to load history.</div>';
+        drawer.style.display = '';
+        btn.textContent = 'History ▴';
+      });
+  };
 
   function _escCC(s) {
     return String(s)
@@ -4702,6 +4935,251 @@
         '</div>',
       '</div>',
     ].join('');
+  }
+
+  /* ─── Command Center: Trend Charts ─── */
+
+  function _ccChartDefaults() {
+    return {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } },
+      scales: {
+        x: { grid: { color: 'rgba(255,255,255,.04)' }, ticks: { color: '#5d7499', font: { size: 10 } } },
+        y: { grid: { color: 'rgba(255,255,255,.04)' }, ticks: { color: '#5d7499', font: { size: 10 } } },
+      },
+      elements: { point: { radius: 2, hoverRadius: 4 } },
+    };
+  }
+
+  function _ccShortDate(iso) {
+    var p = iso.split('-');
+    return p[1] + '/' + p[2];
+  }
+
+  function _renderCCTrends(trend) {
+    var labels = trend.map(function(d) { return _ccShortDate(d.date); });
+
+    // Spend chart
+    var cSpend = document.getElementById('ccSpendChart');
+    if (cSpend) {
+      if (_ccSpendChart) _ccSpendChart.destroy();
+      _ccSpendChart = new Chart(cSpend, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [{
+            data: trend.map(function(d) { return d.spend; }),
+            borderColor: '#3b82f6',
+            backgroundColor: 'rgba(59,130,246,.12)',
+            fill: true,
+            tension: 0.4,
+            borderWidth: 2,
+          }],
+        },
+        options: _ccChartDefaults(),
+      });
+    }
+
+    // Conversions chart
+    var cConv = document.getElementById('ccConvChart');
+    if (cConv) {
+      if (_ccConvChart) _ccConvChart.destroy();
+      _ccConvChart = new Chart(cConv, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [{
+            data: trend.map(function(d) { return d.conversions; }),
+            borderColor: '#10b981',
+            backgroundColor: 'rgba(16,185,129,.12)',
+            fill: true,
+            tension: 0.4,
+            borderWidth: 2,
+          }],
+        },
+        options: _ccChartDefaults(),
+      });
+    }
+
+    // CTR + CPC dual-axis chart
+    var cCtrCpc = document.getElementById('ccCtrCpcChart');
+    if (cCtrCpc) {
+      if (_ccCtrCpcChart) _ccCtrCpcChart.destroy();
+      var opts = _ccChartDefaults();
+      opts.scales.yCtr = { type: 'linear', position: 'left',  grid: { color: 'rgba(255,255,255,.04)' }, ticks: { color: '#5d7499', font: { size: 10 }, callback: function(v) { return v + '%'; } } };
+      opts.scales.yCpc = { type: 'linear', position: 'right', grid: { display: false }, ticks: { color: '#5d7499', font: { size: 10 }, callback: function(v) { return '$' + v; } } };
+      delete opts.scales.y;
+      _ccCtrCpcChart = new Chart(cCtrCpc, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: 'CTR %',
+              data: trend.map(function(d) { return d.ctr; }),
+              borderColor: '#f59e0b',
+              backgroundColor: 'transparent',
+              yAxisID: 'yCtr',
+              tension: 0.4,
+              borderWidth: 2,
+            },
+            {
+              label: 'CPC $',
+              data: trend.map(function(d) { return d.cpc; }),
+              borderColor: '#a855f7',
+              backgroundColor: 'transparent',
+              yAxisID: 'yCpc',
+              tension: 0.4,
+              borderWidth: 2,
+              borderDash: [4, 3],
+            },
+          ],
+        },
+        options: Object.assign({}, opts, {
+          plugins: {
+            legend: { display: true, labels: { color: '#8ba3c2', font: { size: 10 }, boxWidth: 10, padding: 8 } },
+            tooltip: { mode: 'index', intersect: false },
+          },
+        }),
+      });
+    }
+  }
+
+  /* ─── Command Center: Top Campaigns Bar ─── */
+
+  function _renderCCTopCamps(camps) {
+    var canvas = document.getElementById('ccTopCampChart');
+    if (!canvas) return;
+    if (_ccTopCampChart) _ccTopCampChart.destroy();
+
+    if (!camps.length) {
+      canvas.parentElement.innerHTML = '<div class="cc-empty" style="padding:24px 0">No campaign data yet.</div>';
+      return;
+    }
+
+    // Truncate long names
+    function _short(name, max) {
+      return name.length > max ? name.slice(0, max - 1) + '…' : name;
+    }
+
+    var labels  = camps.map(function(c) { return _short(c.name, 28); });
+    var spends  = camps.map(function(c) { return c.spend; });
+    var colors  = ['rgba(59,130,246,.8)', 'rgba(99,102,241,.8)', 'rgba(168,85,247,.8)', 'rgba(6,182,212,.8)', 'rgba(16,185,129,.8)'];
+
+    _ccTopCampChart = new Chart(canvas, {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: [{
+          data: spends,
+          backgroundColor: colors.slice(0, camps.length),
+          borderRadius: 4,
+        }],
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: function(ctx) {
+                var c = camps[ctx.dataIndex];
+                var parts = ['$' + ctx.raw.toFixed(2) + ' spend'];
+                if (c.conv > 0) parts.push(c.conv + ' conv • $' + c.cpa + ' CPA');
+                return parts;
+              },
+            },
+          },
+        },
+        scales: {
+          x: {
+            grid: { color: 'rgba(255,255,255,.04)' },
+            ticks: { color: '#5d7499', font: { size: 10 }, callback: function(v) { return '$' + v; } },
+          },
+          y: {
+            grid: { display: false },
+            ticks: { color: '#e8eeff', font: { size: 11 } },
+          },
+        },
+      },
+    });
+  }
+
+  /* ─── Command Center: Worst Performers ─── */
+
+  function _renderCCWorst(camps) {
+    var body = document.getElementById('ccWorstBody');
+    if (!body) return;
+    if (!camps.length) {
+      body.innerHTML = '<div class="cc-empty">No conversion data yet.</div>';
+      return;
+    }
+    body.innerHTML = camps.map(function(c, i) {
+      var rank = i === 0 ? 'worst' : i === 1 ? 'bad' : '';
+      return [
+        '<div class="cc-worst-row ' + rank + '">',
+          '<div class="cc-worst-name">' + _escCC(c.name) + '</div>',
+          '<div class="cc-worst-stats">',
+            '<span class="cc-worst-cpa">$' + c.cpa + ' CPA</span>',
+            '<span class="cc-worst-meta">' + c.conv + ' conv • $' + c.spend.toFixed(0) + '</span>',
+          '</div>',
+        '</div>',
+      ].join('');
+    }).join('');
+  }
+
+  /* ─── Command Center: Campaign Distribution ─── */
+
+  function _renderCCDist(dist) {
+    var body = document.getElementById('ccDistSummary');
+    if (!body) return;
+    var active = dist.active || 0;
+    var paused = dist.paused || 0;
+    var total  = dist.total  || 0;
+    var activePct = total > 0 ? Math.round(active / total * 100) : 0;
+    body.innerHTML = [
+      '<div class="cc-dist-row">',
+        '<div class="cc-dist-item cc-dist-active">',
+          '<div class="cc-dist-num">' + active + '</div>',
+          '<div class="cc-dist-lbl">Active</div>',
+        '</div>',
+        '<div class="cc-dist-bar-wrap">',
+          '<div class="cc-dist-bar-track">',
+            '<div class="cc-dist-bar-fill" style="width:' + activePct + '%"></div>',
+          '</div>',
+          '<div class="cc-dist-pct">' + activePct + '% running</div>',
+        '</div>',
+        '<div class="cc-dist-item cc-dist-paused">',
+          '<div class="cc-dist-num">' + paused + '</div>',
+          '<div class="cc-dist-lbl">Paused</div>',
+        '</div>',
+      '</div>',
+      '<div class="cc-dist-total">' + total + ' total campaigns tracked (7d)</div>',
+    ].join('');
+  }
+
+  /* ─── Command Center: Alert Severity Cluster ─── */
+
+  function _renderCCAlertCluster(sevMap) {
+    var body = document.getElementById('ccAlertCluster');
+    if (!body) return;
+    var critical = sevMap.critical || 0;
+    var warning  = sevMap.warning  || 0;
+    var info     = sevMap.info     || 0;
+    var total    = critical + warning + info;
+    if (total === 0) {
+      body.innerHTML = '<div class="cc-cluster-ok">✓ No active alerts</div>';
+      return;
+    }
+    var items = [];
+    if (critical > 0) items.push('<div class="cc-cluster-badge critical">' + critical + ' Critical</div>');
+    if (warning  > 0) items.push('<div class="cc-cluster-badge warning">'  + warning  + ' Warning</div>');
+    if (info     > 0) items.push('<div class="cc-cluster-badge info">'     + info     + ' Info</div>');
+    body.innerHTML = items.join('') +
+      '<div class="cc-cluster-link" onclick="window.a7Navigate&&window.a7Navigate(\'alerts\')">View all →</div>';
   }
 
   /* ─── Lazy Load Registry ─── */
@@ -4889,10 +5367,17 @@
   // (loadCommandCenter runs via _pageLoaders['overview'] on first visit)
   _initRouter();
   loadPlatformStatus();
-  initAccountSelector();
+  // Wait for account selector to resolve currentAccountId BEFORE the first data load,
+  // so the correct account is used from the very first request.
+  initAccountSelector().then(function() {
+    load(currentRange);
+    startAutoRefresh();
+  }).catch(function() {
+    // If account selector fails (e.g. endpoint unavailable), still load with default account
+    load(currentRange);
+    startAutoRefresh();
+  });
   setTimeout(_updateWsAccountBadge, 800);
-  load(currentRange);
-  startAutoRefresh();
 
   // Patch account change to update workspace badge
   var _origAccountChange = null;

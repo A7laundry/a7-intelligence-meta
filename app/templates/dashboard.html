@@ -46,8 +46,70 @@
     <!-- Content (populated by loadCommandCenter) -->
     <div class="cc-content" id="ccContent" style="display:none">
 
+      <!-- Performance Pulse Strip -->
+      <div class="cc-pulse-strip" id="ccPulseStrip" style="display:none">
+        <div class="cc-pulse-header">
+          <span class="cc-pulse-label">◈ Performance Pulse</span>
+          <div class="cc-pulse-deltas" id="ccPulseDeltas"></div>
+          <span class="cc-pulse-period">vs. previous 7 days</span>
+        </div>
+        <div class="cc-pulse-list" id="ccPulseList"></div>
+      </div>
+
       <!-- KPI Hero Row -->
       <div class="cc-kpi-row" id="ccKpiRow"></div>
+
+      <!-- Trend Charts Row -->
+      <div class="cc-charts-row">
+        <div class="cc-chart-block">
+          <div class="cc-chart-header">
+            Spend Trend
+            <span class="cc-chart-period">7d</span>
+          </div>
+          <div class="cc-chart-wrap"><canvas id="ccSpendChart"></canvas></div>
+        </div>
+        <div class="cc-chart-block">
+          <div class="cc-chart-header">
+            Conversions Trend
+            <span class="cc-chart-period">7d</span>
+          </div>
+          <div class="cc-chart-wrap"><canvas id="ccConvChart"></canvas></div>
+        </div>
+        <div class="cc-chart-block">
+          <div class="cc-chart-header">
+            CTR &amp; CPC Daily
+            <span class="cc-chart-period">7d</span>
+          </div>
+          <div class="cc-chart-wrap"><canvas id="ccCtrCpcChart"></canvas></div>
+        </div>
+      </div>
+
+      <!-- Campaign Intelligence Row -->
+      <div class="cc-intel-row">
+        <!-- Top 5 Campaigns Bar -->
+        <div class="cc-intel-block cc-intel-block--wide">
+          <div class="cc-chart-header">
+            Top Campaigns
+            <span class="cc-chart-period">by Spend (7d)</span>
+          </div>
+          <div class="cc-top-camps-wrap"><canvas id="ccTopCampChart"></canvas></div>
+        </div>
+        <!-- Worst Performers -->
+        <div class="cc-intel-block">
+          <div class="cc-chart-header cc-chart-header--warn">
+            Worst Performers
+            <span class="cc-chart-period">highest CPA</span>
+          </div>
+          <div id="ccWorstBody" class="cc-worst-body"></div>
+        </div>
+        <!-- Campaign Distribution + Alert Cluster -->
+        <div class="cc-intel-block">
+          <div class="cc-chart-header">Campaign Status</div>
+          <div class="cc-dist-summary" id="ccDistSummary"></div>
+          <div class="cc-chart-header cc-chart-header--sep">Alert Cluster</div>
+          <div class="cc-alerts-cluster" id="ccAlertCluster"></div>
+        </div>
+      </div>
 
       <!-- Body: 2-column grid -->
       <div class="cc-body-grid">
@@ -308,6 +370,21 @@
       <div class="kpi-value" id="kpiCpa">&mdash;</div>
       <div class="kpi-label">CPA</div>
       <div class="kpi-change" id="kpiCpaChange"></div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-value" id="kpiRoas">&mdash;</div>
+      <div class="kpi-label">ROAS</div>
+      <div class="kpi-change" id="kpiRoasChange"></div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-value" id="kpiActiveCampaigns">&mdash;</div>
+      <div class="kpi-label">Active Campaigns</div>
+      <div class="kpi-change" id="kpiCampaignTotal" style="font-size:0.7rem;color:var(--text-muted)"></div>
+    </div>
+    <div class="kpi-card kpi-card--wide">
+      <div class="kpi-value kpi-value--sm" id="kpiTopCampaign">&mdash;</div>
+      <div class="kpi-label">Top Campaign</div>
+      <div class="kpi-change" id="kpiWorstCampaign" style="font-size:0.7rem;color:var(--text-muted)"></div>
     </div>
   </div>
 

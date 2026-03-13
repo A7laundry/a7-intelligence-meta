@@ -373,11 +373,17 @@ def _run_migrations(conn):
         conn.commit()
 
     # Migration 11a: Extend publishing_jobs — new statuses + retry columns
+    # On PostgreSQL, skip the sqlite_master inspection and rely solely on column check.
     if _table_exists(conn, "publishing_jobs"):
-        row = conn.execute(
-            "SELECT sql FROM sqlite_master WHERE type='table' AND name='publishing_jobs'"
-        ).fetchone()
-        old_sql = row[0] if row else ""
+        database_url = os.environ.get("DATABASE_URL", "").strip()
+        if database_url:
+            # PostgreSQL: only rebuild if the retry_count column is truly missing
+            old_sql = ""
+        else:
+            row = conn.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='publishing_jobs'"
+            ).fetchone()
+            old_sql = row[0] if row else ""
         needs_rebuild = ("'uploading'" not in old_sql or
                          not _column_exists(conn, "publishing_jobs", "retry_count"))
         if needs_rebuild:
@@ -526,6 +532,16 @@ def _run_migrations(conn):
         conn.execute("ALTER TABLE campaign_snapshots ADD COLUMN conversion_value REAL DEFAULT 0")
     conn.commit()
 
+    # Migration 17a: add updated_at to ad_accounts (used by update_account_token)
+    if _table_exists(conn, "ad_accounts") and not _column_exists(conn, "ad_accounts", "updated_at"):
+        conn.execute("ALTER TABLE ad_accounts ADD COLUMN updated_at TEXT")
+        conn.commit()
+
+    # Migration 17b: add account_id to automation_logs (used by get_logs account filter)
+    if _table_exists(conn, "automation_logs") and not _column_exists(conn, "automation_logs", "account_id"):
+        conn.execute("ALTER TABLE automation_logs ADD COLUMN account_id INTEGER DEFAULT 1")
+        conn.commit()
+
     # Migration 17: add organizations, org_users tables + stripe_customer_id
     if not _table_exists(conn, "organizations"):
         conn.execute("""CREATE TABLE organizations (
@@ -556,6 +572,36 @@ def _run_migrations(conn):
 
     conn.commit()
 
+    # Migration 18: pulse_insights — persistent Performance Pulse tracking
+    if not _table_exists(conn, "pulse_insights"):
+        conn.execute("""
+            CREATE TABLE pulse_insights (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id       INTEGER NOT NULL,
+                fingerprint      TEXT    NOT NULL,
+                rule_type        TEXT    NOT NULL,
+                signal           TEXT    NOT NULL,
+                priority         INTEGER NOT NULL DEFAULT 5,
+                title            TEXT    NOT NULL,
+                body             TEXT    NOT NULL DEFAULT '',
+                metric           TEXT,
+                action_label     TEXT,
+                action_page      TEXT,
+                state            TEXT    NOT NULL DEFAULT 'new'
+                                        CHECK(state IN ('new','persistent','reviewed','resolved','recovered')),
+                first_seen_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+                last_seen_at     TEXT    NOT NULL DEFAULT (datetime('now')),
+                resolved_at      TEXT,
+                reviewed_at      TEXT,
+                occurrence_count INTEGER NOT NULL DEFAULT 1,
+                history_json     TEXT    NOT NULL DEFAULT '[]',
+                UNIQUE(account_id, fingerprint)
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_pulse_account ON pulse_insights(account_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_pulse_state   ON pulse_insights(account_id, state)")
+        conn.commit()
+
     _migrate_snapshots_table(conn, "creatives",
         """CREATE TABLE creatives_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -583,7 +629,15 @@ def _run_migrations(conn):
 
 
 def _migrate_snapshots_table(conn, table_name, create_sql, copy_sql):
-    """Recreate a table with updated UNIQUE constraint, preserving data."""
+    """Recreate a table with updated UNIQUE constraint, preserving data.
+
+    On PostgreSQL this migration is skipped — tables are created fresh from
+    schema.sql with the correct constraints, so no rebuild is needed.
+    """
+    database_url = os.environ.get("DATABASE_URL", "").strip()
+    if database_url:
+        return  # PostgreSQL: schema.sql already has correct constraints
+
     new_name = table_name + "_new"
     # Skip if migration already done (new table doesn't exist as tmp)
     if _table_exists(conn, new_name):

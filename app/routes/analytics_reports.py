@@ -1,6 +1,7 @@
 """Analytics & Reports API routes."""
 
 from flask import Blueprint, jsonify, request, Response
+from app.services.account_service import AccountService
 
 analytics_reports_bp = Blueprint("analytics_reports", __name__)
 
@@ -78,14 +79,16 @@ def analytics_metric_forecast(metric):
 def report_latest():
     """Get the latest executive report as JSON."""
     days = request.args.get("days", 7, type=int)
-    return jsonify(_get_reporting().generate_executive_report(days))
+    account_id = AccountService.resolve_account_id(request.args.get("account_id"))
+    return jsonify(_get_reporting().generate_executive_report(days, account_id=account_id))
 
 
 @analytics_reports_bp.route("/reports/generate")
 def report_generate():
     """Generate a fresh executive report."""
     days = request.args.get("days", 7, type=int)
-    return jsonify(_get_reporting().generate_executive_report(days))
+    account_id = AccountService.resolve_account_id(request.args.get("account_id"))
+    return jsonify(_get_reporting().generate_executive_report(days, account_id=account_id))
 
 
 @analytics_reports_bp.route("/reports/export/json")

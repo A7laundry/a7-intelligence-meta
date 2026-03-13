@@ -24,6 +24,30 @@ class MetricsService:
         except Exception:
             pass
 
+    @classmethod
+    def for_account(cls, account_id: int) -> "MetricsService":
+        """Return a MetricsService configured with the token and account ID from the DB."""
+        svc = cls.__new__(cls)
+        svc.meta_client = None
+        svc.meta_available = False
+        try:
+            from app.services.account_service import AccountService
+            from meta_client import MetaAdsClient
+            account = AccountService.get_by_id(account_id)
+            if account and account.get("access_token"):
+                client = MetaAdsClient(access_token=account["access_token"])
+                ext_id = account.get("external_account_id")
+                if ext_id:
+                    client.ad_account_id = ext_id
+                svc.meta_client = client
+                svc.meta_available = True
+            else:
+                # Fallback to default config client
+                svc._init()
+        except Exception:
+            svc._init()
+        return svc
+
     def list_campaigns(self, status_filter=None):
         if not self.meta_available:
             return []

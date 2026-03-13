@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 class ReportingService:
     """Generates and exports executive marketing reports."""
 
-    def generate_executive_report(self, days=7):
+    def generate_executive_report(self, days=7, account_id=None):
         """Generate a comprehensive executive report combining all intelligence modules."""
         now = datetime.utcnow()
         report = {
@@ -30,38 +30,39 @@ class ReportingService:
             "period_days": days,
             "generated_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "generated_date": now.strftime("%Y-%m-%d"),
+            "account_id": account_id,
             "sections": {},
         }
 
         # 1. Executive Summary
-        report["sections"]["executive_summary"] = self._build_executive_summary(days)
+        report["sections"]["executive_summary"] = self._build_executive_summary(days, account_id)
 
         # 2. Growth Score
-        report["sections"]["growth_score"] = self._get_growth_score(days)
+        report["sections"]["growth_score"] = self._get_growth_score(days, account_id)
 
         # 3. Platform Comparison
         report["sections"]["platform_comparison"] = self._get_platform_comparison(days)
 
         # 4. Top Performing Campaigns
-        report["sections"]["top_campaigns"] = self._get_top_campaigns(days)
+        report["sections"]["top_campaigns"] = self._get_top_campaigns(days, account_id)
 
         # 5. Biggest Risks
-        report["sections"]["risks"] = self._get_risks(days)
+        report["sections"]["risks"] = self._get_risks(days, account_id)
 
         # 6. Key Opportunities
-        report["sections"]["opportunities"] = self._get_opportunities(days)
+        report["sections"]["opportunities"] = self._get_opportunities(days, account_id)
 
         # 7. Forecast Summary
         report["sections"]["forecast"] = self._get_forecast_summary(days)
 
         # 8. Alert Summary
-        report["sections"]["alert_summary"] = self._get_alert_summary()
+        report["sections"]["alert_summary"] = self._get_alert_summary(account_id)
 
         return report
 
-    def export_json(self, days=7):
+    def export_json(self, days=7, account_id=None):
         """Export report as JSON string."""
-        report = self.generate_executive_report(days)
+        report = self.generate_executive_report(days, account_id=account_id)
         return json.dumps(report, indent=2, default=str)
 
     def export_csv(self, days=7):
@@ -156,13 +157,13 @@ class ReportingService:
     # REPORT SECTIONS
     # ══════════════════════════════════════════════════════════
 
-    def _build_executive_summary(self, days):
+    def _build_executive_summary(self, days, account_id=None):
         """Build executive summary from dashboard data."""
         try:
             from app.services.dashboard_service import DashboardService
             ds = DashboardService()
             range_key = "today" if days <= 1 else ("7d" if days <= 7 else "30d")
-            data = ds.get_dashboard_data(range_key)
+            data = ds.get_dashboard_data(range_key, account_id=account_id)
             total = data.get("summary", {}).get("total", {})
             changes = data.get("comparison", {}).get("changes", {})
 
@@ -178,11 +179,11 @@ class ReportingService:
         except Exception:
             return {"total_spend": 0, "total_conversions": 0, "avg_cpa": 0, "avg_ctr": 0, "period_days": days}
 
-    def _get_growth_score(self, days):
+    def _get_growth_score(self, days, account_id=None):
         try:
             from app.services.growth_score_service import GrowthScoreService
             gs = GrowthScoreService()
-            return gs.build_growth_score(days)
+            return gs.build_growth_score(days, account_id=account_id)
         except Exception:
             return {"score": 0, "label": "unknown", "summary": "Unable to compute growth score"}
 
@@ -194,10 +195,10 @@ class ReportingService:
         except Exception:
             return {"platforms": [], "total_spend": 0}
 
-    def _get_top_campaigns(self, days):
+    def _get_top_campaigns(self, days, account_id=None):
         try:
             from app.services.snapshot_service import SnapshotService
-            campaigns = SnapshotService.get_all_campaigns_latest()
+            campaigns = SnapshotService.get_all_campaigns_latest(account_id=account_id)
             # Sort by conversions (desc), then by CPA (asc)
             converting = [c for c in campaigns if c.get("conversions", 0) > 0]
             converting.sort(key=lambda c: (-c.get("conversions", 0), c.get("cpa", float("inf"))))
@@ -217,11 +218,11 @@ class ReportingService:
         except Exception:
             return {"campaigns": [], "total_campaigns": 0}
 
-    def _get_risks(self, days):
+    def _get_risks(self, days, account_id=None):
         try:
             from app.services.ai_coach_service import AICoachService
             coach = AICoachService()
-            recs = coach.generate_recommendations(days)
+            recs = coach.generate_recommendations(days, account_id=account_id)
             risks = [r for r in recs if r.get("severity") in ("critical", "warning")]
             return {
                 "risks": risks[:5],
@@ -230,11 +231,11 @@ class ReportingService:
         except Exception:
             return {"risks": [], "total_risks": 0}
 
-    def _get_opportunities(self, days):
+    def _get_opportunities(self, days, account_id=None):
         try:
             from app.services.ai_coach_service import AICoachService
             coach = AICoachService()
-            recs = coach.generate_recommendations(days)
+            recs = coach.generate_recommendations(days, account_id=account_id)
             opps = [r for r in recs if r.get("severity") == "success"]
             return {
                 "opportunities": opps[:5],
@@ -251,19 +252,24 @@ class ReportingService:
         except Exception:
             return {"forecasts": {}}
 
-    def _get_alert_summary(self):
+    def _get_alert_summary(self, account_id=None):
         try:
             from app.db.init_db import get_connection
             conn = get_connection()
             try:
+                acct_filter = "AND account_id = ?" if account_id else ""
+                acct_params = [account_id] if account_id else []
                 critical = conn.execute(
-                    "SELECT COUNT(*) as cnt FROM alerts WHERE resolved = 0 AND severity = 'critical'"
+                    f"SELECT COUNT(*) as cnt FROM alerts WHERE resolved = 0 AND severity = 'critical' {acct_filter}",
+                    acct_params
                 ).fetchone()
                 warning = conn.execute(
-                    "SELECT COUNT(*) as cnt FROM alerts WHERE resolved = 0 AND severity = 'warning'"
+                    f"SELECT COUNT(*) as cnt FROM alerts WHERE resolved = 0 AND severity = 'warning' {acct_filter}",
+                    acct_params
                 ).fetchone()
                 total = conn.execute(
-                    "SELECT COUNT(*) as cnt FROM alerts WHERE resolved = 0"
+                    f"SELECT COUNT(*) as cnt FROM alerts WHERE resolved = 0 {acct_filter}",
+                    acct_params
                 ).fetchone()
                 return {
                     "unresolved_total": total["cnt"] if total else 0,
@@ -280,7 +286,7 @@ class ReportingService:
     # ══════════════════════════════════════════════════════════
 
     @staticmethod
-    def export_csv(account_id, days=30, report_type="overview") -> bytes:
+    def export_account_csv(account_id, days=30, report_type="overview") -> bytes:
         """Export account metrics as CSV bytes."""
         import csv, io
         from app.services.snapshot_service import SnapshotService
@@ -310,7 +316,7 @@ class ReportingService:
         return output.getvalue().encode("utf-8")
 
     @staticmethod
-    def export_pdf(account_id, days=30, account_name="Account") -> bytes:
+    def export_account_pdf(account_id, days=30, account_name="Account") -> bytes:
         """Export account performance report as PDF bytes."""
         try:
             from reportlab.lib.pagesizes import A4

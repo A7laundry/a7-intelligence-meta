@@ -216,6 +216,21 @@ class DashboardService:
         # Period comparison from DB (account-scoped)
         comparison = SnapshotService.get_period_comparison(cfg["days"], account_id=account_id)
 
+        # Campaign stats for hero KPIs
+        all_camps = (
+            (meta_data.get("campaigns", []) if meta_data else []) +
+            (google_data.get("campaigns", []) if google_data else [])
+        )
+        active_count = sum(1 for c in all_camps if c.get("status") == "ACTIVE")
+        top_camp = max(all_camps, key=lambda c: c.get("spend", 0), default=None)
+        top_camp_name = top_camp.get("name", "—") if top_camp else "—"
+        worst_camp = max(
+            [c for c in all_camps if c.get("conversions", 0) > 0],
+            key=lambda c: c.get("cpa", 0),
+            default=None,
+        )
+        worst_camp_name = worst_camp.get("name", "—") if worst_camp else "—"
+
         return {
             "generated_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
             "date_range": range_key,
@@ -227,11 +242,17 @@ class DashboardService:
                 "google": google_summary,
                 "total": total_summary,
             },
+            "campaign_stats": {
+                "total": len(all_camps),
+                "active": active_count,
+                "top_campaign": top_camp_name,
+                "worst_campaign": worst_camp_name,
+            },
             "campaigns": {
                 "meta": meta_data.get("campaigns", []) if meta_data else [],
                 "google": google_data.get("campaigns", []) if google_data else [],
             },
-            "daily_trend": self._fetch_daily_trend(meta_data, google_data, cfg),
+            "daily_trend": self._fetch_daily_trend(meta_data, google_data, cfg, account_id=account_id),
             "comparison": comparison,
             "platforms": {
                 "meta": self.meta_available,
@@ -239,14 +260,22 @@ class DashboardService:
             },
         }
 
-    def _fetch_daily_trend(self, meta_data, google_data, cfg):
+    def _fetch_daily_trend(self, meta_data, google_data, cfg, account_id=None):
         """Build daily trend from live APIs."""
         meta_daily = {}
         google_daily = {}
 
-        if self.meta_available and self.meta_client:
+        # Use per-account client when available, otherwise fall back to default
+        effective_meta_client = None
+        if self.meta_available:
+            if account_id:
+                effective_meta_client = self._get_meta_client_for_account(account_id)
+            if effective_meta_client is None:
+                effective_meta_client = self.meta_client
+
+        if effective_meta_client:
             try:
-                for row in self.meta_client.get_daily_insights(date_preset=cfg["meta_preset"]):
+                for row in effective_meta_client.get_daily_insights(date_preset=cfg["meta_preset"]):
                     date_start = row.get("date_start", "")
                     conversions = 0
                     for action in row.get("actions", []):

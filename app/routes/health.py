@@ -9,11 +9,29 @@ from app.version import VERSION
 health_bp = Blueprint("health", __name__)
 
 
+def _check_db_connectivity() -> bool:
+    """Return True if the configured database is accessible.
+
+    On PostgreSQL (DATABASE_URL set): attempt a lightweight query.
+    On SQLite: check the file exists.
+    """
+    database_url = os.environ.get("DATABASE_URL", "").strip()
+    if database_url:
+        try:
+            conn = get_connection()
+            conn.execute("SELECT 1").fetchone()
+            conn.close()
+            return True
+        except Exception:
+            return False
+    # SQLite path
+    return os.path.exists(get_db_path())
+
+
 @health_bp.route("/health")
 def health():
     """Basic health check — used by Railway and load balancers."""
-    db_path = get_db_path()
-    db_ok = os.path.exists(db_path)
+    db_ok = _check_db_connectivity()
 
     scheduler_disabled = os.environ.get("A7_DISABLE_SCHEDULER") == "1"
     try:
@@ -69,16 +87,35 @@ def health_tokens():
 @health_bp.route("/health/detailed")
 def health_detailed():
     """Detailed health check with diagnostics."""
+    database_url = os.environ.get("DATABASE_URL", "").strip()
     db_path = get_db_path()
-    db_ok = os.path.exists(db_path)
-    db_writable = False
-    if db_ok:
-        try:
-            db_writable = os.access(db_path, os.W_OK)
-        except Exception:
-            pass
-    data_dir = os.path.dirname(db_path)
-    data_dir_writable = os.access(data_dir, os.W_OK) if os.path.exists(data_dir) else False
+    db_ok = _check_db_connectivity()
+
+    if database_url:
+        db_info = {
+            "mode": "postgresql",
+            "connected": db_ok,
+        }
+        storage_info = {"mode": "postgresql", "persistent": True}
+    else:
+        db_writable = False
+        if db_ok:
+            try:
+                db_writable = os.access(db_path, os.W_OK)
+            except Exception:
+                pass
+        data_dir = os.path.dirname(db_path)
+        db_info = {
+            "mode": "sqlite",
+            "path": db_path,
+            "exists": db_ok,
+            "writable": db_writable,
+        }
+        storage_info = {
+            "mode": "sqlite",
+            "data_dir": data_dir,
+            "writable": os.access(data_dir, os.W_OK) if os.path.exists(data_dir) else False,
+        }
 
     scheduler_disabled = os.environ.get("A7_DISABLE_SCHEDULER") == "1"
     sched_info = {}
@@ -94,15 +131,8 @@ def health_detailed():
         "status": "ok" if db_ok else "degraded",
         "version": VERSION,
         "environment": env,
-        "database": {
-            "path": db_path,
-            "exists": db_ok,
-            "writable": db_writable,
-        },
-        "storage": {
-            "data_dir": data_dir,
-            "writable": data_dir_writable,
-        },
+        "database": db_info,
+        "storage": storage_info,
         "scheduler": {
             "disabled_by_env": scheduler_disabled,
             **sched_info,

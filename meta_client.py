@@ -393,7 +393,8 @@ class MetaAdsClient:
         if not fields:
             fields = (
                 "campaign_name,impressions,clicks,ctr,cpc,cpm,spend,"
-                "actions,action_values,cost_per_action_type,reach,frequency"
+                "actions,action_values,cost_per_action_type,purchase_roas,"
+                "reach,frequency"
             )
 
         params = {

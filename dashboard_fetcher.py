@@ -112,8 +112,8 @@ class DashboardFetcher:
                 "roas": roas,
             }
 
-            # Campaign-level
-            campaigns_raw = self.meta_client.list_campaigns(status_filter="ACTIVE")
+            # Campaign-level — fetch ACTIVE + PAUSED so all running/recent campaigns appear
+            campaigns_raw = self.meta_client.list_campaigns()
             campaigns = []
             for c in campaigns_raw:
                 try:

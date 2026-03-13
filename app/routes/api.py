@@ -51,10 +51,13 @@ def refresh_data():
 
 @api_bp.route("/campaigns")
 def list_campaigns():
-    """List all campaigns."""
+    """List campaigns for the selected account."""
     status = request.args.get("status")
+    account_id = AccountService.resolve_account_id(request.args.get("account_id"))
     try:
-        campaigns = _get_metrics().list_campaigns(status_filter=status)
+        from app.services.metrics_service import MetricsService
+        svc = MetricsService.for_account(account_id)
+        campaigns = svc.list_campaigns(status_filter=status)
     except Exception:
         campaigns = []
     return jsonify({"campaigns": campaigns})
@@ -64,8 +67,11 @@ def list_campaigns():
 def list_ad_sets(campaign_id):
     """List ad sets for a campaign with insights."""
     period = request.args.get("period", "last_7d")
-    ad_sets = _get_metrics().list_ad_sets(campaign_id)
-    insights = _get_metrics().get_ad_set_insights(campaign_id, date_preset=period)
+    account_id = AccountService.resolve_account_id(request.args.get("account_id"))
+    from app.services.metrics_service import MetricsService
+    svc = MetricsService.for_account(account_id)
+    ad_sets = svc.list_ad_sets(campaign_id)
+    insights = svc.get_ad_set_insights(campaign_id, date_preset=period)
 
     # Merge insights into ad sets
     insights_map = {}
@@ -101,22 +107,26 @@ def list_ad_sets(campaign_id):
 @api_bp.route("/campaigns/<campaign_id>/status", methods=["POST"])
 def update_campaign_status(campaign_id):
     """Update campaign status (ACTIVE/PAUSED)."""
-    data = request.get_json()
+    data = request.get_json() or {}
     status = data.get("status", "").upper()
     if status not in ("ACTIVE", "PAUSED", "ARCHIVED"):
         return jsonify({"error": "Invalid status"}), 400
-    result = _get_metrics().update_campaign_status(campaign_id, status)
+    account_id = AccountService.resolve_account_id(request.args.get("account_id") or data.get("account_id"))
+    from app.services.metrics_service import MetricsService
+    result = MetricsService.for_account(account_id).update_campaign_status(campaign_id, status)
     return jsonify(result)
 
 
 @api_bp.route("/adsets/<ad_set_id>/status", methods=["POST"])
 def update_ad_set_status(ad_set_id):
     """Update ad set status (ACTIVE/PAUSED)."""
-    data = request.get_json()
+    data = request.get_json() or {}
     status = data.get("status", "").upper()
     if status not in ("ACTIVE", "PAUSED"):
         return jsonify({"error": "Invalid status"}), 400
-    result = _get_metrics().update_ad_set_status(ad_set_id, status)
+    account_id = AccountService.resolve_account_id(request.args.get("account_id") or data.get("account_id"))
+    from app.services.metrics_service import MetricsService
+    result = MetricsService.for_account(account_id).update_ad_set_status(ad_set_id, status)
     return jsonify(result)
 
 
@@ -177,7 +187,8 @@ def export_campaigns_csv():
     from flask import Response
 
     range_key = request.args.get("range", "7d")
-    data = _get_dashboard().get_dashboard_data(range_key)
+    account_id = AccountService.resolve_account_id(request.args.get("account_id"))
+    data = _get_dashboard().get_dashboard_data(range_key, account_id=account_id)
 
     output = io.StringIO()
     writer = csv.writer(output)

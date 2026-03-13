@@ -1,10 +1,28 @@
 """Account Service — Manages ad accounts registry for multi-account support."""
 
-import sqlite3
 from datetime import datetime
 
 from app.db.init_db import get_connection
 from app.utils.crypto import encrypt_field, decrypt_field
+
+
+def _is_integrity_error(exc: Exception) -> bool:
+    """Return True for unique constraint violations across SQLite and PostgreSQL."""
+    try:
+        import sqlite3
+        if isinstance(exc, sqlite3.IntegrityError):
+            return True
+    except ImportError:
+        pass
+    try:
+        import psycopg2
+        if isinstance(exc, psycopg2.IntegrityError):
+            return True
+    except ImportError:
+        pass
+    # Generic fallback — covers other adapters
+    name = type(exc).__name__.lower()
+    return "integrity" in name or "unique" in name
 
 
 class AccountService:
@@ -110,9 +128,11 @@ class AccountService:
             )
             conn.commit()
             return AccountService.get_by_id(cursor.lastrowid)
-        except sqlite3.IntegrityError:
-            conn.rollback()
-            return None
+        except Exception as exc:
+            if _is_integrity_error(exc):
+                conn.rollback()
+                return None
+            raise
         finally:
             conn.close()
 
@@ -154,8 +174,8 @@ class AccountService:
         try:
             conn = get_connection()
             conn.execute(
-                "UPDATE ad_accounts SET access_token = ?, updated_at = datetime('now') WHERE id = ?",
-                (encrypted, account_id)
+                "UPDATE ad_accounts SET access_token = ?, last_sync = ? WHERE id = ?",
+                (encrypted, datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"), account_id)
             )
             conn.commit()
             conn.close()

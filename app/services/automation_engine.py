@@ -726,9 +726,10 @@ class AutomationEngine:
         try:
             conn.execute(
                 """INSERT INTO automation_logs
-                   (action_id, platform, entity_name, action_type, status, message, execution_time_ms)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (action_id,
+                   (account_id, action_id, platform, entity_name, action_type, status, message, execution_time_ms)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (action.get("account_id", 1),
+                 action_id,
                  action.get("platform", ""),
                  action.get("entity_name", ""),
                  action.get("action_type", ""),

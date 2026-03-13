@@ -10,8 +10,12 @@ This adapter translates all of that transparently.
 """
 
 import re
+import time
+import logging
 import psycopg2
 import psycopg2.extras
+
+logger = logging.getLogger(__name__)
 
 
 def _sqlite_to_pg_sql(sql: str) -> str:
@@ -85,7 +89,13 @@ class PostgresCursor:
         if self._cursor.rowcount > 0:
             try:
                 self._cursor.execute("SELECT lastval()")
-                return self._cursor.fetchone()[0]
+                row = self._cursor.fetchone()
+                if row is None:
+                    return None
+                # RealDictCursor returns dict-like rows; access by column name
+                if hasattr(row, "keys"):
+                    return list(row.values())[0]
+                return row[0]
             except Exception:
                 return None
         return None
@@ -102,13 +112,27 @@ class PostgresCursor:
 class PostgresConnection:
     """Wraps psycopg2 connection to provide sqlite3-compatible interface."""
 
-    def __init__(self, dsn: str):
-        self._conn = psycopg2.connect(
-            dsn,
-            cursor_factory=psycopg2.extras.RealDictCursor,
-        )
-        self._conn.autocommit = False
-        self._cursor = PostgresCursor(self._conn.cursor())
+    def __init__(self, dsn: str, max_retries: int = 3, retry_delay: float = 1.0):
+        last_exc = None
+        for attempt in range(max_retries):
+            try:
+                self._conn = psycopg2.connect(
+                    dsn,
+                    cursor_factory=psycopg2.extras.RealDictCursor,
+                    connect_timeout=10,
+                )
+                self._conn.autocommit = False
+                self._cursor = PostgresCursor(self._conn.cursor())
+                return
+            except psycopg2.OperationalError as exc:
+                last_exc = exc
+                if attempt < max_retries - 1:
+                    logger.warning(
+                        "[postgres] Connection attempt %d/%d failed: %s — retrying in %.1fs",
+                        attempt + 1, max_retries, exc, retry_delay
+                    )
+                    time.sleep(retry_delay)
+        raise last_exc
 
     def execute(self, sql, params=None):
         return self._cursor.execute(sql, params)

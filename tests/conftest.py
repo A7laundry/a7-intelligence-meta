@@ -85,6 +85,20 @@ MOCK_OPTIMIZATION_RULES = {
 }
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _isolated_db(tmp_path_factory):
+    """Redirect DB to a fresh temp file for the session to prevent cross-run state accumulation."""
+    db_file = str(tmp_path_factory.mktemp("a7_db") / "test_a7.db")
+    os.environ["A7_DB_PATH"] = db_file
+    # Patch the module-level variable in case init_db was already imported
+    try:
+        import app.db.init_db as _init_db
+        _init_db.DB_PATH = db_file
+    except ImportError:
+        pass
+    yield db_file
+
+
 @pytest.fixture(autouse=True)
 def mock_config(monkeypatch):
     """Mock config module para todos os testes."""

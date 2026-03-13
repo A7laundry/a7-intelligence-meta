@@ -12,7 +12,7 @@ def export_csv():
     days = request.args.get("days", 30, type=int)
 
     from app.services.reporting_service import ReportingService
-    csv_bytes = ReportingService.export_csv(account_id, days)
+    csv_bytes = ReportingService.export_account_csv(account_id, days)
 
     from datetime import datetime
     filename = f"a7-report-{datetime.utcnow().strftime('%Y%m%d')}.csv"
@@ -36,7 +36,7 @@ def export_pdf():
         account_name = "Account"
 
     from app.services.reporting_service import ReportingService
-    pdf_bytes = ReportingService.export_pdf(account_id, days, account_name)
+    pdf_bytes = ReportingService.export_account_pdf(account_id, days, account_name)
 
     from datetime import datetime
     filename = f"a7-report-{datetime.utcnow().strftime('%Y%m%d')}.pdf"
