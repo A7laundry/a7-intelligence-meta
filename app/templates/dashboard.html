@@ -7,6 +7,10 @@
 {% endblock %}
 
 {% block header_actions %}
+<div id="dataSourceBadge" class="data-source-badge" style="display:none">
+  <span id="dataSourceIcon">●</span>
+  <span id="dataSourceLabel">Loading...</span>
+</div>
 <div class="range-switcher">
   <button class="range-btn {% if current_range == 'today' %}active{% endif %}" data-range="today">Today</button>
   <button class="range-btn {% if current_range == '7d' %}active{% endif %}" data-range="7d">7 Days</button>

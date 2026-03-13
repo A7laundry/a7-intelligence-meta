@@ -291,6 +291,22 @@ class AlertsService:
         """Deliver alert via configured channels."""
         if self.webhook_url:
             self._send_slack(alert)
+        self._send_email_notification(alert)
+
+    def _send_email_notification(self, alert):
+        """Send alert via email if configured and severity warrants it."""
+        try:
+            from app.services.email_service import send_alert_email, is_configured
+            if not is_configured():
+                return
+            if alert.get("severity") not in ("critical", "warning"):
+                return
+            notify_email = os.environ.get("ALERT_NOTIFY_EMAIL", "")
+            if not notify_email:
+                return
+            send_alert_email(notify_email, alert)
+        except Exception:
+            pass  # Email is never blocking
 
     def _send_slack(self, alert):
         """Send alert to Slack webhook."""

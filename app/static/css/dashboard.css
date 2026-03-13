@@ -3740,3 +3740,19 @@ body.sidebar-collapsed .sidebar-toggle-icon { transform: rotate(180deg); }
   .coach-intel-grid { grid-template-columns: 1fr; }
   .coach-health-bar { flex-wrap: wrap; }
 }
+
+/* ─── Data Source Badge ─── */
+.data-source-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+.data-source-badge.live    { background: rgba(77,255,136,0.12);  color: #4dff88; border: 1px solid rgba(77,255,136,0.3); }
+.data-source-badge.db      { background: rgba(77,184,255,0.12);  color: #4db8ff; border: 1px solid rgba(77,184,255,0.3); }
+.data-source-badge.partial { background: rgba(255,149,0,0.12);   color: #ff9500; border: 1px solid rgba(255,149,0,0.3); }
+.data-source-badge.demo    { background: rgba(255,68,68,0.12);   color: #ff6b6b; border: 1px solid rgba(255,68,68,0.3); }

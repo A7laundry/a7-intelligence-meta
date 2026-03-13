@@ -25,11 +25,13 @@ class MetaAdsClient:
     MAX_RETRIES = 3
     REQUEST_TIMEOUT = 30  # segundos
 
-    def __init__(self):
+    def __init__(self, access_token=None):
         self.access_token = META_CONFIG["access_token"]
         self.ad_account_id = META_CONFIG["ad_account_id"]
         self.page_id = META_CONFIG["page_id"]
         self.pixel_id = META_CONFIG["pixel_id"]
+        if access_token:
+            self.access_token = access_token
 
     def _get_headers(self) -> dict:
         """Retorna headers de autenticação."""
@@ -391,7 +393,7 @@ class MetaAdsClient:
         if not fields:
             fields = (
                 "campaign_name,impressions,clicks,ctr,cpc,cpm,spend,"
-                "actions,cost_per_action_type,reach,frequency"
+                "actions,action_values,cost_per_action_type,reach,frequency"
             )
 
         params = {
@@ -407,7 +409,7 @@ class MetaAdsClient:
         params = {
             "fields": (
                 "impressions,clicks,ctr,cpc,cpm,spend,actions,"
-                "cost_per_action_type,reach,frequency"
+                "action_values,cost_per_action_type,reach,frequency"
             ),
             "date_preset": date_preset,
         }
@@ -420,7 +422,7 @@ class MetaAdsClient:
         params = {
             "fields": (
                 "adset_name,impressions,clicks,ctr,cpc,spend,"
-                "actions,cost_per_action_type,reach"
+                "actions,action_values,cost_per_action_type,reach"
             ),
             "date_preset": date_preset,
         }
@@ -431,7 +433,7 @@ class MetaAdsClient:
     def get_daily_insights(self, date_preset: str = "last_7d") -> list:
         """Puxa métricas diárias da conta (para trend charts)."""
         params = {
-            "fields": "spend,impressions,clicks,actions",
+            "fields": "spend,impressions,clicks,actions,action_values",
             "date_preset": date_preset,
             "time_increment": 1,
         }

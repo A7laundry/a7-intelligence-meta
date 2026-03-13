@@ -276,6 +276,115 @@ class ReportingService:
             return {"unresolved_total": 0, "unresolved_critical": 0, "unresolved_warnings": 0}
 
     # ══════════════════════════════════════════════════════════
+    # EXPORT — ACCOUNT-SCOPED (static, for route layer)
+    # ══════════════════════════════════════════════════════════
+
+    @staticmethod
+    def export_csv(account_id, days=30, report_type="overview") -> bytes:
+        """Export account metrics as CSV bytes."""
+        import csv, io
+        from app.services.snapshot_service import SnapshotService
+
+        snapshots = SnapshotService.get_daily_snapshots(days=days, account_id=account_id)
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+
+        # Header
+        writer.writerow(["Date", "Platform", "Spend", "Impressions", "Clicks", "CTR%", "CPC", "Conversions", "CPA", "ROAS"])
+
+        for s in snapshots:
+            writer.writerow([
+                s.get("date", ""),
+                s.get("platform", ""),
+                round(s.get("spend", 0), 2),
+                s.get("impressions", 0),
+                s.get("clicks", 0),
+                round(s.get("ctr", 0), 2),
+                round(s.get("cpc", 0), 2),
+                s.get("conversions", 0),
+                round(s.get("cpa", 0), 2),
+                round(s.get("roas", 0), 2),
+            ])
+
+        return output.getvalue().encode("utf-8")
+
+    @staticmethod
+    def export_pdf(account_id, days=30, account_name="Account") -> bytes:
+        """Export account performance report as PDF bytes."""
+        try:
+            from reportlab.lib.pagesizes import A4
+            from reportlab.lib import colors
+            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+            from reportlab.lib.units import cm
+            import io
+            from datetime import datetime
+            from app.services.snapshot_service import SnapshotService
+
+            buffer = io.BytesIO()
+            doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=2*cm, leftMargin=2*cm, topMargin=2*cm, bottomMargin=2*cm)
+
+            # Colors
+            dark_bg = colors.HexColor("#0d1117")
+            accent = colors.HexColor("#4db8ff")
+            text_color = colors.HexColor("#e6edf3")
+
+            styles = getSampleStyleSheet()
+            title_style = ParagraphStyle("title", fontSize=20, textColor=accent, spaceAfter=6, fontName="Helvetica-Bold")
+            subtitle_style = ParagraphStyle("subtitle", fontSize=12, textColor=text_color, spaceAfter=20)
+
+            story = []
+            story.append(Paragraph("A7 Intelligence", title_style))
+            story.append(Paragraph(f"Performance Report \u2014 {account_name}", subtitle_style))
+            story.append(Paragraph(f"Period: Last {days} days | Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}", subtitle_style))
+            story.append(Spacer(1, 0.5*cm))
+
+            # Data
+            snapshots = SnapshotService.get_daily_snapshots(days=days, account_id=account_id)
+
+            if snapshots:
+                table_data = [["Date", "Platform", "Spend", "Impressions", "Clicks", "CTR%", "Conversions", "CPA"]]
+                for s in snapshots[-30:]:  # max 30 rows
+                    table_data.append([
+                        s.get("date", "")[:10],
+                        s.get("platform", "").title(),
+                        f"${s.get('spend', 0):.2f}",
+                        f"{s.get('impressions', 0):,}",
+                        f"{s.get('clicks', 0):,}",
+                        f"{s.get('ctr', 0):.2f}%",
+                        str(s.get("conversions", 0)),
+                        f"${s.get('cpa', 0):.2f}",
+                    ])
+
+                col_widths = [2.5*cm, 2*cm, 2*cm, 2.5*cm, 2*cm, 1.8*cm, 2*cm, 2*cm]
+                t = Table(table_data, colWidths=col_widths)
+                t.setStyle(TableStyle([
+                    ("BACKGROUND", (0, 0), (-1, 0), accent),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), dark_bg),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 8),
+                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor("#161b22"), colors.HexColor("#0d1117")]),
+                    ("TEXTCOLOR", (0, 1), (-1, -1), text_color),
+                    ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#30363d")),
+                    ("ALIGN", (2, 0), (-1, -1), "RIGHT"),
+                    ("PADDING", (0, 0), (-1, -1), 4),
+                ]))
+                story.append(t)
+            else:
+                story.append(Paragraph("No data available for this period.", subtitle_style))
+
+            doc.build(story)
+            return buffer.getvalue()
+
+        except ImportError:
+            # reportlab not installed — fall back to lightweight PDF
+            from app.services.reporting_service import ReportingService as _RS
+            rs = _RS()
+            report = rs.generate_executive_report(days)
+            return rs._generate_pdf(report)
+
+    # ══════════════════════════════════════════════════════════
     # PDF GENERATION (lightweight, no dependencies)
     # ══════════════════════════════════════════════════════════
 

@@ -584,10 +584,56 @@
   }
 
   /* ─── Master Render ─── */
+  /* ─── Data Source Badge ─── */
+  function updateDataSourceBadge(data) {
+    var badge = document.getElementById('dataSourceBadge');
+    var icon = document.getElementById('dataSourceIcon');
+    var label = document.getElementById('dataSourceLabel');
+    if (!badge) return;
+
+    badge.style.display = 'inline-flex';
+
+    if (data.demo) {
+      badge.className = 'data-source-badge demo';
+      icon.textContent = '◉';
+      label.textContent = 'Demo data';
+    } else if (data.source === 'database') {
+      badge.className = 'data-source-badge db';
+      icon.textContent = '◎';
+      label.textContent = 'Snapshot data';
+      if (data.generated_at) {
+        var ago = _timeAgo(data.generated_at);
+        label.textContent = 'Snapshot · ' + ago;
+      }
+    } else if (data.partial) {
+      badge.className = 'data-source-badge partial';
+      icon.textContent = '◑';
+      label.textContent = 'Partial live data';
+    } else {
+      badge.className = 'data-source-badge live';
+      icon.textContent = '●';
+      label.textContent = 'Live data';
+    }
+  }
+
+  function _timeAgo(isoString) {
+    try {
+      var then = new Date(isoString);
+      var mins = Math.floor((Date.now() - then.getTime()) / 60000);
+      if (mins < 2) return 'just now';
+      if (mins < 60) return mins + 'm ago';
+      var hrs = Math.floor(mins / 60);
+      if (hrs < 24) return hrs + 'h ago';
+      return Math.floor(hrs / 24) + 'd ago';
+    } catch(e) { return ''; }
+  }
+
   function render(data) {
     // Demo banner
     if (data.demo) { $('#demoBanner').classList.add('visible'); }
     else { $('#demoBanner').classList.remove('visible'); }
+
+    updateDataSourceBadge(data);
 
     // Hide Google section if no data
     const gs = $('#googleSection');

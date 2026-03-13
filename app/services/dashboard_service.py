@@ -31,14 +31,26 @@ class DashboardService:
 
     def _init_clients(self):
         """Initialize API clients (reuses existing modules)."""
+        # Try config-based Meta init first
         try:
             from config_default import META_CONFIG
-            if META_CONFIG.get("access_token") and META_CONFIG["access_token"] != "SEU_ACCESS_TOKEN_LONGO_PRAZO":
+            if META_CONFIG.get("access_token") and META_CONFIG["access_token"] not in ("", "SEU_ACCESS_TOKEN_LONGO_PRAZO"):
                 from meta_client import MetaAdsClient
                 self.meta_client = MetaAdsClient()
                 self.meta_available = True
         except Exception:
             pass
+
+        # Fallback: if no config token but DB accounts exist, mark meta as available
+        if not self.meta_available:
+            try:
+                accounts = AccountService.get_all()
+                meta_accounts = [a for a in accounts if a.get("platform") == "meta" and a.get("access_token")]
+                if meta_accounts:
+                    self.meta_available = True
+                    # Don't set self.meta_client here — it will be created per-account in _get_meta_client_for_account
+            except Exception:
+                pass
 
         try:
             from config_default import GOOGLE_ADS_CONFIG
@@ -58,23 +70,30 @@ class DashboardService:
             pass
 
     def _get_meta_client_for_account(self, account_id: int):
-        """Return a Meta client configured for the given account_id."""
+        """Return a Meta client configured for the given account_id, using the DB token."""
         if not self.meta_available:
             return None
         try:
-            external_id = AccountService.get_external_account_id(account_id)
-            if not external_id:
-                return self.meta_client
             from meta_client import MetaAdsClient
-            from config_default import META_CONFIG
-            import copy
-            cfg = copy.deepcopy(META_CONFIG)
-            cfg["ad_account_id"] = external_id
-            client = MetaAdsClient.__new__(MetaAdsClient)
-            client.__init__()
-            # Override the ad_account_id on the client if it exposes it
-            if hasattr(client, "ad_account_id"):
+
+            # Get the full account record from DB (already decrypted by AccountService)
+            account = AccountService.get_by_id(account_id)
+            if not account:
+                return self.meta_client  # fallback to config client
+
+            access_token = account.get("access_token")
+            external_id = account.get("external_account_id")
+
+            if not access_token:
+                return self.meta_client  # no token, use default
+
+            # Create a client with this account's token
+            client = MetaAdsClient(access_token=access_token)
+
+            # Override the ad_account_id if the client exposes it
+            if external_id and hasattr(client, "ad_account_id"):
                 client.ad_account_id = external_id
+
             return client
         except Exception:
             return self.meta_client
@@ -138,10 +157,16 @@ class DashboardService:
         try:
             from dashboard_fetcher import DashboardFetcher
             fetcher = DashboardFetcher.__new__(DashboardFetcher)
-            fetcher.meta_client = self._get_meta_client_for_account(account_id) if account_id else self.meta_client
-            fetcher.meta_available = True
+            # Always use per-account client when account_id is provided
+            if account_id:
+                fetcher.meta_client = self._get_meta_client_for_account(account_id)
+            else:
+                fetcher.meta_client = self.meta_client
+            fetcher.meta_available = fetcher.meta_client is not None
             fetcher.google_client = None
             fetcher.google_available = False
+            if not fetcher.meta_available:
+                return None
             return fetcher.fetch_meta_data(date_preset)
         except Exception:
             return None
