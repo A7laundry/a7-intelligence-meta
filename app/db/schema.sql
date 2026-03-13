@@ -266,6 +266,29 @@ CREATE TABLE IF NOT EXISTS automation_runs (
 CREATE INDEX IF NOT EXISTS idx_automation_runs_account ON automation_runs(account_id);
 CREATE INDEX IF NOT EXISTS idx_automation_runs_started ON automation_runs(started_at);
 
+-- ─────────────────────────────────────────
+-- Organizations & Users (multi-tenant)
+-- ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS organizations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    slug TEXT UNIQUE,
+    status TEXT DEFAULT 'active',  -- active | suspended | cancelled
+    created_by TEXT,               -- Supabase user UUID
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS org_users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    org_id INTEGER NOT NULL REFERENCES organizations(id),
+    supabase_user_id TEXT NOT NULL,
+    email TEXT NOT NULL,
+    role TEXT DEFAULT 'member',    -- owner | admin | member
+    created_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(org_id, supabase_user_id)
+);
+
 -- ─── Billing & Plans ─────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS plans (
@@ -281,6 +304,7 @@ CREATE TABLE IF NOT EXISTS plans (
 CREATE TABLE IF NOT EXISTS subscriptions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     organization_id INTEGER NOT NULL DEFAULT 1,
+    stripe_customer_id TEXT,
     plan_id INTEGER NOT NULL REFERENCES plans(id),
     status TEXT DEFAULT 'active' CHECK(status IN ('active', 'trialing', 'cancelled', 'past_due')),
     created_at TEXT DEFAULT (datetime('now')),

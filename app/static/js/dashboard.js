@@ -2752,11 +2752,67 @@
         '</div>';
       }).join('');
 
+      // Upgrade CTA — only shown when not on Scale/Enterprise plan
+      var ctaEl = document.getElementById('planUpgradeCta');
+      if (ctaEl) {
+        var planName = (d.plan_name || 'Starter').toLowerCase();
+        if (planName === 'scale' || planName === 'enterprise') {
+          ctaEl.style.display = 'none';
+        } else {
+          var showScale = (planName === 'growth');
+          ctaEl.innerHTML =
+            '<p class="puc-headline">You\'re on the <strong>' + (d.plan_name || 'Starter') + '</strong> plan.</p>' +
+            '<p class="puc-subline">Unlock higher limits, priority support, and advanced automation.</p>' +
+            '<div class="puc-btns">' +
+              (!showScale ? '<button class="puc-btn puc-btn-growth" onclick="upgradePlan(\'growth\')">Upgrade to Growth &mdash; $99/mo</button>' : '') +
+              '<button class="puc-btn puc-btn-scale" onclick="upgradePlan(\'scale\')">Upgrade to Scale &mdash; $299/mo</button>' +
+            '</div>';
+          ctaEl.style.display = '';
+        }
+      }
+
       section.style.display = '';
     } catch (e) {
       // silently skip if billing endpoint unavailable
     }
   }
+
+  /* ─── Upgrade Plan (Stripe Checkout) ─── */
+  window.upgradePlan = function(planName) {
+    var btn = document.querySelector('.puc-btn-' + planName);
+    if (btn) {
+      btn._origText = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="btn-spinner"></span>Redirecting...';
+      btn.style.opacity = '0.75';
+    }
+    fetch('/api/billing/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ plan: planName }),
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.checkout_url) {
+          window.location.href = data.checkout_url;
+        } else {
+          if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = btn._origText || 'Upgrade';
+            btn.style.opacity = '';
+          }
+          showToast('Upgrade unavailable: ' + (data.error || 'Unknown error'), 'error');
+        }
+      })
+      .catch(function() {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = btn._origText || 'Upgrade';
+          btn.style.opacity = '';
+        }
+        showToast('Could not connect to billing service', 'error');
+      });
+  };
 
   /* ─── Content Studio ─── */
 

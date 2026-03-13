@@ -153,3 +153,17 @@ def token_refresh():
     from app.services.token_refresh_service import TokenRefreshService
     result = TokenRefreshService().refresh_all_accounts()
     return jsonify({"ok": True, "result": result})
+
+
+@internal_jobs_bp.route("/internal/jobs/content-insights", methods=["POST"])
+def content_insights_job():
+    """Generate content performance insights. Railway Cron: daily at 07:00 UTC."""
+    if not _check_cron_secret():
+        return jsonify({"error": "Unauthorized"}), 401
+    try:
+        from app.services.content_intelligence_service import ContentIntelligenceService
+        result = ContentIntelligenceService().run_daily_insights()
+        return jsonify({"ok": True, "result": result})
+    except Exception as e:
+        logger.exception("[internal-jobs] content-insights failed")
+        return jsonify({"ok": False, "error": str(e)}), 500

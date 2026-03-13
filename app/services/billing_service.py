@@ -17,7 +17,8 @@ class BillingService:
             row = conn.execute(
                 """SELECT p.id, p.name, p.price,
                           p.accounts_limit, p.automation_runs_limit, p.copilot_queries_limit,
-                          s.status, s.created_at AS subscribed_at
+                          s.status, s.created_at AS subscribed_at,
+                          s.stripe_customer_id
                    FROM subscriptions s
                    JOIN plans p ON p.id = s.plan_id
                    WHERE s.organization_id = ?""",
@@ -34,6 +35,7 @@ class BillingService:
                 "copilot_queries_limit":   row["copilot_queries_limit"],
                 "status":                  row["status"],
                 "subscribed_at":           row["subscribed_at"],
+                "stripe_customer_id":      row["stripe_customer_id"] if "stripe_customer_id" in row.keys() else None,
             }
         except Exception:
             return self._starter_fallback()
@@ -128,6 +130,46 @@ class BillingService:
         used = usage["automation_runs"]
         allowed = (limit is None) or (used < limit)
         return {"allowed": allowed, "used": used, "limit": limit}
+
+    # ── Stripe Integration ────────────────────────────────────────
+
+    @staticmethod
+    def activate_plan(org_id: int, plan_name: str, stripe_customer_id: str) -> bool:
+        """Activate a paid plan after successful Stripe checkout."""
+        try:
+            conn = get_connection()
+            plan = conn.execute("SELECT id FROM plans WHERE LOWER(name) = LOWER(?)", (plan_name,)).fetchone()
+            if not plan:
+                conn.close()
+                return False
+            conn.execute(
+                """UPDATE subscriptions SET plan_id = ?, status = 'active', stripe_customer_id = ?
+                   WHERE organization_id = ?""",
+                (plan["id"], stripe_customer_id, org_id)
+            )
+            conn.commit()
+            conn.close()
+            return True
+        except Exception:
+            return False
+
+    @staticmethod
+    def update_subscription_status(stripe_customer_id: str, status: str) -> bool:
+        """Update subscription status from Stripe webhook."""
+        try:
+            conn = get_connection()
+            # Map Stripe statuses to our statuses
+            mapped = {"active": "active", "past_due": "past_due", "canceled": "cancelled",
+                      "trialing": "trialing", "unpaid": "past_due"}.get(status, status)
+            conn.execute(
+                "UPDATE subscriptions SET status = ? WHERE stripe_customer_id = ?",
+                (mapped, stripe_customer_id)
+            )
+            conn.commit()
+            conn.close()
+            return True
+        except Exception:
+            return False
 
     # ── Dashboard Summary ─────────────────────────────────────────
 

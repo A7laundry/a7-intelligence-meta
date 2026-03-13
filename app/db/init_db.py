@@ -526,6 +526,36 @@ def _run_migrations(conn):
         conn.execute("ALTER TABLE campaign_snapshots ADD COLUMN conversion_value REAL DEFAULT 0")
     conn.commit()
 
+    # Migration 17: add organizations, org_users tables + stripe_customer_id
+    if not _table_exists(conn, "organizations"):
+        conn.execute("""CREATE TABLE organizations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            slug TEXT UNIQUE,
+            status TEXT DEFAULT 'active',
+            created_by TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now'))
+        )""")
+        # Seed default org
+        conn.execute("INSERT OR IGNORE INTO organizations (id, name, slug) VALUES (1, 'Default', 'default')")
+
+    if not _table_exists(conn, "org_users"):
+        conn.execute("""CREATE TABLE org_users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            org_id INTEGER NOT NULL REFERENCES organizations(id),
+            supabase_user_id TEXT NOT NULL,
+            email TEXT NOT NULL,
+            role TEXT DEFAULT 'member',
+            created_at TEXT DEFAULT (datetime('now')),
+            UNIQUE(org_id, supabase_user_id)
+        )""")
+
+    if not _column_exists(conn, "subscriptions", "stripe_customer_id"):
+        conn.execute("ALTER TABLE subscriptions ADD COLUMN stripe_customer_id TEXT")
+
+    conn.commit()
+
     _migrate_snapshots_table(conn, "creatives",
         """CREATE TABLE creatives_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

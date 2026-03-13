@@ -587,6 +587,63 @@ class ContentIntelligenceService:
         finally:
             conn.close()
 
+    # ── Daily Insights Cron ───────────────────────────────────────────────────
+
+    def run_daily_insights(self, account_id: object = None) -> dict:
+        """Generate and persist content insights for all (or one) accounts.
+
+        Intended to be called by the Railway Cron endpoint daily at 07:00 UTC.
+
+        Flow per account:
+          1. Sync content_metrics for all published posts (mock fallback if no
+             real provider data is available).
+          2. Run detect_reuse_opportunities() which scores every post from the
+             last 30 days and persists top_performer, low_engagement,
+             format_winner, reuse_opportunity, paid_synergy records into the
+             content_insights table.
+
+        Args:
+            account_id: If supplied, process only that account.  If None,
+                        discover all account IDs from content_posts and process
+                        each one.
+
+        Returns:
+            {"processed": N, "insights_generated": M}
+            where N = posts scored and M = insight records upserted.
+        """
+        conn = get_connection()
+        try:
+            if account_id is not None:
+                account_ids = [int(account_id)]
+            else:
+                rows = conn.execute(
+                    "SELECT DISTINCT account_id FROM content_posts WHERE status = 'published'"
+                ).fetchall()
+                account_ids = [r["account_id"] for r in rows]
+        finally:
+            conn.close()
+
+        if not account_ids:
+            return {"processed": 0, "insights_generated": 0}
+
+        total_processed = 0
+        total_insights = 0
+
+        for acct_id in account_ids:
+            # Step 1: sync metrics (populates content_metrics for published posts)
+            sync_result = self.sync_content_metrics(acct_id)
+            total_processed += sync_result.get("total", 0)
+
+            # Step 2: score + persist insights
+            insights = self.detect_reuse_opportunities(acct_id, days=30)
+            # detect_reuse_opportunities returns a list of dicts; on error it
+            # returns [{"error": "..."}] — skip error entries from the count.
+            total_insights += sum(
+                1 for i in insights if "error" not in i
+            )
+
+        return {"processed": total_processed, "insights_generated": total_insights}
+
     # ── Stored insights ──────────────────────────────────────────────────────
 
     def get_insights(self, account_id: int, insight_type: object = None) -> list:

@@ -96,6 +96,9 @@ def create_app():
     from app.routes.internal_jobs import internal_jobs_bp
     app.register_blueprint(internal_jobs_bp, url_prefix="/api")
 
+    from app.routes.orgs import orgs_bp
+    app.register_blueprint(orgs_bp, url_prefix="/api")
+
     # Register API key middleware (no-op if A7_API_KEY not set)
     from app.middleware.auth import register_auth_middleware
     register_auth_middleware(app)
