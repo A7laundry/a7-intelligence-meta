@@ -3900,6 +3900,7 @@
     'campaigns':      { title: 'Campaigns',             subtitle: 'Active campaigns & performance',    icon: '◫' },
     'budget':         { title: 'Budget Intelligence',   subtitle: 'Allocation & efficiency analysis',  icon: '◎' },
     'automation':     { title: 'Automation',            subtitle: 'Proposals & execution history',     icon: '⊗' },
+    'launch':         { title: 'Launch Console',        subtitle: 'Draft, validate & publish Meta Ads campaigns', icon: '🚀' },
     'creative':       { title: 'Creative Intelligence', subtitle: 'Asset performance & insights',      icon: '◇' },
     'content-studio': { title: 'Content Studio',        subtitle: 'Ideas · Creatives · Publishing',   icon: '◱' },
     'ai-coach':       { title: 'AI Coach',              subtitle: 'AI-powered performance insights',   icon: '◉' },
@@ -5207,6 +5208,7 @@
     'campaigns':      [],   // data loaded by main load() which runs for overview
     'budget':         ['loadBudget'],
     'automation':     ['loadAutomation'],
+    'launch':         ['loadLaunchConsole'],
     'creative':       ['loadCreatives'],
     'content-studio': ['loadContentStudio'],
     'ai-coach':       ['loadCoach'],
@@ -5367,6 +5369,7 @@
     loadAccountOverview: loadAccountOverview,
     loadBudget:         loadBudget,
     loadAutomation:     loadAutomation,
+    loadLaunchConsole:  loadLaunchConsole,
     loadCreatives:      loadCreatives,
     loadContentStudio:  loadContentStudio,
     loadCoach:          loadCoach,
@@ -5413,5 +5416,426 @@
     _origGlobalSysStatus(state);
     _syncWsStatus(state);
   };
+
+  // ═══════════════════════════════════════════ LAUNCH CONSOLE ═══
+
+  var _lcCurrentJobId = null;
+  var _lcDryRun = true;
+
+  function loadLaunchConsole() {
+    window.lcShowJobs();
+    window.lcLoadJobs();
+  }
+
+  window.lcShowJobs = function() {
+    _lcCurrentJobId = null;
+    var vCreate = document.getElementById('lcViewCreate');
+    var vDetail = document.getElementById('lcViewDetail');
+    var vJobs   = document.getElementById('lcViewJobs');
+    var mBar    = document.getElementById('lcModeBar');
+    if (vCreate) vCreate.style.display = 'none';
+    if (vDetail) vDetail.style.display = 'none';
+    if (vJobs)   vJobs.style.display   = '';
+    if (mBar)    mBar.style.display    = 'none';
+    window.lcLoadJobs();
+  };
+
+  window.lcShowCreate = function() {
+    var vJobs   = document.getElementById('lcViewJobs');
+    var vDetail = document.getElementById('lcViewDetail');
+    var vCreate = document.getElementById('lcViewCreate');
+    var mBar    = document.getElementById('lcModeBar');
+    if (vJobs)   vJobs.style.display   = 'none';
+    if (vDetail) vDetail.style.display = 'none';
+    if (vCreate) vCreate.style.display = '';
+    if (mBar)    mBar.style.display    = 'none';
+  };
+
+  window.lcUpdateModeUI = function() {
+    var modeEl = document.getElementById('lcJobMode');
+    var warn   = document.getElementById('lcLiveWarning');
+    if (!modeEl || !warn) return;
+    warn.style.display = (modeEl.value === 'publish') ? '' : 'none';
+  };
+
+  window.lcLoadJobs = async function() {
+    var el = document.getElementById('lcJobsTable');
+    if (!el) return;
+    el.innerHTML = '<div class="lc-empty">Loading...</div>';
+    try {
+      var qs = currentAccountId ? '?account_id=' + currentAccountId : '';
+      var data = await fetchApi('/launch/jobs' + qs);
+      var jobs = data.jobs || [];
+      if (!jobs.length) {
+        el.innerHTML = '<div class="lc-empty">No launch jobs yet. Create your first job to get started.</div>';
+        return;
+      }
+      var rows = jobs.map(function(j) {
+        var statusCls = {'pending':'lc-st-pending','validated':'lc-st-ok','completed':'lc-st-ok','failed':'lc-st-err','partial':'lc-st-warn','publishing':'lc-st-warn'}[j.status] || 'lc-st-pending';
+        var modeBadge = j.mode === 'publish'
+          ? '<span class="lc-live-badge">LIVE</span>'
+          : '<span class="lc-draft-badge">' + _lcEsc(j.mode.toUpperCase()) + '</span>';
+        return '<tr class="lc-tr" onclick="window.lcOpenJob(' + j.id + ')">' +
+          '<td class="lc-td">' + _lcEsc(j.job_name) + '</td>' +
+          '<td class="lc-td">' + modeBadge + '</td>' +
+          '<td class="lc-td"><span class="lc-status ' + statusCls + '">' + _lcEsc(j.status) + '</span></td>' +
+          '<td class="lc-td">' + (j.total_items || 0) + ' items</td>' +
+          '<td class="lc-td lc-ok">' + (j.success_count || 0) + '</td>' +
+          '<td class="lc-td lc-err">' + (j.failed_count || 0) + '</td>' +
+          '<td class="lc-td lc-muted">' + _lcEsc((j.created_at || '').substring(0, 16)) + '</td>' +
+          '<td class="lc-td"><button class="lc-btn lc-btn-xs lc-btn-danger" onclick="event.stopPropagation();window.lcDeleteJob(' + j.id + ')">Delete</button></td>' +
+          '</tr>';
+      }).join('');
+      el.innerHTML = '<table class="lc-table"><thead><tr>' +
+        '<th class="lc-th">Job Name</th><th class="lc-th">Mode</th><th class="lc-th">Status</th>' +
+        '<th class="lc-th">Items</th><th class="lc-th lc-ok">OK</th><th class="lc-th lc-err">Fail</th>' +
+        '<th class="lc-th">Created</th><th class="lc-th"></th></tr></thead><tbody>' + rows + '</tbody></table>';
+    } catch(e) {
+      el.innerHTML = '<div class="lc-empty lc-err">Error loading jobs: ' + _lcEsc(e.message) + '</div>';
+    }
+  };
+
+  window.lcCreateJob = async function() {
+    var nameEl  = document.getElementById('lcJobName');
+    var modeEl  = document.getElementById('lcJobMode');
+    var notesEl = document.getElementById('lcJobNotes');
+    var name  = (nameEl  ? nameEl.value  : '').trim();
+    var mode  = modeEl  ? modeEl.value  : 'draft';
+    var notes = notesEl ? notesEl.value : '';
+    if (!name)             { showToast('Job name required', 'error'); return; }
+    if (!currentAccountId) { showToast('Select an account first', 'error'); return; }
+    try {
+      var resp = await fetch('/api/launch/jobs', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({account_id: currentAccountId, job_name: name, mode: mode, notes: notes}),
+      });
+      var data = await resp.json();
+      if (data.error) throw new Error(data.error);
+      showToast('Job created', 'success');
+      window.lcOpenJob(data.job.id);
+    } catch(e) {
+      showToast('Error: ' + e.message, 'error');
+    }
+  };
+
+  window.lcOpenJob = async function(jobId) {
+    _lcCurrentJobId = jobId;
+    var vJobs   = document.getElementById('lcViewJobs');
+    var vCreate = document.getElementById('lcViewCreate');
+    var vDetail = document.getElementById('lcViewDetail');
+    if (vJobs)   vJobs.style.display   = 'none';
+    if (vCreate) vCreate.style.display = 'none';
+    if (vDetail) vDetail.style.display = '';
+    try {
+      var data = await fetchApi('/launch/jobs/' + jobId);
+      var job  = data.job;
+      var titleEl  = document.getElementById('lcDetailTitle');
+      var metaEl   = document.getElementById('lcDetailMeta');
+      var modeBar  = document.getElementById('lcModeBar');
+      var modeBadge = document.getElementById('lcModeBadge');
+      var modeDesc  = document.getElementById('lcModeDesc');
+      if (titleEl) titleEl.textContent = job.job_name;
+      if (metaEl) {
+        var modeHtml = job.mode === 'publish'
+          ? '<span class="lc-live-badge">LIVE</span>'
+          : '<span class="lc-draft-badge">' + _lcEsc(job.mode.toUpperCase()) + '</span>';
+        metaEl.innerHTML = modeHtml + ' &nbsp; Status: <strong>' + _lcEsc(job.status) + '</strong>' +
+          ' &nbsp; Items: ' + (job.total_items || 0) +
+          ' &nbsp; Created: ' + _lcEsc((job.created_at || '').substring(0, 16));
+      }
+      if (modeBar) {
+        modeBar.style.display = '';
+        if (job.mode === 'publish') {
+          if (modeBadge) { modeBadge.textContent = 'LIVE MODE'; modeBadge.className = 'lc-mode-badge live'; }
+          if (modeDesc)  modeDesc.textContent = 'This job will create real Meta campaigns';
+        } else {
+          if (modeBadge) { modeBadge.textContent = job.mode.toUpperCase() + ' MODE'; modeBadge.className = 'lc-mode-badge draft'; }
+          if (modeDesc)  modeDesc.textContent = 'No Meta API calls — safe to experiment';
+        }
+      }
+    } catch(e) {
+      showToast('Error loading job: ' + e.message, 'error');
+    }
+    window.lcTab('import');
+  };
+
+  window.lcTab = function(name) {
+    var tabs = ['import','preview','validate','publish','logs'];
+    tabs.forEach(function(t) {
+      var cap  = t.charAt(0).toUpperCase() + t.slice(1);
+      var btn  = document.getElementById('lcTab' + cap);
+      var body = document.getElementById('lcTabBody' + cap);
+      if (btn)  btn.className  = 'lc-tab' + (t === name ? ' active' : '');
+      if (body) body.style.display = (t === name ? '' : 'none');
+    });
+    if (name === 'preview') window.lcLoadPreview();
+    if (name === 'logs')    window.lcLoadLogs();
+    if (name === 'publish') window.lcBuildPublishChecklist();
+  };
+
+  window.lcImportRows = async function() {
+    if (!_lcCurrentJobId) { showToast('No active job', 'error'); return; }
+    var rawEl    = document.getElementById('lcImportRaw');
+    var objEl    = document.getElementById('lcDefObjective');
+    var budgEl   = document.getElementById('lcDefBudget');
+    var geoEl    = document.getElementById('lcDefGeo');
+    var ctaEl    = document.getElementById('lcDefCta');
+    var pageEl   = document.getElementById('lcDefPageId');
+    var pixelEl  = document.getElementById('lcDefPixelId');
+    var raw = (rawEl ? rawEl.value : '').trim();
+    if (!raw) { showToast('Paste rows first', 'error'); return; }
+    var defaults = {
+      objective: objEl   ? objEl.value   : 'OUTCOME_LEADS',
+      budget:    parseFloat(budgEl ? budgEl.value : '50') || 50,
+      geo:       geoEl   ? (geoEl.value || 'BR')  : 'BR',
+      cta:       ctaEl   ? ctaEl.value   : 'LEARN_MORE',
+      page_id:   pageEl  ? (pageEl.value  || null) : null,
+      pixel_id:  pixelEl ? (pixelEl.value || null) : null,
+      account_id: currentAccountId,
+    };
+    try {
+      var resp = await fetch('/api/launch/jobs/' + _lcCurrentJobId + '/import', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({raw: raw, defaults: defaults, account_id: currentAccountId}),
+      });
+      var data = await resp.json();
+      if (data.error) throw new Error(data.error);
+      var errEl = document.getElementById('lcImportErrors');
+      var cntEl = document.getElementById('lcImportCount');
+      if (data.parse_errors && data.parse_errors.length) {
+        if (errEl) {
+          errEl.style.display = '';
+          errEl.innerHTML = '<strong>Parse warnings:</strong><ul>' +
+            data.parse_errors.map(function(e){ return '<li>' + _lcEsc(e) + '</li>'; }).join('') + '</ul>';
+        }
+      } else {
+        if (errEl) errEl.style.display = 'none';
+      }
+      if (cntEl) { cntEl.style.display = ''; cntEl.textContent = data.added + ' rows imported'; }
+      showToast(data.added + ' rows imported successfully', 'success');
+      window.lcTab('preview');
+    } catch(e) {
+      showToast('Import error: ' + e.message, 'error');
+    }
+  };
+
+  window.lcClearImport = function() {
+    var rawEl  = document.getElementById('lcImportRaw');
+    var errEl  = document.getElementById('lcImportErrors');
+    var cntEl  = document.getElementById('lcImportCount');
+    if (rawEl) rawEl.value = '';
+    if (errEl) errEl.style.display = 'none';
+    if (cntEl) cntEl.style.display = 'none';
+  };
+
+  window.lcLoadPreview = async function() {
+    if (!_lcCurrentJobId) return;
+    var el = document.getElementById('lcPreviewTable');
+    if (!el) return;
+    el.innerHTML = '<div class="lc-empty">Loading preview...</div>';
+    try {
+      var data = await fetchApi('/launch/jobs/' + _lcCurrentJobId + '/preview');
+      var rows = data.previews || [];
+      if (!rows.length) {
+        el.innerHTML = '<div class="lc-empty">No items yet. Import LPs first.</div>';
+        return;
+      }
+      var tbl = '<table class="lc-table"><thead><tr>' +
+        '<th class="lc-th">#</th><th class="lc-th">LP URL</th>' +
+        '<th class="lc-th">Campaign</th><th class="lc-th">Ad Set</th><th class="lc-th">Ad</th>' +
+        '<th class="lc-th">Obj</th><th class="lc-th">Budget</th><th class="lc-th">Creative</th>' +
+        '<th class="lc-th">Status</th></tr></thead><tbody>';
+      rows.forEach(function(r) {
+        var vstCls = {'valid':'lc-st-ok','warning':'lc-st-warn','error':'lc-st-err','blocked':'lc-st-err','pending':'lc-st-pending'}[r.validation_status] || '';
+        var url = r.lp_url || '';
+        tbl += '<tr class="lc-tr">' +
+          '<td class="lc-td lc-muted">' + (r.row_index + 1) + '</td>' +
+          '<td class="lc-td lc-url" title="' + _lcEsc(url) + '">' + _lcEsc(url.substring(0, 35)) + (url.length > 35 ? '&hellip;' : '') + '</td>' +
+          '<td class="lc-td lc-name">' + _lcEsc(r.campaign_name || '—') + '</td>' +
+          '<td class="lc-td lc-name">' + _lcEsc(r.adset_name || '—') + '</td>' +
+          '<td class="lc-td lc-name">' + _lcEsc(r.ad_name || '—') + '</td>' +
+          '<td class="lc-td lc-muted">' + _lcEsc((r.objective || '').replace('OUTCOME_','')) + '</td>' +
+          '<td class="lc-td">R$ ' + (r.budget || 0) + '</td>' +
+          '<td class="lc-td lc-muted">' + _lcEsc(r.creative_key || '—') + '</td>' +
+          '<td class="lc-td"><span class="lc-status ' + vstCls + '">' + _lcEsc(r.validation_status || 'pending') + '</span></td>' +
+          '</tr>';
+      });
+      tbl += '</tbody></table>';
+      el.innerHTML = tbl;
+    } catch(e) {
+      el.innerHTML = '<div class="lc-empty lc-err">Error: ' + _lcEsc(e.message) + '</div>';
+    }
+  };
+
+  window.lcRunValidate = async function() {
+    if (!_lcCurrentJobId) return;
+    var sumEl = document.getElementById('lcValidateSummary');
+    var tblEl = document.getElementById('lcValidateTable');
+    if (tblEl) tblEl.innerHTML = '<div class="lc-empty">Validating...</div>';
+    try {
+      var resp = await fetch('/api/launch/jobs/' + _lcCurrentJobId + '/validate', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({}),
+      });
+      var data = await resp.json();
+      if (data.error) throw new Error(data.error);
+      var s = data.summary || {};
+      if (sumEl) {
+        sumEl.style.display = '';
+        sumEl.innerHTML =
+          '<span class="lc-sum-item lc-st-ok">&#10003; ' + (s.valid || 0) + ' Valid</span>' +
+          '<span class="lc-sum-item lc-st-warn">&#9888; ' + (s.warning || 0) + ' Warning</span>' +
+          '<span class="lc-sum-item lc-st-err">&#10007; ' + (s.error || 0) + ' Error</span>' +
+          '<span class="lc-sum-item lc-st-err">&#9632; ' + (s.blocked || 0) + ' Blocked</span>';
+      }
+      var items = data.items || [];
+      if (!items.length) {
+        if (tblEl) tblEl.innerHTML = '<div class="lc-empty">No items to validate.</div>';
+        return;
+      }
+      var tbl = '<table class="lc-table"><thead><tr>' +
+        '<th class="lc-th">#</th><th class="lc-th">LP URL</th><th class="lc-th">Status</th>' +
+        '<th class="lc-th">Issues</th></tr></thead><tbody>';
+      items.forEach(function(item) {
+        var vstCls = {'valid':'lc-st-ok','warning':'lc-st-warn','error':'lc-st-err','blocked':'lc-st-err','pending':'lc-st-pending'}[item.validation_status] || '';
+        var errs = (item.validation_errors || []).map(function(e){ return '<li>' + _lcEsc(e) + '</li>'; }).join('');
+        tbl += '<tr class="lc-tr">' +
+          '<td class="lc-td lc-muted">' + ((item.row_index || 0) + 1) + '</td>' +
+          '<td class="lc-td lc-url">' + _lcEsc((item.lp_url||'').substring(0,40)) + '</td>' +
+          '<td class="lc-td"><span class="lc-status ' + vstCls + '">' + _lcEsc(item.validation_status || 'pending') + '</span></td>' +
+          '<td class="lc-td">' + (errs ? '<ul class="lc-err-list">' + errs + '</ul>' : '<span class="lc-muted">—</span>') + '</td>' +
+          '</tr>';
+      });
+      tbl += '</tbody></table>';
+      if (tblEl) tblEl.innerHTML = tbl;
+      showToast('Validation complete', 'success');
+    } catch(e) {
+      if (tblEl) tblEl.innerHTML = '<div class="lc-empty lc-err">Error: ' + _lcEsc(e.message) + '</div>';
+    }
+  };
+
+  window.lcBuildPublishChecklist = async function() {
+    if (!_lcCurrentJobId) return;
+    var el = document.getElementById('lcPublishChecklist');
+    if (!el) return;
+    try {
+      var data = await fetchApi('/launch/jobs/' + _lcCurrentJobId + '/preview');
+      var previews = data.previews || [];
+      var job = data.job || {};
+      var valid   = previews.filter(function(p){ return p.validation_status === 'valid' || p.validation_status === 'warning'; }).length;
+      var blocked = previews.filter(function(p){ return p.validation_status === 'error' || p.validation_status === 'blocked'; }).length;
+      var checks = [
+        { ok: previews.length > 0, label: previews.length + ' items loaded' },
+        { ok: valid > 0,           label: valid + ' publishable items (valid or warning)' },
+        { ok: blocked === 0,       label: blocked === 0 ? 'No blocked/errored items' : blocked + ' items blocked — will be skipped' },
+        { ok: !!currentAccountId,  label: 'Account selected: ' + (currentAccountId || 'none') },
+        { ok: job.status !== 'publishing', label: 'Job not already publishing' },
+      ];
+      el.innerHTML = checks.map(function(c) {
+        return '<div class="lc-check-row ' + (c.ok ? 'lc-check-ok' : 'lc-check-warn') + '">' +
+          (c.ok ? '&#10003;' : '&#9888;') + ' ' + _lcEsc(c.label) + '</div>';
+      }).join('');
+    } catch(e) {
+      el.innerHTML = '<div class="lc-err">Error loading checklist</div>';
+    }
+  };
+
+  window.lcSetPublishMode = function(isDryRun) {
+    _lcDryRun = isDryRun;
+    var dryBtn      = document.getElementById('lcModeDryRun');
+    var liveBtn     = document.getElementById('lcModeLive');
+    var liveConfirm = document.getElementById('lcLiveConfirm');
+    if (dryBtn)      dryBtn.className  = 'lc-mode-opt' + (isDryRun  ? ' active' : '');
+    if (liveBtn)     liveBtn.className = 'lc-mode-opt' + (!isDryRun ? ' active' : '');
+    if (liveConfirm) liveConfirm.style.display = isDryRun ? 'none' : '';
+  };
+
+  window.lcExecutePublish = async function() {
+    if (!_lcCurrentJobId) return;
+    if (!_lcDryRun) {
+      var chk = document.getElementById('lcLiveConfirmCheck');
+      if (!chk || !chk.checked) {
+        showToast('Check the confirmation box for live publish', 'error');
+        return;
+      }
+    }
+    var resultEl = document.getElementById('lcPublishResult');
+    var guardEl  = document.getElementById('lcPublishGuard');
+    try {
+      showToast(_lcDryRun ? 'Running dry-run...' : 'Publishing live — do not close this tab!', 'info');
+      var body = {dry_run: _lcDryRun};
+      if (!_lcDryRun) body.confirm_live_publish = true;
+      var resp = await fetch('/api/launch/jobs/' + _lcCurrentJobId + '/publish', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(body),
+      });
+      var data = await resp.json();
+      if (data.error) throw new Error(data.error);
+      if (guardEl)  guardEl.style.display  = 'none';
+      if (resultEl) resultEl.style.display = '';
+      var isOk = data.status === 'completed';
+      if (resultEl) {
+        resultEl.innerHTML =
+          '<div class="lc-result-header ' + (isOk ? 'lc-result-ok' : 'lc-result-partial') + '">' +
+          (data.dry_run ? '&#128274; DRY RUN ' : '<span class="lc-live-badge">LIVE</span> ') +
+          'Status: ' + _lcEsc((data.status||'').toUpperCase()) + '</div>' +
+          '<div class="lc-result-body">' +
+          '&#10003; ' + (data.success||0) + ' succeeded &nbsp;&nbsp; ' +
+          (data.failed ? ('&#10007; ' + data.failed + ' failed') : '') +
+          '</div>' +
+          '<button class="lc-btn lc-btn-secondary" style="margin-top:12px" onclick="window.lcTab(\'logs\')">View Logs</button>' +
+          (data.failed ? '<button class="lc-btn lc-btn-primary" style="margin-top:12px;margin-left:8px" onclick="window.lcShowJobs()">Back to Jobs</button>' : '');
+      }
+      showToast(data.dry_run ? 'Dry-run complete' : 'Publish complete', isOk ? 'success' : 'warning');
+    } catch(e) {
+      showToast('Publish error: ' + e.message, 'error');
+    }
+  };
+
+  window.lcLoadLogs = async function() {
+    if (!_lcCurrentJobId) return;
+    var el = document.getElementById('lcLogsTable');
+    if (!el) return;
+    el.innerHTML = '<div class="lc-empty">Loading...</div>';
+    try {
+      var data = await fetchApi('/launch/jobs/' + _lcCurrentJobId + '/logs');
+      var logs = data.logs || [];
+      if (!logs.length) { el.innerHTML = '<div class="lc-empty">No logs yet.</div>'; return; }
+      var html = logs.map(function(l) {
+        var cls = {'success':'lc-log-ok','error':'lc-log-err','warning':'lc-log-warn','info':'lc-log-info'}[l.status] || '';
+        return '<div class="lc-log-row ' + cls + '">' +
+          '<span class="lc-log-ts">'   + _lcEsc((l.created_at||'').substring(11,19)) + '</span>' +
+          '<span class="lc-log-step">[' + _lcEsc(l.step) + ']</span>' +
+          '<span class="lc-log-msg">'  + _lcEsc(l.message||'') + '</span>' +
+          (l.error_message ? '<span class="lc-log-err-msg">' + _lcEsc(l.error_message) + '</span>' : '') +
+          '</div>';
+      }).join('');
+      el.innerHTML = '<div class="lc-logs-list">' + html + '</div>';
+    } catch(e) {
+      el.innerHTML = '<div class="lc-empty lc-err">Error: ' + _lcEsc(e.message) + '</div>';
+    }
+  };
+
+  window.lcDeleteJob = async function(jobId) {
+    if (!confirm('Delete this launch job and all its items/logs?')) return;
+    try {
+      var resp = await fetch('/api/launch/jobs/' + jobId, {method:'DELETE'});
+      var data = await resp.json();
+      if (data.error) throw new Error(data.error);
+      showToast('Job deleted', 'success');
+      window.lcLoadJobs();
+    } catch(e) {
+      showToast('Error: ' + e.message, 'error');
+    }
+  };
+
+  function _lcEsc(s) {
+    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
 
 })();

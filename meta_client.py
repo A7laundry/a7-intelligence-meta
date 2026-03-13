@@ -25,13 +25,15 @@ class MetaAdsClient:
     MAX_RETRIES = 3
     REQUEST_TIMEOUT = 30  # segundos
 
-    def __init__(self, access_token=None):
+    def __init__(self, access_token=None, account_id=None):
         self.access_token = META_CONFIG["access_token"]
         self.ad_account_id = META_CONFIG["ad_account_id"]
         self.page_id = META_CONFIG["page_id"]
         self.pixel_id = META_CONFIG["pixel_id"]
         if access_token:
             self.access_token = access_token
+        if account_id:
+            self.ad_account_id = account_id
 
     def _get_headers(self) -> dict:
         """Retorna headers de autenticação."""
@@ -600,6 +602,140 @@ class MetaAdsClient:
         except Exception as e:
             print(f"❌ Erro ao renovar token: {e}")
             return None
+
+    # ==============================================================
+    # ASSET DISCOVERY (Launch Console)
+    # ==============================================================
+
+    def get_pages(self) -> list:
+        """Fetch Facebook Pages accessible by the access token."""
+        url = "https://graph.facebook.com/v21.0/me/accounts"
+        params = {"access_token": self.access_token, "fields": "id,name,category,fan_count"}
+        resp = requests.get(url, params=params, timeout=15)
+        resp.raise_for_status()
+        return resp.json().get("data", [])
+
+    def get_instagram_actors(self) -> list:
+        """Fetch Instagram accounts linked to this ad account."""
+        url = f"https://graph.facebook.com/v21.0/{self.ad_account_id}/instagram_accounts"
+        params = {"access_token": self.access_token, "fields": "id,name,username,profile_pic"}
+        resp = requests.get(url, params=params, timeout=15)
+        resp.raise_for_status()
+        return resp.json().get("data", [])
+
+    def get_pixels(self) -> list:
+        """Fetch pixels accessible by this ad account."""
+        url = f"https://graph.facebook.com/v21.0/{self.ad_account_id}/adspixels"
+        params = {"access_token": self.access_token, "fields": "id,name,creation_time"}
+        resp = requests.get(url, params=params, timeout=15)
+        resp.raise_for_status()
+        return resp.json().get("data", [])
+
+    def get_account_info(self) -> dict:
+        """Fetch ad account metadata: name, currency, timezone."""
+        url = f"https://graph.facebook.com/v21.0/{self.ad_account_id}"
+        params = {
+            "access_token": self.access_token,
+            "fields": "id,name,currency,timezone_name,business,account_status",
+        }
+        resp = requests.get(url, params=params, timeout=15)
+        resp.raise_for_status()
+        return resp.json()
+
+    def create_campaign_direct(
+        self,
+        name: str,
+        objective: str = "OUTCOME_LEADS",
+        status: str = "PAUSED",
+        special_ad_categories: list = None,
+    ) -> dict:
+        """Create a campaign with explicit parameters (used by Launch Console)."""
+        params = {
+            "name": name,
+            "objective": objective,
+            "status": status,
+            "special_ad_categories": json.dumps(special_ad_categories or []),
+        }
+        result = self._request("POST", f"{self.ad_account_id}/campaigns", params=params)
+        return result
+
+    def create_ad_set_direct(
+        self,
+        campaign_id: str,
+        name: str,
+        daily_budget: int,
+        optimization_goal: str = "LEAD_GENERATION",
+        billing_event: str = "IMPRESSIONS",
+        targeting: dict = None,
+        pixel_id: str = None,
+        status: str = "PAUSED",
+    ) -> dict:
+        """Create an ad set with explicit parameters (used by Launch Console)."""
+        if targeting is None:
+            targeting = {"geo_locations": {"countries": ["BR"]}, "age_min": 18, "age_max": 65}
+        params = {
+            "name": name,
+            "campaign_id": campaign_id,
+            "daily_budget": daily_budget,
+            "billing_event": billing_event,
+            "optimization_goal": optimization_goal,
+            "targeting": json.dumps(targeting),
+            "status": status,
+        }
+        effective_pixel = pixel_id or self.pixel_id
+        if effective_pixel and effective_pixel not in ("SEU_PIXEL_ID", "", None):
+            params["promoted_object"] = json.dumps({"pixel_id": effective_pixel})
+        result = self._request("POST", f"{self.ad_account_id}/adsets", params=params)
+        return result
+
+    def create_ad_direct(
+        self,
+        ad_set_id: str,
+        name: str,
+        page_id: str,
+        link: str,
+        headline: str,
+        body: str,
+        call_to_action_type: str = "LEARN_MORE",
+        instagram_actor_id: str = None,
+        image_hash: str = None,
+        status: str = "PAUSED",
+    ) -> dict:
+        """Create an ad with explicit parameters (used by Launch Console)."""
+        effective_page = page_id or self.page_id
+        link_data = {
+            "message": body or "",
+            "link": link,
+            "name": headline or "",
+            "call_to_action": {
+                "type": call_to_action_type,
+                "value": {"link": link},
+            },
+        }
+        if image_hash:
+            link_data["image_hash"] = image_hash
+
+        object_story_spec = {"page_id": effective_page, "link_data": link_data}
+        if instagram_actor_id:
+            object_story_spec["instagram_actor_id"] = instagram_actor_id
+
+        creative_params = {
+            "name": f"Creative - {name}",
+            "object_story_spec": json.dumps(object_story_spec),
+        }
+        creative_result = self._request(
+            "POST", f"{self.ad_account_id}/adcreatives", params=creative_params
+        )
+        creative_id = creative_result["id"]
+
+        ad_params = {
+            "name": name,
+            "adset_id": ad_set_id,
+            "creative": json.dumps({"creative_id": creative_id}),
+            "status": status,
+        }
+        result = self._request("POST", f"{self.ad_account_id}/ads", params=ad_params)
+        return result
 
     # ==============================================================
     # FUNÇÕES DE CONVENIÊNCIA

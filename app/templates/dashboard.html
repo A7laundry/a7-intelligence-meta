@@ -1146,6 +1146,194 @@
 </div><!-- /page-integrations -->
 
 <!-- ═══════════════════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- page-launch                                            -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div id="page-launch" class="page-section">
+
+  <div class="lc-container">
+
+    <!-- Header -->
+    <div class="lc-header">
+      <div>
+        <div class="lc-title">&#128640; Campaign Launch Console</div>
+        <div class="lc-subtitle">Draft, validate, and publish Meta Ads campaigns at scale</div>
+      </div>
+      <button class="lc-btn lc-btn-primary" onclick="window.lcShowCreate()">+ New Launch Job</button>
+    </div>
+
+    <!-- Mode indicator -->
+    <div id="lcModeBar" class="lc-mode-bar" style="display:none">
+      <span id="lcModeBadge" class="lc-mode-badge draft">DRAFT MODE</span>
+      <span id="lcModeDesc" class="lc-mode-desc">No Meta API calls — safe to experiment</span>
+    </div>
+
+    <!-- Views -->
+    <div id="lcViewJobs">
+      <!-- Jobs list -->
+      <div class="lc-section-title">Launch Jobs</div>
+      <div id="lcJobsTable" class="lc-table-wrap">
+        <div class="lc-empty">Loading jobs...</div>
+      </div>
+    </div>
+
+    <!-- Create Job form -->
+    <div id="lcViewCreate" style="display:none">
+      <div class="lc-section-title">&#8592; <a href="#" onclick="window.lcShowJobs();return false;" class="lc-back-link">Back to Jobs</a> &nbsp; New Launch Job</div>
+      <div class="lc-form-card">
+        <div class="lc-form-row">
+          <label class="lc-label">Job Name *</label>
+          <input id="lcJobName" class="lc-input" type="text" placeholder="e.g. Turnover LP Batch — March 2026" />
+        </div>
+        <div class="lc-form-row">
+          <label class="lc-label">Mode</label>
+          <select id="lcJobMode" class="lc-select" onchange="window.lcUpdateModeUI()">
+            <option value="draft">Draft — store plan, no Meta API</option>
+            <option value="validate">Validate — run validation only</option>
+            <option value="publish">Publish — create real Meta entities</option>
+          </select>
+        </div>
+        <div id="lcLiveWarning" class="lc-live-warning" style="display:none">
+          &#9888; LIVE MODE: This will create real campaigns on Meta Ads. Proceed carefully.
+        </div>
+        <div class="lc-form-row">
+          <label class="lc-label">Notes</label>
+          <textarea id="lcJobNotes" class="lc-input lc-textarea" rows="2" placeholder="Optional notes..."></textarea>
+        </div>
+        <div class="lc-form-actions">
+          <button class="lc-btn lc-btn-secondary" onclick="window.lcShowJobs()">Cancel</button>
+          <button class="lc-btn lc-btn-primary" onclick="window.lcCreateJob()">Create Job</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Job Detail view -->
+    <div id="lcViewDetail" style="display:none">
+      <div class="lc-detail-header">
+        <div><a href="#" onclick="window.lcShowJobs();return false;" class="lc-back-link">&#8592; Back to Jobs</a></div>
+        <div id="lcDetailTitle" class="lc-section-title"></div>
+        <div id="lcDetailMeta" class="lc-detail-meta"></div>
+      </div>
+
+      <!-- Tab bar -->
+      <div class="lc-tabs">
+        <button class="lc-tab active" onclick="window.lcTab('import')" id="lcTabImport">&#128190; Import LPs</button>
+        <button class="lc-tab" onclick="window.lcTab('preview')" id="lcTabPreview">&#128065; Preview</button>
+        <button class="lc-tab" onclick="window.lcTab('validate')" id="lcTabValidate">&#10003; Validate</button>
+        <button class="lc-tab" onclick="window.lcTab('publish')" id="lcTabPublish">&#128640; Publish</button>
+        <button class="lc-tab" onclick="window.lcTab('logs')" id="lcTabLogs">&#128220; Logs</button>
+      </div>
+
+      <!-- Import tab -->
+      <div id="lcTabBodyImport" class="lc-tab-body">
+        <div class="lc-import-help">
+          Paste CSV or tab-separated rows. Required column: <code>lp_url</code>.<br>
+          Optional: <code>headline, primary_text, budget, cta, creative_key, utm_source, utm_campaign</code>
+        </div>
+        <div class="lc-form-row">
+          <label class="lc-label">Defaults (apply to all rows)</label>
+          <div class="lc-defaults-grid">
+            <div><label class="lc-sublabel">Objective</label>
+              <select id="lcDefObjective" class="lc-select-sm">
+                <option value="OUTCOME_LEADS">Leads</option>
+                <option value="OUTCOME_SALES">Sales</option>
+                <option value="OUTCOME_TRAFFIC">Traffic</option>
+                <option value="OUTCOME_ENGAGEMENT">Engagement</option>
+              </select>
+            </div>
+            <div><label class="lc-sublabel">Budget (R$)</label>
+              <input id="lcDefBudget" class="lc-input-sm" type="number" value="50" min="1" /></div>
+            <div><label class="lc-sublabel">Geo</label>
+              <input id="lcDefGeo" class="lc-input-sm" type="text" value="BR" maxlength="5" /></div>
+            <div><label class="lc-sublabel">CTA</label>
+              <select id="lcDefCta" class="lc-select-sm">
+                <option value="LEARN_MORE">Learn More</option>
+                <option value="SIGN_UP">Sign Up</option>
+                <option value="GET_QUOTE">Get Quote</option>
+                <option value="CONTACT_US">Contact Us</option>
+              </select>
+            </div>
+            <div><label class="lc-sublabel">Page ID</label>
+              <input id="lcDefPageId" class="lc-input-sm" type="text" placeholder="from Assets" /></div>
+            <div><label class="lc-sublabel">Pixel ID</label>
+              <input id="lcDefPixelId" class="lc-input-sm" type="text" placeholder="from Assets" /></div>
+          </div>
+        </div>
+        <textarea id="lcImportRaw" class="lc-import-textarea"
+          placeholder="lp_url,headline,primary_text,budget&#10;https://example.com/lp1,Title 1,Body text here,50&#10;https://example.com/lp2,Title 2,Body text here,75"></textarea>
+        <div id="lcImportErrors" class="lc-import-errors" style="display:none"></div>
+        <div class="lc-form-actions">
+          <span id="lcImportCount" class="lc-count-badge" style="display:none"></span>
+          <button class="lc-btn lc-btn-secondary" onclick="window.lcClearImport()">Clear</button>
+          <button class="lc-btn lc-btn-primary" onclick="window.lcImportRows()">Import Rows</button>
+        </div>
+      </div>
+
+      <!-- Preview tab -->
+      <div id="lcTabBodyPreview" class="lc-tab-body" style="display:none">
+        <div class="lc-form-actions" style="margin-bottom:12px">
+          <button class="lc-btn lc-btn-secondary" onclick="window.lcLoadPreview()">&#8635; Refresh Preview</button>
+          <button class="lc-btn lc-btn-primary" onclick="window.lcTab('validate')">Run Validation &#8594;</button>
+        </div>
+        <div id="lcPreviewTable" class="lc-preview-wrap">
+          <div class="lc-empty">Import landing pages first, then refresh preview.</div>
+        </div>
+      </div>
+
+      <!-- Validate tab -->
+      <div id="lcTabBodyValidate" class="lc-tab-body" style="display:none">
+        <div id="lcValidateSummary" class="lc-validate-summary" style="display:none"></div>
+        <div class="lc-form-actions" style="margin-bottom:12px">
+          <button class="lc-btn lc-btn-primary" onclick="window.lcRunValidate()">&#10003; Run Validation</button>
+        </div>
+        <div id="lcValidateTable" class="lc-preview-wrap">
+          <div class="lc-empty">Run validation to see per-row results.</div>
+        </div>
+      </div>
+
+      <!-- Publish tab -->
+      <div id="lcTabBodyPublish" class="lc-tab-body" style="display:none">
+        <div id="lcPublishGuard" class="lc-publish-guard">
+          <div class="lc-publish-guard-title">Pre-Publish Checklist</div>
+          <div id="lcPublishChecklist" class="lc-publish-checklist"></div>
+          <div class="lc-publish-mode-selector">
+            <label class="lc-label">Publish Mode</label>
+            <div class="lc-publish-mode-btns">
+              <button class="lc-mode-opt active" id="lcModeDryRun" onclick="window.lcSetPublishMode(true)">
+                &#128274; Dry Run <span class="lc-mode-opt-desc">Simulate — no Meta entities</span>
+              </button>
+              <button class="lc-mode-opt" id="lcModeLive" onclick="window.lcSetPublishMode(false)">
+                <span class="lc-live-badge">LIVE</span> Live Publish <span class="lc-mode-opt-desc">Creates real Meta campaigns</span>
+              </button>
+            </div>
+          </div>
+          <div id="lcLiveConfirm" class="lc-live-confirm" style="display:none">
+            <label>
+              <input type="checkbox" id="lcLiveConfirmCheck" />
+              I confirm this will create REAL campaigns on Meta Ads for this account
+            </label>
+          </div>
+          <div class="lc-form-actions" style="margin-top:16px">
+            <button class="lc-btn lc-btn-primary" onclick="window.lcExecutePublish()">Execute Launch</button>
+          </div>
+        </div>
+        <div id="lcPublishResult" class="lc-publish-result" style="display:none"></div>
+      </div>
+
+      <!-- Logs tab -->
+      <div id="lcTabBodyLogs" class="lc-tab-body" style="display:none">
+        <button class="lc-btn lc-btn-secondary" style="margin-bottom:12px" onclick="window.lcLoadLogs()">&#8635; Refresh</button>
+        <div id="lcLogsTable" class="lc-logs-wrap">
+          <div class="lc-empty">No logs yet.</div>
+        </div>
+      </div>
+
+    </div><!-- lcViewDetail -->
+
+  </div><!-- lc-container -->
+
+</div><!-- /page-launch -->
+
 <!-- page-billing                                           -->
 <!-- ═══════════════════════════════════════════════════════ -->
 <div id="page-billing" class="page-section">

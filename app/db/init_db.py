@@ -602,6 +602,137 @@ def _run_migrations(conn):
         conn.execute("CREATE INDEX IF NOT EXISTS idx_pulse_state   ON pulse_insights(account_id, state)")
         conn.commit()
 
+    # Migration 19: Campaign Launch Console tables
+    if not _table_exists(conn, "launch_jobs"):
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS launch_jobs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id INTEGER NOT NULL,
+                job_name TEXT NOT NULL,
+                mode TEXT NOT NULL DEFAULT 'draft',
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT NOT NULL,
+                published_at TEXT,
+                total_items INTEGER DEFAULT 0,
+                success_count INTEGER DEFAULT 0,
+                failed_count INTEGER DEFAULT 0,
+                template_id INTEGER,
+                notes TEXT,
+                FOREIGN KEY (account_id) REFERENCES ad_accounts(id)
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_launch_jobs_account ON launch_jobs(account_id)")
+        conn.commit()
+
+    if not _table_exists(conn, "launch_items"):
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS launch_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                launch_job_id INTEGER NOT NULL,
+                lp_url TEXT NOT NULL,
+                campaign_name TEXT,
+                adset_name TEXT,
+                ad_name TEXT,
+                objective TEXT DEFAULT 'OUTCOME_LEADS',
+                budget REAL DEFAULT 0,
+                budget_type TEXT DEFAULT 'DAILY',
+                headline TEXT,
+                primary_text TEXT,
+                description TEXT,
+                cta TEXT DEFAULT 'LEARN_MORE',
+                creative_key TEXT,
+                creative_id INTEGER,
+                geo TEXT DEFAULT 'BR',
+                age_min INTEGER DEFAULT 18,
+                age_max INTEGER DEFAULT 65,
+                placements TEXT DEFAULT 'automatic',
+                optimization_goal TEXT DEFAULT 'LEAD_GENERATION',
+                pixel_id TEXT,
+                page_id TEXT,
+                instagram_actor_id TEXT,
+                utm_source TEXT,
+                utm_campaign TEXT,
+                validation_status TEXT DEFAULT 'pending',
+                validation_errors TEXT,
+                publish_status TEXT DEFAULT 'pending',
+                meta_campaign_id TEXT,
+                meta_adset_id TEXT,
+                meta_ad_id TEXT,
+                error_message TEXT,
+                created_at TEXT NOT NULL,
+                published_at TEXT,
+                row_index INTEGER DEFAULT 0,
+                FOREIGN KEY (launch_job_id) REFERENCES launch_jobs(id)
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_launch_items_job ON launch_items(launch_job_id)")
+        conn.commit()
+
+    if not _table_exists(conn, "launch_logs"):
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS launch_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                launch_job_id INTEGER NOT NULL,
+                launch_item_id INTEGER,
+                step TEXT NOT NULL,
+                status TEXT NOT NULL,
+                message TEXT,
+                request_payload TEXT,
+                response_payload TEXT,
+                error_message TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (launch_job_id) REFERENCES launch_jobs(id),
+                FOREIGN KEY (launch_item_id) REFERENCES launch_items(id)
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_launch_logs_job ON launch_logs(launch_job_id)")
+        conn.commit()
+
+    if not _table_exists(conn, "launch_templates"):
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS launch_templates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id INTEGER NOT NULL,
+                template_name TEXT NOT NULL,
+                objective TEXT DEFAULT 'OUTCOME_LEADS',
+                budget_type TEXT DEFAULT 'DAILY',
+                default_budget REAL DEFAULT 50.0,
+                geo TEXT DEFAULT 'BR',
+                age_min INTEGER DEFAULT 18,
+                age_max INTEGER DEFAULT 65,
+                placements TEXT DEFAULT 'automatic',
+                optimization_goal TEXT DEFAULT 'LEAD_GENERATION',
+                billing_event TEXT DEFAULT 'IMPRESSIONS',
+                cta TEXT DEFAULT 'LEARN_MORE',
+                campaign_name_pattern TEXT DEFAULT 'A7-{ACCOUNT}-{OBJECTIVE}-{DATE}-{INDEX}',
+                adset_name_pattern TEXT DEFAULT '{GEO}-18-65-{PLACEMENT}',
+                ad_name_pattern TEXT DEFAULT '{LPKEY}-{CTA}',
+                special_ad_category TEXT DEFAULT 'NONE',
+                attribution_setting TEXT DEFAULT '7d_click',
+                notes TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (account_id) REFERENCES ad_accounts(id)
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_launch_templates_account ON launch_templates(account_id)")
+        conn.commit()
+
+    # Migration 19b: add new columns to ad_accounts for Launch Console
+    for col_def in [
+        ("bm_id",                "TEXT"),
+        ("page_id",              "TEXT"),
+        ("instagram_actor_id",   "TEXT"),
+        ("pixel_id",             "TEXT"),
+        ("timezone",             "TEXT DEFAULT 'America/Sao_Paulo'"),
+    ]:
+        col, col_type = col_def
+        if _table_exists(conn, "ad_accounts") and not _column_exists(conn, "ad_accounts", col):
+            try:
+                conn.execute(f"ALTER TABLE ad_accounts ADD COLUMN {col} {col_type}")
+                conn.commit()
+            except Exception:
+                pass
+
     _migrate_snapshots_table(conn, "creatives",
         """CREATE TABLE creatives_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

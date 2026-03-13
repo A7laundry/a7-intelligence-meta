@@ -108,6 +108,9 @@ def create_app():
     from app.routes.pulse import pulse_bp
     app.register_blueprint(pulse_bp)
 
+    from app.routes.launch import launch_bp
+    app.register_blueprint(launch_bp, url_prefix="/api")
+
     # Register API key middleware (no-op if A7_API_KEY not set)
     from app.middleware.auth import register_auth_middleware
     register_auth_middleware(app)
