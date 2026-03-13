@@ -300,6 +300,11 @@ class LaunchService:
         """
         conn = get_connection()
         try:
+            job_row = conn.execute(
+                "SELECT * FROM launch_jobs WHERE id=?", (job_id,)
+            ).fetchone()
+            account_id = dict(job_row)["account_id"] if job_row else None
+
             rows = conn.execute(
                 "SELECT * FROM launch_items WHERE launch_job_id = ?",
                 (job_id,),
@@ -345,9 +350,15 @@ class LaunchService:
                 if not item.get("primary_text"):
                     warnings.append("Missing primary_text — will use default from creative")
 
-                # F. Creative
-                if not item.get("creative_key") and not item.get("creative_id"):
-                    warnings.append("No creative specified — must assign before publish")
+                # F. Creative validation
+                creative_key = item.get("creative_key")
+                if not creative_key and not item.get("creative_id"):
+                    warnings.append("No creative_key — assign before live publish")
+                elif creative_key and account_id:
+                    from app.services.creative_service_launch import CreativeLaunchService
+                    result = CreativeLaunchService.validate_creative_key(account_id, creative_key)
+                    if not result["valid"]:
+                        warnings.append(f"Creative: {result['error']}")
 
                 # G. Page / pixel (if assets provided)
                 if assets:
@@ -485,6 +496,15 @@ class LaunchService:
         if item.get("utm_source") or item.get("utm_campaign"):
             utm = f"?utm_source={item.get('utm_source','a7')}&utm_campaign={item.get('utm_campaign','launch')}"
 
+        # Resolve image_hash from creative library if creative_key is set
+        image_hash = None
+        creative_key = item.get("creative_key")
+        if creative_key:
+            from app.services.creative_service_launch import CreativeLaunchService
+            image_hash = CreativeLaunchService.resolve_image_hash(
+                account.get("id", 0), creative_key
+            )
+
         return {
             "campaign": {
                 "name": item.get("campaign_name", ""),
@@ -513,6 +533,7 @@ class LaunchService:
                     "headline": item.get("headline", ""),
                     "body": item.get("primary_text", ""),
                     "call_to_action": {"type": item.get("cta", "LEARN_MORE")},
+                    "image_hash": image_hash,  # None in dry-run if not uploaded; real hash in live
                 },
                 "status": "PAUSED",
             },
@@ -575,6 +596,12 @@ class LaunchService:
         # Step 3: Create Ad
         _log(conn, job_id, item_id, "create_ad", "info", "Creating ad...")
         ad_creative = payload["ad"]["creative"]
+        image_hash = ad_creative.get("image_hash")
+        creative_key = item.get("creative_key")
+        if creative_key and not image_hash:
+            raise RuntimeError(
+                f"Creative '{creative_key}' has no valid Meta image_hash — upload first"
+            )
         ad = client.create_ad_direct(
             ad_set_id=meta_adset_id,
             name=payload["ad"]["name"],
@@ -584,6 +611,7 @@ class LaunchService:
             body=ad_creative["body"],
             call_to_action_type=item.get("cta", "LEARN_MORE"),
             instagram_actor_id=ad_creative.get("instagram_actor_id"),
+            image_hash=image_hash,
         )
         meta_ad_id = ad.get("id") or ad.get("ad_id")
         if not meta_ad_id:

@@ -1217,11 +1217,46 @@
 
       <!-- Tab bar -->
       <div class="lc-tabs">
+        <button class="lc-tab" onclick="window.lcTab('creatives')" id="lcTabCreatives">&#128444; Creatives</button>
         <button class="lc-tab active" onclick="window.lcTab('import')" id="lcTabImport">&#128190; Import LPs</button>
         <button class="lc-tab" onclick="window.lcTab('preview')" id="lcTabPreview">&#128065; Preview</button>
         <button class="lc-tab" onclick="window.lcTab('validate')" id="lcTabValidate">&#10003; Validate</button>
         <button class="lc-tab" onclick="window.lcTab('publish')" id="lcTabPublish">&#128640; Publish</button>
         <button class="lc-tab" onclick="window.lcTab('logs')" id="lcTabLogs">&#128220; Logs</button>
+      </div>
+
+      <!-- Creatives tab -->
+      <div id="lcTabBodyCreatives" class="lc-tab-body" style="display:none">
+        <div class="lc-creative-header">
+          <div class="lc-creative-upload-card">
+            <div class="lc-section-title" style="margin-bottom:12px">&#128228; Upload Creative</div>
+            <div class="lc-form-row">
+              <label class="lc-label">Image File *</label>
+              <input id="lcCreativeFile" type="file" accept="image/jpeg,image/png,image/webp,image/gif" class="lc-file-input" />
+              <div class="lc-file-hint">JPG, PNG, WebP, GIF — max 30 MB</div>
+            </div>
+            <div class="lc-form-row">
+              <label class="lc-label">Creative Key (optional)</label>
+              <input id="lcCreativeKey" class="lc-input" type="text" placeholder="e.g. turnover-v1 (auto-generated if empty)" />
+              <div class="lc-file-hint">Use the same key in your LP rows to reference this creative</div>
+            </div>
+            <div id="lcUploadProgress" class="lc-upload-progress" style="display:none">Uploading to Meta...</div>
+            <div id="lcUploadResult" class="lc-upload-result" style="display:none"></div>
+            <div class="lc-form-actions">
+              <button class="lc-btn lc-btn-primary" onclick="window.lcUploadCreative()">Upload to Meta</button>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top:24px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+            <div class="lc-section-title" style="margin-bottom:0">Creative Library</div>
+            <button class="lc-btn lc-btn-secondary" onclick="window.lcLoadCreatives()">&#8635; Refresh</button>
+          </div>
+          <div id="lcCreativeList" class="lc-table-wrap">
+            <div class="lc-empty">No creatives uploaded yet. Upload an image to start.</div>
+          </div>
+        </div>
       </div>
 
       <!-- Import tab -->

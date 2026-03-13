@@ -733,6 +733,52 @@ def _run_migrations(conn):
             except Exception:
                 pass
 
+    # Migration 20: Creative Library — Meta image_hash persistence for Launch Console
+    if not _table_exists(conn, "creative_library"):
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS creative_library (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id       INTEGER NOT NULL,
+                creative_key     TEXT NOT NULL,
+                original_filename TEXT,
+                file_type        TEXT,
+                source_type      TEXT NOT NULL DEFAULT 'upload',
+                meta_image_hash  TEXT,
+                meta_creative_id TEXT,
+                storage_url      TEXT,
+                width            INTEGER,
+                height           INTEGER,
+                aspect_ratio     TEXT,
+                status           TEXT NOT NULL DEFAULT 'pending',
+                error_message    TEXT,
+                created_at       TEXT NOT NULL,
+                updated_at       TEXT NOT NULL,
+                FOREIGN KEY (account_id) REFERENCES ad_accounts(id)
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_creative_lib_account ON creative_library(account_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_creative_lib_key ON creative_library(account_id, creative_key)")
+        conn.commit()
+
+    if not _table_exists(conn, "creative_upload_logs"):
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS creative_upload_logs (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                creative_library_id INTEGER NOT NULL,
+                account_id          INTEGER NOT NULL,
+                step                TEXT NOT NULL,
+                status              TEXT NOT NULL,
+                message             TEXT,
+                request_payload     TEXT,
+                response_payload    TEXT,
+                error_message       TEXT,
+                created_at          TEXT NOT NULL,
+                FOREIGN KEY (creative_library_id) REFERENCES creative_library(id)
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_creative_upload_logs ON creative_upload_logs(creative_library_id)")
+        conn.commit()
+
     _migrate_snapshots_table(conn, "creatives",
         """CREATE TABLE creatives_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

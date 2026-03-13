@@ -290,6 +290,127 @@ def create_template():
 
 # ── Preview ───────────────────────────────────────────────────────────────
 
+# ── Creative Library ──────────────────────────────────────────────────────
+
+@launch_bp.route("/launch/creatives/upload", methods=["POST"])
+def upload_creative():
+    """
+    Upload an image creative to Meta.
+    Accepts multipart/form-data with fields:
+      account_id (required)
+      file (required — image file)
+      creative_key (optional)
+    Returns creative_library row including image_hash when successful.
+    """
+    account_id = request.form.get("account_id") or (request.get_json(silent=True) or {}).get("account_id")
+    if not account_id:
+        return jsonify({"error": "account_id required"}), 400
+    try:
+        account_id = int(account_id)
+    except (ValueError, TypeError):
+        return jsonify({"error": "Invalid account_id"}), 400
+
+    if "file" not in request.files:
+        return jsonify({"error": "No file field in request (use multipart/form-data with key 'file')"}), 400
+
+    uploaded_file = request.files["file"]
+    if not uploaded_file.filename:
+        return jsonify({"error": "Empty filename"}), 400
+
+    creative_key = request.form.get("creative_key", "").strip() or None
+
+    try:
+        file_bytes = uploaded_file.read()
+        from app.services.creative_service_launch import CreativeLaunchService
+        creative = CreativeLaunchService.upload_image(
+            account_id=account_id,
+            file_bytes=file_bytes,
+            original_filename=uploaded_file.filename,
+            creative_key=creative_key,
+        )
+        return jsonify({"creative": creative}), 201
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": f"Upload failed: {str(e)}"}), 500
+
+
+@launch_bp.route("/launch/creatives", methods=["GET"])
+def list_creatives():
+    account_id = request.args.get("account_id")
+    if not account_id:
+        return jsonify({"error": "account_id required"}), 400
+    status = request.args.get("status")
+    try:
+        from app.services.creative_service_launch import CreativeLaunchService
+        creatives = CreativeLaunchService.list_creatives(int(account_id), status=status)
+        return jsonify({"creatives": creatives, "total": len(creatives)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@launch_bp.route("/launch/creatives/<int:creative_id>", methods=["GET"])
+def get_creative(creative_id: int):
+    try:
+        from app.services.creative_service_launch import CreativeLaunchService
+        creative = CreativeLaunchService.get_creative(creative_id)
+        if not creative:
+            return jsonify({"error": "Not found"}), 404
+        return jsonify({"creative": creative})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@launch_bp.route("/launch/creatives/<int:creative_id>/assign-key", methods=["POST"])
+def assign_creative_key(creative_id: int):
+    body = request.get_json(silent=True) or {}
+    account_id = body.get("account_id")
+    creative_key = (body.get("creative_key") or "").strip()
+    if not account_id:
+        return jsonify({"error": "account_id required"}), 400
+    if not creative_key:
+        return jsonify({"error": "creative_key required"}), 400
+    try:
+        from app.services.creative_service_launch import CreativeLaunchService
+        updated = CreativeLaunchService.assign_key(creative_id, int(account_id), creative_key)
+        if not updated:
+            return jsonify({"error": "Not found or wrong account"}), 404
+        return jsonify({"creative": updated})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@launch_bp.route("/launch/creatives/<int:creative_id>", methods=["DELETE"])
+def archive_creative(creative_id: int):
+    account_id = request.args.get("account_id") or (request.get_json(silent=True) or {}).get("account_id")
+    if not account_id:
+        return jsonify({"error": "account_id required"}), 400
+    try:
+        from app.services.creative_service_launch import CreativeLaunchService
+        ok = CreativeLaunchService.archive_creative(creative_id, int(account_id))
+        if not ok:
+            return jsonify({"error": "Not found or wrong account"}), 404
+        return jsonify({"status": "archived"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@launch_bp.route("/launch/creatives/validate-key", methods=["GET"])
+def validate_creative_key():
+    account_id = request.args.get("account_id")
+    creative_key = request.args.get("creative_key")
+    if not account_id or not creative_key:
+        return jsonify({"error": "account_id and creative_key required"}), 400
+    try:
+        from app.services.creative_service_launch import CreativeLaunchService
+        result = CreativeLaunchService.validate_creative_key(int(account_id), creative_key)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ── Preview ───────────────────────────────────────────────────────────────
+
 @launch_bp.route("/launch/jobs/<int:job_id>/preview", methods=["GET"])
 def preview_job(job_id):
     """Return full preview table: items with generated names and payloads."""

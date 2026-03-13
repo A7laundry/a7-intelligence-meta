@@ -5561,7 +5561,7 @@
   };
 
   window.lcTab = function(name) {
-    var tabs = ['import','preview','validate','publish','logs'];
+    var tabs = ['creatives','import','preview','validate','publish','logs'];
     tabs.forEach(function(t) {
       var cap  = t.charAt(0).toUpperCase() + t.slice(1);
       var btn  = document.getElementById('lcTab' + cap);
@@ -5569,6 +5569,7 @@
       if (btn)  btn.className  = 'lc-tab' + (t === name ? ' active' : '');
       if (body) body.style.display = (t === name ? '' : 'none');
     });
+    if (name === 'creatives') window.lcLoadCreatives();
     if (name === 'preview') window.lcLoadPreview();
     if (name === 'logs')    window.lcLoadLogs();
     if (name === 'publish') window.lcBuildPublishChecklist();
@@ -5836,6 +5837,148 @@
   function _lcEsc(s) {
     return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
+
+  // ─── Launch Console: Creative Library ────────────────────────
+
+  window.lcUploadCreative = async function() {
+    if (!currentAccountId) {
+      showToast('Select an account first', 'error');
+      return;
+    }
+    var fileInput = document.getElementById('lcCreativeFile');
+    var keyInput = document.getElementById('lcCreativeKey');
+    var progress = document.getElementById('lcUploadProgress');
+    var result = document.getElementById('lcUploadResult');
+
+    if (!fileInput || !fileInput.files || !fileInput.files[0]) {
+      showToast('Select an image file first', 'error');
+      return;
+    }
+
+    var file = fileInput.files[0];
+    var formData = new FormData();
+    formData.append('file', file);
+    formData.append('account_id', String(currentAccountId || ''));
+    var key = (keyInput.value || '').trim();
+    if (key) formData.append('creative_key', key);
+
+    progress.style.display = '';
+    result.style.display = 'none';
+    progress.textContent = 'Uploading ' + file.name + ' to Meta...';
+
+    try {
+      var resp = await fetch('/api/launch/creatives/upload', {
+        method: 'POST',
+        body: formData,
+      });
+      var data = await resp.json();
+      progress.style.display = 'none';
+      result.style.display = '';
+
+      if (!resp.ok || data.error) {
+        result.className = 'lc-upload-result lc-upload-err';
+        result.innerHTML = '&#10007; Upload failed: ' + _lcEsc(data.error || 'Unknown error');
+        showToast('Upload failed', 'error');
+        return;
+      }
+
+      var c = data.creative;
+      if (!c.meta_image_hash) {
+        result.className = 'lc-upload-result lc-upload-err';
+        result.innerHTML = '&#10007; Upload stored but no image_hash returned from Meta';
+        showToast('Upload incomplete — no hash', 'error');
+        return;
+      }
+
+      result.className = 'lc-upload-result lc-upload-ok';
+      result.innerHTML =
+        '&#10003; Uploaded successfully<br>' +
+        'Key: <strong>' + _lcEsc(c.creative_key) + '</strong><br>' +
+        'Hash: <code>' + _lcEsc(c.meta_image_hash) + '</code>';
+      showToast('Creative uploaded — hash: ' + c.meta_image_hash.substring(0, 12) + '...', 'success');
+      fileInput.value = '';
+      keyInput.value = '';
+      window.lcLoadCreatives();
+    } catch(e) {
+      progress.style.display = 'none';
+      result.style.display = '';
+      result.className = 'lc-upload-result lc-upload-err';
+      result.innerHTML = '&#10007; Error: ' + _lcEsc(e.message);
+      showToast('Upload error: ' + e.message, 'error');
+    }
+  };
+
+  window.lcLoadCreatives = async function() {
+    var el = document.getElementById('lcCreativeList');
+    if (!el || !currentAccountId) return;
+    el.innerHTML = '<div class="lc-empty">Loading...</div>';
+    try {
+      var data = await fetchApi('/launch/creatives?account_id=' + currentAccountId);
+      var creatives = data.creatives || [];
+      if (!creatives.length) {
+        el.innerHTML = '<div class="lc-empty">No creatives yet. Upload an image above.</div>';
+        return;
+      }
+      var rows = creatives.map(function(c) {
+        var hashCell = c.meta_image_hash
+          ? '<code class="lc-hash">' + _lcEsc(c.meta_image_hash.substring(0,16)) + '&hellip;</code>'
+          : '<span class="lc-muted">&mdash;</span>';
+        var stCls = c.status === 'uploaded' ? 'lc-st-ok' : c.status === 'failed' ? 'lc-st-err' : 'lc-st-pending';
+        return '<tr class="lc-tr">' +
+          '<td class="lc-td lc-muted">' + c.id + '</td>' +
+          '<td class="lc-td"><strong>' + _lcEsc(c.creative_key) + '</strong></td>' +
+          '<td class="lc-td lc-muted">' + _lcEsc(c.original_filename || '&mdash;') + '</td>' +
+          '<td class="lc-td"><span class="lc-status ' + stCls + '">' + c.status + '</span></td>' +
+          '<td class="lc-td">' + hashCell + '</td>' +
+          '<td class="lc-td lc-muted">' + (c.created_at || '').substring(0, 16) + '</td>' +
+          '<td class="lc-td">' +
+            '<button class="lc-btn lc-btn-xs" onclick="window.lcEditKey(' + c.id + ',\'' + _lcEsc(c.creative_key) + '\')">Rename</button>' +
+            ' <button class="lc-btn lc-btn-xs lc-btn-danger" onclick="window.lcArchiveCreative(' + c.id + ')">Archive</button>' +
+          '</td>' +
+          '</tr>';
+      }).join('');
+      el.innerHTML = '<table class="lc-table"><thead><tr>' +
+        '<th class="lc-th">ID</th><th class="lc-th">Key</th><th class="lc-th">File</th>' +
+        '<th class="lc-th">Status</th><th class="lc-th">Image Hash</th>' +
+        '<th class="lc-th">Created</th><th class="lc-th"></th>' +
+        '</tr></thead><tbody>' + rows + '</tbody></table>';
+    } catch(e) {
+      el.innerHTML = '<div class="lc-empty lc-err">Error: ' + _lcEsc(e.message) + '</div>';
+    }
+  };
+
+  window.lcEditKey = async function(id, currentKey) {
+    var newKey = prompt('New creative key:', currentKey);
+    if (!newKey || newKey === currentKey) return;
+    try {
+      var resp = await fetch('/api/launch/creatives/' + id + '/assign-key', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({account_id: currentAccountId, creative_key: newKey.trim()}),
+      });
+      var data = await resp.json();
+      if (data.error) throw new Error(data.error);
+      showToast('Key updated to: ' + newKey, 'success');
+      window.lcLoadCreatives();
+    } catch(e) {
+      showToast('Error: ' + e.message, 'error');
+    }
+  };
+
+  window.lcArchiveCreative = async function(id) {
+    if (!confirm('Archive this creative? It will no longer be usable in new launch jobs.')) return;
+    try {
+      var resp = await fetch('/api/launch/creatives/' + id + '?account_id=' + currentAccountId, {
+        method: 'DELETE',
+      });
+      var data = await resp.json();
+      if (data.error) throw new Error(data.error);
+      showToast('Creative archived', 'success');
+      window.lcLoadCreatives();
+    } catch(e) {
+      showToast('Error: ' + e.message, 'error');
+    }
+  };
 
 
 })();
