@@ -4547,7 +4547,7 @@
       if (!res.ok) throw new Error(data.error || 'API error');
 
       _renderCCPulse(data.insights || [], data.period_comparison || null);
-      _renderCCKpis(data.kpis);
+      _renderCCKpis(data.kpis, data.kpi_source, data.trend_days_available);
       _renderCCTrends(data.trend || []);
       _renderCCTopCamps(data.top_campaigns || []);
       _renderCCWorst(data.worst_campaigns || []);
@@ -4777,9 +4777,26 @@
     return '$' + Number(v).toFixed(0);
   }
 
-  function _renderCCKpis(kpis) {
+  function _renderCCKpis(kpis, kpiSource, trendDays) {
     var row = document.getElementById('ccKpiRow');
     if (!row || !kpis) return;
+
+    // Data-source honesty badge
+    var srcBadge = document.getElementById('ccKpiSourceBadge');
+    if (srcBadge) {
+      if (kpiSource === 'live') {
+        srcBadge.textContent = 'Live API';
+        srcBadge.title = 'KPIs sourced live from Meta API (less than 3 days of snapshots)';
+        srcBadge.className = 'cc-kpi-src-badge live';
+      } else if (kpiSource === 'snapshots') {
+        srcBadge.textContent = (trendDays || 0) + 'd cached';
+        srcBadge.title = 'KPIs from stored daily snapshots — ' + (trendDays || 0) + ' days available';
+        srcBadge.className = 'cc-kpi-src-badge cached';
+      } else {
+        srcBadge.textContent = '';
+        srcBadge.className = 'cc-kpi-src-badge';
+      }
+    }
     var gs = kpis.growth_score;
     var gsLabel = kpis.growth_label || null;
     var gsTier = gs !== null && gs !== undefined

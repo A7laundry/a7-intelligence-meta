@@ -2633,6 +2633,37 @@ body.sidebar-collapsed .sidebar-toggle-icon { transform: rotate(180deg); }
 }
 
 /* KPI Hero Row */
+.cc-kpi-row-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.cc-section-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .5px;
+}
+.cc-kpi-src-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+}
+.cc-kpi-src-badge.live {
+  background: rgba(59,130,246,.15);
+  color: #3b82f6;
+  border: 1px solid rgba(59,130,246,.3);
+}
+.cc-kpi-src-badge.cached {
+  background: rgba(16,185,129,.12);
+  color: #10b981;
+  border: 1px solid rgba(16,185,129,.25);
+}
 .cc-kpi-row {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
