@@ -4,6 +4,7 @@ import sqlite3
 from datetime import datetime
 
 from app.db.init_db import get_connection
+from app.utils.crypto import encrypt_field, decrypt_field
 
 
 class AccountService:
@@ -23,7 +24,7 @@ class AccountService:
                 rows = conn.execute(
                     "SELECT * FROM ad_accounts ORDER BY is_default DESC, id"
                 ).fetchall()
-            return [dict(r) for r in rows]
+            return [AccountService._decrypt_account(dict(r)) for r in rows]
         finally:
             conn.close()
 
@@ -35,7 +36,7 @@ class AccountService:
             row = conn.execute(
                 "SELECT * FROM ad_accounts WHERE id = ?", (account_id,)
             ).fetchone()
-            return dict(row) if row else None
+            return AccountService._decrypt_account(dict(row)) if row else None
         finally:
             conn.close()
 
@@ -47,7 +48,7 @@ class AccountService:
             row = conn.execute(
                 "SELECT * FROM ad_accounts ORDER BY is_default DESC, id LIMIT 1"
             ).fetchone()
-            return dict(row) if row else None
+            return AccountService._decrypt_account(dict(row)) if row else None
         finally:
             conn.close()
 
@@ -69,6 +70,17 @@ class AccountService:
         return default["id"] if default else 1
 
     @staticmethod
+    def _decrypt_account(row: dict) -> dict:
+        """Decrypt sensitive credential fields in an account row."""
+        if not row:
+            return row
+        result = dict(row)
+        for field in ("access_token", "developer_token", "refresh_token"):
+            if result.get(field):
+                result[field] = decrypt_field(result[field])
+        return result
+
+    @staticmethod
     def get_external_account_id(account_id: int) -> str:
         """Return the external_account_id (e.g. act_xxxx) for a given account."""
         acc = AccountService.get_by_id(account_id)
@@ -82,6 +94,10 @@ class AccountService:
 
         Returns None if the account already exists (UNIQUE constraint on platform+external_id).
         """
+        # Encrypt sensitive fields before storage
+        access_token = encrypt_field(access_token) if access_token else access_token
+        developer_token = encrypt_field(developer_token) if developer_token else developer_token
+        refresh_token = encrypt_field(refresh_token) if refresh_token else refresh_token
         conn = get_connection()
         try:
             cursor = conn.execute(
