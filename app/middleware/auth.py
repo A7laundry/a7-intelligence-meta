@@ -26,7 +26,7 @@ def _is_exempt(path: str) -> bool:
     return path in _EXEMPT_PATHS or any(path.startswith(p) for p in _EXEMPT_PREFIXES)
 
 
-def _get_bearer_token() -> str | None:
+def _get_bearer_token():
     """Extract Bearer token from Authorization header."""
     auth = request.headers.get("Authorization", "")
     if auth.startswith("Bearer "):

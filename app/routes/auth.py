@@ -85,7 +85,7 @@ def me():
     }), 200
 
 
-def _decode_jwt(token: str) -> dict | None:
+def _decode_jwt(token: str):
     """Decode a Supabase JWT without full verification (role check only).
 
     Full signature verification requires fetching Supabase JWKS.
