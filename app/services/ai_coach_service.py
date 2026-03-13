@@ -3,9 +3,10 @@
 Analyzes campaign and creative performance data to produce actionable insights,
 daily briefings, recommendations, and account health assessments.
 
-The engine is deterministic (rule-based) by design. It can later be extended
-with an optional LLM layer (Claude/OpenAI) for richer natural language output.
-TODO: Add optional LLM adapter for enhanced narrative generation.
+The engine is deterministic (rule-based) by design. An optional LLM layer
+(OpenAI / Anthropic) can enrich briefings with natural language narratives.
+Set LLM_PROVIDER env var to "openai" or "anthropic" to enable; the rule-based
+engine always runs first and serves as fallback if the LLM is unavailable.
 """
 
 import sys
@@ -82,7 +83,7 @@ class AICoachService:
         # Health
         health = self.build_account_health_snapshot(days, platform, account_id=account_id)
 
-        return {
+        result = {
             "headline": headline,
             "summary_bullets": bullets,
             "top_opportunity": top_opportunity,
@@ -101,6 +102,34 @@ class AICoachService:
             "changes": changes,
             "generated_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
+
+        # Optional: enhance with LLM narrative (always graceful fallback)
+        try:
+            from app.services.llm_service import is_available, complete
+            if is_available():
+                summary_data = {
+                    "spend": spend,
+                    "conversions": conversions,
+                    "ctr": ctr,
+                    "cpa": cpa,
+                    "health_label": result["health_label"],
+                    "health_score": result["health_score"],
+                    "top_issues": [
+                        r.get("title", "") for r in recommendations[:3]
+                        if r.get("severity") in ("critical", "warning")
+                    ],
+                }
+                narrative = complete(
+                    system_prompt="You are an expert digital marketing analyst. Be concise, data-driven, and actionable. Max 2 sentences.",
+                    user_prompt=f"Account performance summary: {summary_data}. Give a brief strategic narrative.",
+                    max_tokens=150,
+                )
+                if narrative:
+                    result["narrative"] = narrative
+        except Exception:
+            pass  # LLM is always optional
+
+        return result
 
     def generate_recommendations(self, days=7, platform=None, account_id=None):
         """Generate prioritized recommendation cards from rule-based analysis."""

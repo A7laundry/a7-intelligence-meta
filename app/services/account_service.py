@@ -140,3 +140,25 @@ class AccountService:
             conn.commit()
         finally:
             conn.close()
+
+    @staticmethod
+    def list_accounts(platform: str = None) -> list:
+        """Alias for get_all — returns all accounts, optionally filtered by platform."""
+        return AccountService.get_all(platform=platform)
+
+    @staticmethod
+    def update_account_token(account_id: int, new_access_token: str) -> bool:
+        """Update access_token for an account (used by token refresh)."""
+        from app.utils.crypto import encrypt_field
+        encrypted = encrypt_field(new_access_token)
+        try:
+            conn = get_connection()
+            conn.execute(
+                "UPDATE ad_accounts SET access_token = ?, updated_at = datetime('now') WHERE id = ?",
+                (encrypted, account_id)
+            )
+            conn.commit()
+            conn.close()
+            return True
+        except Exception:
+            return False

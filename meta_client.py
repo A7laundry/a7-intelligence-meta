@@ -156,6 +156,13 @@ class MetaAdsClient:
         print(f"✅ Campanha {campaign_id} → {status}")
         return result
 
+    def update_campaign_budget(self, campaign_id: str, daily_budget_cents: int) -> dict:
+        """Update campaign daily budget via Meta Ads API."""
+        params = {"daily_budget": daily_budget_cents}
+        result = self._request("POST", campaign_id, params=params)
+        print(f"✅ Campaign {campaign_id} daily_budget → {daily_budget_cents} cents")
+        return result
+
     # ==============================================================
     # AD SETS (Conjuntos de Anúncios)
     # ==============================================================

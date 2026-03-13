@@ -143,3 +143,13 @@ def job_eod():
             "error": str(exc),
             "executed_at": datetime.now(timezone.utc).isoformat(),
         }), 500
+
+
+@internal_jobs_bp.route("/internal/jobs/token-refresh", methods=["POST"])
+def token_refresh():
+    """Refresh expiring ad account tokens. Railway Cron: daily at 03:00 UTC."""
+    if not _check_cron_secret():
+        return jsonify({"error": "Unauthorized"}), 401
+    from app.services.token_refresh_service import TokenRefreshService
+    result = TokenRefreshService().refresh_all_accounts()
+    return jsonify({"ok": True, "result": result})

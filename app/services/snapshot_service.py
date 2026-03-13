@@ -12,19 +12,23 @@ class SnapshotService:
         """Save or update an account-level daily snapshot."""
         conn = get_connection()
         try:
+            spend = metrics.get("spend", 0)
+            conversion_value = metrics.get("conversion_value", 0)
+            roas = round(conversion_value / spend, 4) if spend > 0 else 0
             conn.execute(
                 """INSERT INTO daily_snapshots
-                   (account_id, date, platform, spend, impressions, clicks, ctr, cpc, conversions, cpa, roas)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   (account_id, date, platform, spend, impressions, clicks, ctr, cpc, conversions, conversion_value, cpa, roas)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(account_id, date, platform) DO UPDATE SET
                      spend=excluded.spend, impressions=excluded.impressions,
                      clicks=excluded.clicks, ctr=excluded.ctr, cpc=excluded.cpc,
-                     conversions=excluded.conversions, cpa=excluded.cpa, roas=excluded.roas""",
+                     conversions=excluded.conversions, conversion_value=excluded.conversion_value,
+                     cpa=excluded.cpa, roas=excluded.roas""",
                 (account_id, date, platform,
-                 metrics.get("spend", 0), metrics.get("impressions", 0),
+                 spend, metrics.get("impressions", 0),
                  metrics.get("clicks", 0), metrics.get("ctr", 0),
                  metrics.get("cpc", 0), metrics.get("conversions", 0),
-                 metrics.get("cpa", 0), metrics.get("roas", 0)),
+                 conversion_value, metrics.get("cpa", 0), roas),
             )
             conn.commit()
         finally:
@@ -35,20 +39,24 @@ class SnapshotService:
         """Save or update a campaign-level daily snapshot."""
         conn = get_connection()
         try:
+            spend = campaign.get("spend", 0)
+            conversion_value = campaign.get("conversion_value", 0)
+            roas = round(conversion_value / spend, 4) if spend > 0 else 0
             conn.execute(
                 """INSERT INTO campaign_snapshots
-                   (account_id, date, platform, campaign_id, campaign_name, status, spend, impressions, clicks, ctr, conversions, cpa, roas)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   (account_id, date, platform, campaign_id, campaign_name, status, spend, impressions, clicks, ctr, conversions, conversion_value, cpa, roas)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(account_id, date, platform, campaign_id) DO UPDATE SET
                      campaign_name=excluded.campaign_name, status=excluded.status,
                      spend=excluded.spend, impressions=excluded.impressions,
                      clicks=excluded.clicks, ctr=excluded.ctr,
-                     conversions=excluded.conversions, cpa=excluded.cpa, roas=excluded.roas""",
+                     conversions=excluded.conversions, conversion_value=excluded.conversion_value,
+                     cpa=excluded.cpa, roas=excluded.roas""",
                 (account_id, date, platform, campaign.get("id", ""), campaign.get("name", ""),
-                 campaign.get("status", "UNKNOWN"), campaign.get("spend", 0),
+                 campaign.get("status", "UNKNOWN"), spend,
                  campaign.get("impressions", 0), campaign.get("clicks", 0),
                  campaign.get("ctr", 0), campaign.get("conversions", 0),
-                 campaign.get("cpa", 0), campaign.get("roas", 0)),
+                 conversion_value, campaign.get("cpa", 0), roas),
             )
             conn.commit()
         finally:

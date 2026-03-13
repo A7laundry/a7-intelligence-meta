@@ -173,6 +173,9 @@ class DashboardService:
         total_impressions = meta_summary["impressions"] + google_summary["impressions"]
         total_clicks = meta_summary["clicks"] + google_summary["clicks"]
         total_conversions = meta_summary["conversions"] + google_summary["conversions"]
+        total_conversion_value = (
+            meta_summary.get("conversion_value", 0) + google_summary.get("conversion_value", 0)
+        )
 
         total_summary = {
             "spend": round(total_spend, 2),
@@ -180,8 +183,9 @@ class DashboardService:
             "clicks": total_clicks,
             "ctr": round((total_clicks / total_impressions * 100) if total_impressions > 0 else 0, 2),
             "conversions": total_conversions,
+            "conversion_value": round(total_conversion_value, 2),
             "cpa": round(total_spend / total_conversions, 2) if total_conversions > 0 else 0,
-            "roas": 0,
+            "roas": round(total_conversion_value / total_spend, 2) if total_spend > 0 else 0,
         }
 
         # Period comparison from DB (account-scoped)
@@ -270,11 +274,12 @@ class DashboardService:
         def aggregate(rows):
             if not rows:
                 return {"spend": 0, "impressions": 0, "clicks": 0, "ctr": 0,
-                        "cpc": 0, "conversions": 0, "cpa": 0, "roas": 0}
+                        "cpc": 0, "conversions": 0, "conversion_value": 0, "cpa": 0, "roas": 0}
             spend = sum(r["spend"] for r in rows)
             impressions = sum(r["impressions"] for r in rows)
             clicks = sum(r["clicks"] for r in rows)
             conversions = sum(r["conversions"] for r in rows)
+            conversion_value = sum(r.get("conversion_value", 0) for r in rows)
             return {
                 "spend": round(spend, 2),
                 "impressions": impressions,
@@ -282,8 +287,9 @@ class DashboardService:
                 "ctr": round((clicks / impressions * 100) if impressions > 0 else 0, 2),
                 "cpc": round(spend / clicks, 2) if clicks > 0 else 0,
                 "conversions": conversions,
+                "conversion_value": round(conversion_value, 2),
                 "cpa": round(spend / conversions, 2) if conversions > 0 else 0,
-                "roas": 0,
+                "roas": round(conversion_value / spend, 2) if spend > 0 else 0,
             }
 
         meta_summary = aggregate(meta_rows)

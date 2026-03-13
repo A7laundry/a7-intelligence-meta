@@ -17,6 +17,8 @@ from datetime import datetime, timedelta
 
 from app.db.init_db import get_connection
 
+_LIVE_MODE = os.environ.get("A7_AUTOMATION_LIVE", "0") == "1"
+
 
 class AutomationEngine:
     """Controlled automation engine with approval workflow and audit trail."""
@@ -325,14 +327,79 @@ class AutomationEngine:
                 raise RuntimeError(f"Meta API pause failed: {e}")
         return {"message": f"Pause logged for {platform} campaign {action['entity_name']} (manual action required)"}
 
+    def _execute_increase_budget(self, action: dict, account_id: int) -> dict:
+        """Execute budget increase via Meta API (live) or return dry_run result."""
+        campaign_id = action.get("entity_id") or action.get("campaign_id")
+        params = action.get("action_params", {})
+        new_budget = params.get("new_budget") or params.get("suggested_budget")
+
+        if not campaign_id or not new_budget:
+            return {"status": "skipped", "reason": "missing campaign_id or new_budget"}
+
+        if not _LIVE_MODE:
+            return {"status": "dry_run", "campaign_id": campaign_id, "new_budget": new_budget}
+
+        try:
+            from meta_client import MetaAdsClient
+            client = MetaAdsClient()
+            budget_cents = int(float(new_budget) * 100)
+            result = client.update_campaign_budget(campaign_id, budget_cents)
+            return {
+                "status": "executed",
+                "campaign_id": campaign_id,
+                "new_budget": new_budget,
+                "api_result": result,
+            }
+        except Exception as e:
+            return {"status": "failed", "error": str(e), "campaign_id": campaign_id}
+
+    def _execute_decrease_budget(self, action: dict, account_id: int) -> dict:
+        """Execute budget decrease via Meta API (live) or return dry_run result."""
+        campaign_id = action.get("entity_id") or action.get("campaign_id")
+        params = action.get("action_params", {})
+        new_budget = params.get("new_budget") or params.get("suggested_budget")
+
+        if not campaign_id or not new_budget:
+            return {"status": "skipped", "reason": "missing campaign_id or new_budget"}
+
+        if not _LIVE_MODE:
+            return {"status": "dry_run", "campaign_id": campaign_id, "new_budget": new_budget}
+
+        try:
+            from meta_client import MetaAdsClient
+            client = MetaAdsClient()
+            budget_cents = int(float(new_budget) * 100)
+            result = client.update_campaign_budget(campaign_id, budget_cents)
+            return {
+                "status": "executed",
+                "campaign_id": campaign_id,
+                "new_budget": new_budget,
+                "api_result": result,
+            }
+        except Exception as e:
+            return {"status": "failed", "error": str(e), "campaign_id": campaign_id}
+
     def _execute_budget_change(self, action, platform):
-        """Execute budget change — currently logs for manual action."""
-        change_pct = action.get("suggested_change_pct", 0)
-        direction = "increase" if change_pct > 0 else "decrease"
-        return {
-            "message": f"Budget {direction} {abs(change_pct)}% logged for {action['entity_name']} "
-                       f"on {platform} (manual action required)"
-        }
+        """Dispatch to increase/decrease handler; falls back to log-only for unknown platforms."""
+        action_type = action.get("action_type", "")
+        account_id = action.get("account_id", 1)
+
+        if action_type == "increase_budget":
+            result = self._execute_increase_budget(action, account_id)
+        elif action_type == "decrease_budget":
+            result = self._execute_decrease_budget(action, account_id)
+        else:
+            change_pct = action.get("suggested_change_pct", 0)
+            direction = "increase" if change_pct > 0 else "decrease"
+            result = {
+                "status": "skipped",
+                "message": f"Budget {direction} {abs(change_pct)}% logged for {action['entity_name']} "
+                           f"on {platform} (manual action required)",
+            }
+
+        status = result.get("status", "unknown")
+        entity = action.get("entity_name", "")
+        return {"message": f"Budget change [{status}] for {entity} on {platform}: {result}"}
 
     # ══════════════════════════════════════════════════════════
     # GUARDRAILS

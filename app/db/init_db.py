@@ -519,6 +519,13 @@ def _run_migrations(conn):
             conn.execute("ALTER TABLE ad_metrics ADD COLUMN cpm REAL")
             conn.commit()
 
+    # Migration 16: conversion_value column on daily_snapshots and campaign_snapshots
+    if not _column_exists(conn, "daily_snapshots", "conversion_value"):
+        conn.execute("ALTER TABLE daily_snapshots ADD COLUMN conversion_value REAL DEFAULT 0")
+    if not _column_exists(conn, "campaign_snapshots", "conversion_value"):
+        conn.execute("ALTER TABLE campaign_snapshots ADD COLUMN conversion_value REAL DEFAULT 0")
+    conn.commit()
+
     _migrate_snapshots_table(conn, "creatives",
         """CREATE TABLE creatives_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
