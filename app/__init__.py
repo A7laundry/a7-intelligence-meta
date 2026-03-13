@@ -91,6 +91,9 @@ def create_app():
     from app.routes.command_center import cc_bp
     app.register_blueprint(cc_bp, url_prefix="/api")
 
+    from app.routes.internal_jobs import internal_jobs_bp
+    app.register_blueprint(internal_jobs_bp, url_prefix="/api")
+
     # Register API key middleware (no-op if A7_API_KEY not set)
     from app.middleware.auth import register_auth_middleware
     register_auth_middleware(app)
@@ -103,9 +106,6 @@ def create_app():
     if scheduler_enabled:
         from app.services.scheduler_loop_service import start_publishing_scheduler
         start_publishing_scheduler(app)
-
-        from app.services.jobs_scheduler_service import start_jobs_scheduler
-        start_jobs_scheduler()
 
     env_label = os.environ.get("RAILWAY_ENVIRONMENT", os.environ.get("FLASK_ENV", "development"))
     print(
