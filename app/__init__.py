@@ -38,10 +38,12 @@ def create_app():
     init_db()
 
     # Register blueprints
+    from app.routes.auth import auth_bp
     from app.routes.dashboard import dashboard_bp
     from app.routes.api import api_bp
     from app.routes.health import health_bp
 
+    app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(api_bp, url_prefix="/api")
     app.register_blueprint(health_bp)

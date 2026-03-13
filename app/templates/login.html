@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>A7 Intelligence — Login</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #07090f;
+      color: #e8eeff;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .login-card {
+      background: #0d1220;
+      border: 1px solid #1c2b42;
+      border-radius: 16px;
+      padding: 2.5rem;
+      width: 100%;
+      max-width: 400px;
+    }
+    .logo { font-size: 1.5rem; font-weight: 700; color: #3b82f6; margin-bottom: 0.5rem; }
+    .subtitle { font-size: 0.875rem; color: #64748b; margin-bottom: 2rem; }
+    label { display: block; font-size: 0.8rem; color: #94a3b8; margin-bottom: 0.4rem; }
+    input {
+      width: 100%;
+      background: #07090f;
+      border: 1px solid #1c2b42;
+      border-radius: 8px;
+      color: #e8eeff;
+      padding: 0.6rem 0.875rem;
+      font-size: 0.9rem;
+      margin-bottom: 1rem;
+      outline: none;
+      transition: border-color .15s;
+    }
+    input:focus { border-color: #3b82f6; }
+    .btn {
+      width: 100%;
+      background: #3b82f6;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 0.7rem;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .15s;
+    }
+    .btn:hover { background: #2563eb; }
+    .btn:disabled { background: #1e3a5f; cursor: not-allowed; }
+    .error {
+      background: rgba(244,63,94,.1);
+      border: 1px solid rgba(244,63,94,.3);
+      border-radius: 8px;
+      color: #f43f5e;
+      font-size: 0.8rem;
+      padding: 0.6rem 0.875rem;
+      margin-bottom: 1rem;
+      display: none;
+    }
+    .bypass-note {
+      font-size: 0.75rem;
+      color: #475569;
+      text-align: center;
+      margin-top: 1.5rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="login-card">
+    <div class="logo">A7 Intelligence</div>
+    <div class="subtitle">Marketing Intelligence Platform</div>
+    <div class="error" id="errorMsg"></div>
+    <form id="loginForm">
+      <label for="email">Email</label>
+      <input type="email" id="email" placeholder="you@company.com" required autocomplete="email">
+      <label for="password">Password</label>
+      <input type="password" id="password" placeholder="••••••••" required autocomplete="current-password">
+      <button type="submit" class="btn" id="submitBtn">Sign in</button>
+    </form>
+    <div class="bypass-note" id="bypassNote" style="display:none">
+      Auth not configured — <a href="/" style="color:#3b82f6">access dashboard directly</a>
+    </div>
+  </div>
+  <script>
+    const form = document.getElementById('loginForm');
+    const errEl = document.getElementById('errorMsg');
+    const btn = document.getElementById('submitBtn');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errEl.style.display = 'none';
+      btn.disabled = true;
+      btn.textContent = 'Signing in…';
+
+      try {
+        const res = await fetch('/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: document.getElementById('email').value,
+            password: document.getElementById('password').value,
+          }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          window.location.href = '/';
+        } else {
+          errEl.textContent = data.error || 'Login failed';
+          errEl.style.display = '';
+          btn.disabled = false;
+          btn.textContent = 'Sign in';
+        }
+      } catch {
+        errEl.textContent = 'Network error — please try again';
+        errEl.style.display = '';
+        btn.disabled = false;
+        btn.textContent = 'Sign in';
+      }
+    });
+
+    // Check if auth is configured
+    fetch('/auth/me').then(r => {
+      if (r.status === 503) {
+        form.style.display = 'none';
+        document.getElementById('bypassNote').style.display = '';
+      }
+    });
+  </script>
+</body>
+</html>

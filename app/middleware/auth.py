@@ -1,58 +1,87 @@
-"""A7 Intelligence — API Key Authentication Middleware.
+"""A7 Intelligence — Authentication Middleware.
 
-Opt-in authentication via A7_API_KEY environment variable.
-When A7_API_KEY is empty or not set, this middleware is a no-op and all
-requests pass through unchanged (backward-compatible).
+Priority order for authentication:
+1. Supabase JWT (SUPABASE_URL + SUPABASE_ANON_KEY configured)
+   - Checks Flask session["access_token"] (browser)
+   - OR Authorization: Bearer <token> header (API clients)
+2. API Key fallback (A7_API_KEY configured, no Supabase)
+   - X-API-Key header or ?api_key= query param
+3. Open access (neither configured — dev mode)
 
-When A7_API_KEY is set, all requests to /api/* paths must include either:
-  - X-API-Key: <key>  (request header)
-  - ?api_key=<key>    (query parameter)
-
-Exempt paths (always allowed regardless of key):
-  /, /health, /health/detailed, /static/*
+Exempt paths: /, /health, /health/detailed, /static/*, /auth/*
 """
 
 import os
+import logging
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, session
 
+logger = logging.getLogger(__name__)
 
-# Paths that are always accessible without an API key.
 _EXEMPT_PATHS = {"/", "/health", "/health/detailed"}
-_STATIC_PREFIX = "/static/"
+_EXEMPT_PREFIXES = ("/static/", "/auth/")
 
 
 def _is_exempt(path: str) -> bool:
-    """Return True if the request path is exempt from API key checks."""
-    return path in _EXEMPT_PATHS or path.startswith(_STATIC_PREFIX)
+    return path in _EXEMPT_PATHS or any(path.startswith(p) for p in _EXEMPT_PREFIXES)
+
+
+def _get_bearer_token() -> str | None:
+    """Extract Bearer token from Authorization header."""
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        return auth[7:].strip()
+    return None
+
+
+def _validate_jwt(token: str) -> bool:
+    """Validate a Supabase JWT (signature-less decode for role check)."""
+    if not token:
+        return False
+    try:
+        import jwt
+        payload = jwt.decode(token, options={"verify_signature": False})
+        # Verify it's a Supabase token with a subject
+        return bool(payload.get("sub"))
+    except Exception:
+        return False
 
 
 def register_auth_middleware(app: Flask) -> None:
-    """Attach the API key before_request handler to *app*.
-
-    If A7_API_KEY is not configured, the handler is registered but
-    immediately returns None (no-op) on every request.
-    """
+    """Attach authentication middleware to the Flask app."""
 
     @app.before_request
-    def check_api_key():
-        api_key = os.environ.get("A7_API_KEY", "").strip()
-
-        # Feature disabled — open access, backward-compatible.
-        if not api_key:
-            return None
-
-        # Exempt paths are always allowed.
+    def check_auth():
         if _is_exempt(request.path):
             return None
 
-        # Check header first, then query param.
-        provided = (
-            request.headers.get("X-API-Key", "").strip()
-            or request.args.get("api_key", "").strip()
-        )
+        supabase_url = os.environ.get("SUPABASE_URL", "").strip()
+        api_key = os.environ.get("A7_API_KEY", "").strip()
 
-        if provided != api_key:
-            return jsonify({"error": "Unauthorized"}), 401
+        # Mode 1: Supabase Auth
+        if supabase_url:
+            # Try session token (browser) then Authorization header (API)
+            token = session.get("access_token") or _get_bearer_token()
+            if token and _validate_jwt(token):
+                return None
+            # Not authenticated → redirect browser to login, 401 for API
+            if request.accept_mimetypes.accept_json and not request.accept_mimetypes.accept_html:
+                return jsonify({"error": "Unauthorized"}), 401
+            # For browser requests to /api/* return 401 JSON
+            if request.path.startswith("/api/"):
+                return jsonify({"error": "Unauthorized"}), 401
+            from flask import redirect, url_for
+            return redirect(url_for("auth.login_page"))
 
+        # Mode 2: API Key fallback
+        if api_key:
+            provided = (
+                request.headers.get("X-API-Key", "").strip()
+                or request.args.get("api_key", "").strip()
+            )
+            if provided != api_key:
+                return jsonify({"error": "Unauthorized"}), 401
+            return None
+
+        # Mode 3: Open access (dev)
         return None
