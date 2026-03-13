@@ -16,7 +16,16 @@ def get_db_path():
 
 
 def get_connection():
-    """Get a SQLite connection with row_factory for dict-like access."""
+    """Get a database connection.
+
+    Uses PostgreSQL (via DATABASE_URL) when available, falls back to SQLite for
+    local development.
+    """
+    database_url = os.environ.get("DATABASE_URL", "").strip()
+    if database_url:
+        from app.db.postgres_adapter import PostgresConnection
+        return PostgresConnection(database_url)
+    # SQLite fallback (local dev)
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -26,6 +35,16 @@ def get_connection():
 
 
 def _table_exists(conn, name):
+    database_url = os.environ.get("DATABASE_URL", "").strip()
+    if database_url:
+        try:
+            row = conn.execute(
+                "SELECT 1 FROM information_schema.tables WHERE table_name = %s AND table_schema = 'public'",
+                (name,)
+            ).fetchone()
+            return row is not None
+        except Exception:
+            return False
     row = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)
     ).fetchone()
@@ -33,6 +52,16 @@ def _table_exists(conn, name):
 
 
 def _column_exists(conn, table, column):
+    database_url = os.environ.get("DATABASE_URL", "").strip()
+    if database_url:
+        try:
+            row = conn.execute(
+                "SELECT 1 FROM information_schema.columns WHERE table_name = %s AND column_name = %s AND table_schema = 'public'",
+                (table, column)
+            ).fetchone()
+            return row is not None
+        except Exception:
+            return False
     cols = conn.execute(f"PRAGMA table_info({table})").fetchall()
     return any(c["name"] == column for c in cols)
 
