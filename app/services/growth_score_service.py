@@ -43,8 +43,8 @@ class GrowthScoreService:
         budget_efficiency = self._get_budget_efficiency(days, platform, account_id=account_id)
         creative_health = self._get_creative_health(days, account_id=account_id)
         trend_momentum = self._get_trend_momentum(days, account_id=account_id)
-        channel_balance = self._get_channel_balance(days)
-        alert_cleanliness = self._get_alert_cleanliness()
+        channel_balance = self._get_channel_balance(days, account_id=account_id)
+        alert_cleanliness = self._get_alert_cleanliness(account_id=account_id)
 
         # Weighted combination
         score = round(
@@ -184,7 +184,7 @@ class GrowthScoreService:
         except Exception:
             return {"score": 50, "detail": "No trend data"}
 
-    def _get_channel_balance(self, days):
+    def _get_channel_balance(self, days, account_id=None):
         """Score based on cross-platform spend diversification.
 
         100 = balanced (50/50 split), 0 = 100% on one platform.
@@ -194,7 +194,7 @@ class GrowthScoreService:
         try:
             from app.services.cross_platform_service import CrossPlatformService
             cp = CrossPlatformService()
-            summary = cp.get_platform_summary(days)
+            summary = cp.get_platform_summary(days, account_id=account_id)
             platforms = summary.get("platforms", [])
 
             active = [p for p in platforms if p.get("spend", 0) > 0]
@@ -222,7 +222,7 @@ class GrowthScoreService:
         except Exception:
             return {"score": 50, "detail": "No channel data"}
 
-    def _get_alert_cleanliness(self):
+    def _get_alert_cleanliness(self, account_id=None):
         """Score based on unresolved critical alerts (fewer = better).
 
         Uses a single GROUP BY query to count both severities in one round-trip,
@@ -232,11 +232,19 @@ class GrowthScoreService:
             from app.db.init_db import get_connection
             conn = get_connection()
             try:
-                rows = conn.execute(
-                    "SELECT severity, COUNT(*) as cnt FROM alerts "
-                    "WHERE resolved = 0 AND severity IN ('critical', 'warning') "
-                    "GROUP BY severity"
-                ).fetchall()
+                if account_id:
+                    rows = conn.execute(
+                        "SELECT severity, COUNT(*) as cnt FROM alerts "
+                        "WHERE resolved = 0 AND severity IN ('critical', 'warning') "
+                        "AND account_id = ? GROUP BY severity",
+                        (account_id,),
+                    ).fetchall()
+                else:
+                    rows = conn.execute(
+                        "SELECT severity, COUNT(*) as cnt FROM alerts "
+                        "WHERE resolved = 0 AND severity IN ('critical', 'warning') "
+                        "GROUP BY severity"
+                    ).fetchall()
             finally:
                 conn.close()
 

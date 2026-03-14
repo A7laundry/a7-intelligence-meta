@@ -384,14 +384,24 @@
     $('#kpiConversionsChange').innerHTML = changeHtml(ch.conversions);
     $('#kpiCpaChange').innerHTML = '';
 
-    // Breakdown
+    // Breakdown — only show Google rows when Google Ads is integrated
+    const googleIntegrated = data.platforms && data.platforms.google;
     if ($('#kpiMetaSpend')) {
       $('#kpiMetaSpend').textContent = 'M: ' + fmtMoney(m.spend);
-      $('#kpiGoogleSpend').textContent = 'G: ' + fmtMoney(g.spend);
+      if ($('#kpiGoogleSpend')) {
+        $('#kpiGoogleSpend').textContent = googleIntegrated ? 'G: ' + fmtMoney(g.spend) : '';
+        $('#kpiGoogleSpend').style.display = googleIntegrated ? '' : 'none';
+      }
       $('#kpiMetaImpressions').textContent = 'M: ' + fmt(m.impressions);
-      $('#kpiGoogleImpressions').textContent = 'G: ' + fmt(g.impressions);
+      if ($('#kpiGoogleImpressions')) {
+        $('#kpiGoogleImpressions').textContent = googleIntegrated ? 'G: ' + fmt(g.impressions) : '';
+        $('#kpiGoogleImpressions').style.display = googleIntegrated ? '' : 'none';
+      }
       $('#kpiMetaClicks').textContent = 'M: ' + fmt(m.clicks);
-      $('#kpiGoogleClicks').textContent = 'G: ' + fmt(g.clicks);
+      if ($('#kpiGoogleClicks')) {
+        $('#kpiGoogleClicks').textContent = googleIntegrated ? 'G: ' + fmt(g.clicks) : '';
+        $('#kpiGoogleClicks').style.display = googleIntegrated ? '' : 'none';
+      }
     }
 
     // Extended KPIs
@@ -664,11 +674,20 @@
 
     updateDataSourceBadge(data);
 
-    // Hide Google section if no data
+    // Show/hide Google section based on integration status
     const gs = $('#googleSection');
     if (gs) {
-      const hasGoogle = data.campaigns.google && data.campaigns.google.length > 0;
-      gs.style.display = hasGoogle ? '' : 'none';
+      const googleEnabled = data.platforms && data.platforms.google;
+      const hasGoogleCampaigns = data.campaigns.google && data.campaigns.google.length > 0;
+      if (!googleEnabled) {
+        gs.style.display = 'none';
+      } else {
+        gs.style.display = '';
+        const googleEmptyMsg = gs.querySelector('.google-no-campaigns');
+        const googleTableWrap = gs.querySelector('.table-wrap');
+        if (googleEmptyMsg) googleEmptyMsg.style.display = hasGoogleCampaigns ? 'none' : '';
+        if (googleTableWrap) googleTableWrap.style.display = hasGoogleCampaigns ? '' : 'none';
+      }
     }
 
     // Show content
