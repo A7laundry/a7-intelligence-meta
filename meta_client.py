@@ -134,6 +134,8 @@ class MetaAdsClient:
             "objective": template["objective"],
             "status": template["status"],
             "special_ad_categories": json.dumps(template.get("special_ad_categories", [])),
+            # Required by Meta API v20+
+            "is_adset_budget_sharing_enabled": "false",
         }
 
         result = self._request("POST", f"{self.ad_account_id}/campaigns", params=params)
@@ -206,6 +208,8 @@ class MetaAdsClient:
             "optimization_goal": optimization_goal,
             "targeting": json.dumps(audience["targeting"]),
             "status": "PAUSED",
+            # Required by Meta API v20+
+            "bid_strategy": "LOWEST_COST_WITHOUT_CAP",
         }
 
         if start_time:
@@ -213,9 +217,13 @@ class MetaAdsClient:
         if end_time:
             params["end_time"] = end_time
 
-        # Se tem pixel, adiciona para tracking de conversões
-        if self.pixel_id and self.pixel_id != "SEU_PIXEL_ID":
-            params["promoted_object"] = json.dumps({"pixel_id": self.pixel_id})
+        # promoted_object rules per optimization_goal (Meta API v20+)
+        if optimization_goal == "LEAD_GENERATION":
+            if self.page_id and self.page_id not in ("SEU_PAGE_ID", "", None):
+                params["promoted_object"] = json.dumps({"page_id": self.page_id})
+        elif optimization_goal in ("OFFSITE_CONVERSIONS", "CONVERSATIONS"):
+            if self.pixel_id and self.pixel_id not in ("SEU_PIXEL_ID", "", None):
+                params["promoted_object"] = json.dumps({"pixel_id": self.pixel_id})
 
         result = self._request("POST", f"{self.ad_account_id}/adsets", params=params)
         print(f"✅ Ad Set criado: {name} (ID: {result['id']})")
@@ -655,6 +663,8 @@ class MetaAdsClient:
             "objective": objective,
             "status": status,
             "special_ad_categories": json.dumps(special_ad_categories or []),
+            # Required by Meta API v20+: adset-level budgets (not CBO)
+            "is_adset_budget_sharing_enabled": "false",
         }
         result = self._request("POST", f"{self.ad_account_id}/campaigns", params=params)
         return result
@@ -681,10 +691,21 @@ class MetaAdsClient:
             "optimization_goal": optimization_goal,
             "targeting": json.dumps(targeting),
             "status": status,
+            # Required by Meta API v20+: automatic bidding, no cap needed
+            "bid_strategy": "LOWEST_COST_WITHOUT_CAP",
         }
+        # promoted_object rules per optimization_goal (Meta API v20+):
+        # LEAD_GENERATION     → {"page_id": page_id}
+        # OFFSITE_CONVERSIONS → {"pixel_id": pixel_id}
+        # LINK_CLICKS / REACH / IMPRESSIONS / LANDING_PAGE_VIEWS → not required
         effective_pixel = pixel_id or self.pixel_id
-        if effective_pixel and effective_pixel not in ("SEU_PIXEL_ID", "", None):
-            params["promoted_object"] = json.dumps({"pixel_id": effective_pixel})
+        effective_page = self.page_id
+        if optimization_goal == "LEAD_GENERATION":
+            if effective_page and effective_page not in ("SEU_PAGE_ID", "", None):
+                params["promoted_object"] = json.dumps({"page_id": effective_page})
+        elif optimization_goal == "OFFSITE_CONVERSIONS":
+            if effective_pixel and effective_pixel not in ("SEU_PIXEL_ID", "", None):
+                params["promoted_object"] = json.dumps({"pixel_id": effective_pixel})
         result = self._request("POST", f"{self.ad_account_id}/adsets", params=params)
         return result
 
