@@ -34,25 +34,65 @@ def _safe_float(v, digits=2):
 
 # ── Live KPI fallback ─────────────────────────────────────────────────────────
 
-def _get_live_kpis(account_id: int) -> dict:
+def _get_live_data(account_id: int) -> dict:
     """
-    Fetch 7-day KPIs from DashboardService (live Meta API).
-    Returns a dict with the same keys as the snapshot-based aggregation,
-    plus meta about the source. Returns empty-safe dict on failure.
+    Fetch full 7-day data from DashboardService (live Meta API).
+    Returns KPIs + campaigns + daily_trend. Empty-safe on failure.
     """
     empty = {
         "spend_7d": 0, "conv_7d": 0, "clicks_7d": 0, "impressions_7d": 0,
-        "cpa_7d": None, "ctr_7d": None, "cpc_7d": None, "live": True,
+        "cpa_7d": None, "ctr_7d": None, "cpc_7d": None,
+        "top_camps": [], "worst_camps": [], "trend": [],
+        "camp_dist": {"active": 0, "paused": 0, "total": 0},
+        "live": True,
     }
     try:
         from app.services.dashboard_service import DashboardService
         svc = DashboardService()
-        data = svc.build_payload("7d", account_id=account_id)
+        data = svc.get_dashboard_data("7d", account_id=account_id)
         total = data.get("summary", {}).get("total", {})
         spend = float(total.get("spend", 0) or 0)
         conv  = int(total.get("conversions", 0) or 0)
         clk   = int(total.get("clicks", 0) or 0)
         imp   = int(total.get("impressions", 0) or 0)
+
+        # Build top campaigns from live campaign list
+        meta_camps = data.get("campaigns", {}).get("meta", []) or []
+        sorted_camps = sorted(meta_camps, key=lambda c: float(c.get("spend", 0) or 0), reverse=True)
+        top_camps = [
+            {
+                "name":   c.get("name", ""),
+                "spend":  round(float(c.get("spend", 0) or 0), 2),
+                "conv":   int(c.get("conversions", 0) or 0),
+                "cpa":    round(float(c.get("cpa", 0) or 0), 2),
+                "status": c.get("status", ""),
+            }
+            for c in sorted_camps[:5]
+        ]
+        worst_camps = [
+            c for c in sorted_camps if (c.get("cpa") or 0) > 0
+        ]
+        worst_camps = sorted(worst_camps, key=lambda c: float(c.get("cpa", 0) or 0), reverse=True)[:5]
+
+        # Daily trend from live data
+        live_trend = data.get("daily_trend", []) or []
+        trend_mapped = [
+            {
+                "date":        t.get("date", ""),
+                "spend":       round(float(t.get("meta_spend", 0) or 0), 2),
+                "conversions": int(t.get("meta_conversions", 0) or 0),
+                "clicks":      0,
+                "ctr":         0,
+                "cpc":         0,
+                "has_data":    (t.get("meta_spend") or 0) > 0,
+            }
+            for t in live_trend
+        ]
+
+        # Campaign distribution
+        active_cnt = sum(1 for c in meta_camps if c.get("status") == "ACTIVE")
+        paused_cnt = sum(1 for c in meta_camps if c.get("status") == "PAUSED")
+
         return {
             "spend_7d":       round(spend, 2),
             "conv_7d":        conv,
@@ -61,10 +101,19 @@ def _get_live_kpis(account_id: int) -> dict:
             "cpa_7d":         _safe_float(spend / conv) if conv > 0 else None,
             "ctr_7d":         _safe_float(clk / imp * 100) if imp > 0 else None,
             "cpc_7d":         _safe_float(spend / clk) if clk > 0 else None,
+            "top_camps":      top_camps,
+            "worst_camps":    worst_camps,
+            "trend":          trend_mapped,
+            "camp_dist":      {"active": active_cnt, "paused": paused_cnt, "total": len(meta_camps)},
             "live":           True,
         }
     except Exception:
         return empty
+
+
+# Kept for backwards-compat (no longer called from main route)
+def _get_live_kpis(account_id: int) -> dict:
+    return _get_live_data(account_id)
 
 
 # ── Insight Engine ────────────────────────────────────────────────────────────
@@ -316,12 +365,13 @@ def command_center():
         impressions_7d = int(kpi["impressions_7d"] or 0)
 
         # ── Live fallback when snapshots are sparse (<3 days) ────────────────
+        _live_data = None
         if snap_days < 3:
-            live = _get_live_kpis(account_id)
-            spend_7d       = live["spend_7d"]
-            conv_7d        = live["conv_7d"]
-            clicks_7d      = live["clicks_7d"]
-            impressions_7d = live["impressions_7d"]
+            _live_data     = _get_live_data(account_id)
+            spend_7d       = _live_data["spend_7d"]
+            conv_7d        = _live_data["conv_7d"]
+            clicks_7d      = _live_data["clicks_7d"]
+            impressions_7d = _live_data["impressions_7d"]
             kpi_source     = "live"
 
         cpa_7d = _safe_float(spend_7d / conv_7d)       if conv_7d        > 0 else None
@@ -426,97 +476,117 @@ def command_center():
         ).fetchone()[0]
 
         # ── Daily trend (7 days) ──────────────────────────────────────────────
-        raw_trend = conn.execute(
-            """
-            SELECT date,
-                   COALESCE(SUM(spend), 0)       AS spend,
-                   COALESCE(SUM(conversions), 0) AS conversions,
-                   COALESCE(SUM(clicks), 0)      AS clicks,
-                   COALESCE(SUM(impressions), 0) AS impressions
-            FROM daily_snapshots
-            WHERE date >= ? AND account_id = ?
-            GROUP BY date ORDER BY date ASC
-            """,
-            (seven_days_ago, account_id),
-        ).fetchall()
-        trend_by_date = {r["date"]: r for r in raw_trend}
-        trend = []
-        for i in range(7):
-            d   = (now - timedelta(days=6 - i)).strftime("%Y-%m-%d")
-            row = trend_by_date.get(d)
-            imp = float(row["impressions"]) if row else 0
-            clk = float(row["clicks"])      if row else 0
-            spd = float(row["spend"])       if row else 0
-            trend.append({
-                "date":        d,
-                "spend":       round(spd, 2),
-                "conversions": int(row["conversions"]) if row else 0,
-                "clicks":      int(clk),
-                "ctr":         round(clk / imp * 100, 2) if imp > 0 else 0,
-                "cpc":         round(spd / clk, 2)        if clk > 0 else 0,
-                "has_data":    row is not None,
-            })
+        # Note: _live_data is populated if snap_days < 3 (set earlier in the route)
+        if _live_data and _live_data.get("trend"):
+            trend = _live_data["trend"]
+        else:
+            raw_trend = conn.execute(
+                """
+                SELECT date,
+                       COALESCE(SUM(spend), 0)       AS spend,
+                       COALESCE(SUM(conversions), 0) AS conversions,
+                       COALESCE(SUM(clicks), 0)      AS clicks,
+                       COALESCE(SUM(impressions), 0) AS impressions
+                FROM daily_snapshots
+                WHERE date >= ? AND account_id = ?
+                GROUP BY date ORDER BY date ASC
+                """,
+                (seven_days_ago, account_id),
+            ).fetchall()
+            trend_by_date = {r["date"]: r for r in raw_trend}
+            trend = []
+            for i in range(7):
+                d   = (now - timedelta(days=6 - i)).strftime("%Y-%m-%d")
+                row = trend_by_date.get(d)
+                imp = float(row["impressions"]) if row else 0
+                clk = float(row["clicks"])      if row else 0
+                spd = float(row["spend"])       if row else 0
+                trend.append({
+                    "date":        d,
+                    "spend":       round(spd, 2),
+                    "conversions": int(row["conversions"]) if row else 0,
+                    "clicks":      int(clk),
+                    "ctr":         round(clk / imp * 100, 2) if imp > 0 else 0,
+                    "cpc":         round(spd / clk, 2)        if clk > 0 else 0,
+                    "has_data":    row is not None,
+                })
         trend_days_available = sum(1 for t in trend if t["has_data"])
 
         # ── Top 5 campaigns by spend ──────────────────────────────────────────
-        top_camps_rows = conn.execute(
-            """
-            SELECT campaign_name,
-                   SUM(spend)       AS total_spend,
-                   SUM(conversions) AS total_conv,
-                   CASE WHEN SUM(conversions) > 0
-                        THEN ROUND(SUM(spend) / SUM(conversions), 2)
-                        ELSE 0 END  AS cpa,
-                   MAX(status)      AS status
-            FROM campaign_snapshots
-            WHERE date >= ? AND account_id = ?
-            GROUP BY campaign_id
-            ORDER BY total_spend DESC
-            LIMIT 5
-            """,
-            (seven_days_ago, account_id),
-        ).fetchall()
-        top_camps = [
-            {
-                "name":   r["campaign_name"],
-                "spend":  round(float(r["total_spend"]), 2),
-                "conv":   int(r["total_conv"]),
-                "cpa":    round(float(r["cpa"]), 2),
-                "status": r["status"],
-            }
-            for r in top_camps_rows
-        ]
+        if _live_data:
+            # Use live campaign data when snapshots are sparse
+            top_camps   = _live_data["top_camps"]
+            worst_camps_raw = _live_data["worst_camps"]
+            worst_camps = worst_camps_raw  # already list of dicts
+            active_cnt  = _live_data["camp_dist"]["active"]
+            paused_cnt  = _live_data["camp_dist"]["paused"]
+            total_cnt   = _live_data["camp_dist"]["total"]
+        else:
+            top_camps_rows = conn.execute(
+                """
+                SELECT campaign_name,
+                       SUM(spend)       AS total_spend,
+                       SUM(conversions) AS total_conv,
+                       CASE WHEN SUM(conversions) > 0
+                            THEN ROUND(SUM(spend) / SUM(conversions), 2)
+                            ELSE 0 END  AS cpa,
+                       MAX(status)      AS status
+                FROM campaign_snapshots
+                WHERE date >= ? AND account_id = ?
+                GROUP BY campaign_id
+                ORDER BY total_spend DESC
+                LIMIT 5
+                """,
+                (seven_days_ago, account_id),
+            ).fetchall()
+            top_camps = [
+                {
+                    "name":   r["campaign_name"],
+                    "spend":  round(float(r["total_spend"]), 2),
+                    "conv":   int(r["total_conv"]),
+                    "cpa":    round(float(r["cpa"]), 2),
+                    "status": r["status"],
+                }
+                for r in top_camps_rows
+            ]
+            worst_camps_rows = conn.execute(
+                """
+                SELECT campaign_name,
+                       SUM(spend)       AS total_spend,
+                       SUM(conversions) AS total_conv,
+                       ROUND(SUM(spend) / SUM(conversions), 2) AS cpa,
+                       MAX(status)      AS status
+                FROM campaign_snapshots
+                WHERE date >= ? AND account_id = ? AND conversions > 0
+                GROUP BY campaign_id HAVING SUM(conversions) > 0
+                ORDER BY cpa DESC LIMIT 5
+                """,
+                (seven_days_ago, account_id),
+            ).fetchall()
+            worst_camps = [
+                {
+                    "name":   r["campaign_name"],
+                    "spend":  round(float(r["total_spend"]), 2),
+                    "conv":   int(r["total_conv"]),
+                    "cpa":    round(float(r["cpa"]), 2),
+                    "status": r.get("status", ""),
+                }
+                for r in worst_camps_rows
+            ]
 
-        # ── Worst performers by CPA ───────────────────────────────────────────
-        worst_camps = conn.execute(
-            """
-            SELECT campaign_name,
-                   SUM(spend)       AS total_spend,
-                   SUM(conversions) AS total_conv,
-                   ROUND(SUM(spend) / SUM(conversions), 2) AS cpa,
-                   MAX(status)      AS status
-            FROM campaign_snapshots
-            WHERE date >= ? AND account_id = ? AND conversions > 0
-            GROUP BY campaign_id HAVING SUM(conversions) > 0
-            ORDER BY cpa DESC LIMIT 5
-            """,
-            (seven_days_ago, account_id),
-        ).fetchall()
-
-        # ── Campaign distribution ─────────────────────────────────────────────
-        dist = conn.execute(
-            """
-            SELECT status, COUNT(DISTINCT campaign_id) AS cnt
-            FROM campaign_snapshots
-            WHERE date >= ? AND account_id = ?
-            GROUP BY status
-            """,
-            (seven_days_ago, account_id),
-        ).fetchall()
-        dist_map   = {r["status"]: r["cnt"] for r in dist}
-        active_cnt = dist_map.get("ACTIVE", 0)
-        paused_cnt = dist_map.get("PAUSED", 0)
-        total_cnt  = sum(dist_map.values())
+            dist = conn.execute(
+                """
+                SELECT status, COUNT(DISTINCT campaign_id) AS cnt
+                FROM campaign_snapshots
+                WHERE date >= ? AND account_id = ?
+                GROUP BY status
+                """,
+                (seven_days_ago, account_id),
+            ).fetchall()
+            dist_map   = {r["status"]: r["cnt"] for r in dist}
+            active_cnt = dist_map.get("ACTIVE", 0)
+            paused_cnt = dist_map.get("PAUSED", 0)
+            total_cnt  = sum(dist_map.values())
 
         # ── Opportunities (legacy block) ──────────────────────────────────────
         high_cpa = conn.execute(
@@ -622,7 +692,7 @@ def command_center():
             "cpc_7d":          cpc_7d,
             "growth_score":    growth_score,
             "worst_campaigns": [
-                {"name": r["campaign_name"], "cpa": float(r["cpa"]), "spend": float(r["total_spend"])}
+                {"name": r["name"], "cpa": float(r["cpa"]), "spend": float(r["spend"])}
                 for r in worst_camps
             ],
         }
@@ -670,9 +740,9 @@ def command_center():
             "top_campaigns":         top_camps,
             "worst_campaigns": [
                 {
-                    "name":  r["campaign_name"],
-                    "spend": round(float(r["total_spend"]), 2),
-                    "conv":  int(r["total_conv"]),
+                    "name":  r["name"],
+                    "spend": round(float(r["spend"]), 2),
+                    "conv":  int(r["conv"]),
                     "cpa":   round(float(r["cpa"]), 2),
                 }
                 for r in worst_camps
