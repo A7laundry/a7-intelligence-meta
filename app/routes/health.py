@@ -88,7 +88,6 @@ def health_tokens():
 def health_google_ads():
     """Google Ads connectivity check — initializes client and makes a lightweight API call."""
     import sys
-    import os
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
     try:
@@ -101,7 +100,6 @@ def health_google_ads():
         if not wrapper.available:
             return jsonify({"status": "error", "message": "Google Ads client not available — check credentials"}), 503
 
-        # Lightweight test call: list campaigns with LIMIT 1
         campaigns = wrapper.client.list_campaigns()
         return jsonify({
             "status": "ok",
@@ -111,6 +109,100 @@ def health_google_ads():
 
     except Exception as exc:
         return jsonify({"status": "error", "message": str(exc)}), 503
+
+
+@health_bp.route("/health/full")
+def health_full():
+    """Detailed system health for monitoring."""
+    from datetime import datetime
+
+    checks = {}
+
+    try:
+        conn = get_connection()
+        conn.execute("SELECT 1").fetchone()
+        conn.close()
+        checks["database"] = {"status": "ok"}
+    except Exception as e:
+        checks["database"] = {"status": "error", "message": str(e)}
+
+    try:
+        conn = get_connection()
+        today = datetime.utcnow().strftime("%Y-%m-%d")
+        count = conn.execute(
+            "SELECT COUNT(*) FROM daily_snapshots WHERE date = ?", (today,)
+        ).fetchone()[0]
+        conn.close()
+        checks["snapshots_today"] = {
+            "status": "ok" if count > 0 else "warning",
+            "count": count,
+            "message": None if count > 0 else "No snapshots yet today — scheduler may not have run",
+        }
+    except Exception as e:
+        checks["snapshots_today"] = {"status": "error", "message": str(e)}
+
+    try:
+        from config_default import META_CONFIG
+        token = META_CONFIG.get("access_token", "")
+        checks["meta_api"] = {
+            "status": "ok" if token and token not in ("", "SEU_ACCESS_TOKEN_LONGO_PRAZO") else "warning",
+            "configured": bool(token),
+        }
+    except Exception as e:
+        checks["meta_api"] = {"status": "error", "message": str(e)}
+
+    try:
+        from config_default import GOOGLE_ADS_CONFIG
+        token = GOOGLE_ADS_CONFIG.get("developer_token", "")
+        checks["google_ads"] = {
+            "status": "ok" if token and token not in ("", "SEU_DEVELOPER_TOKEN") else "not_configured",
+            "configured": bool(token),
+        }
+    except Exception as e:
+        checks["google_ads"] = {"status": "error", "message": str(e)}
+
+    try:
+        conn = get_connection()
+        acc_count = conn.execute(
+            "SELECT COUNT(*) FROM ad_accounts WHERE status='active'"
+        ).fetchone()[0]
+        conn.close()
+        checks["accounts"] = {"status": "ok", "active": acc_count}
+    except Exception as e:
+        checks["accounts"] = {"status": "error", "message": str(e)}
+
+    overall = (
+        "ok"
+        if all(v.get("status") in ("ok", "not_configured") for v in checks.values())
+        else "degraded"
+    )
+
+    return jsonify({
+        "status": overall,
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "checks": checks,
+    })
+
+
+@health_bp.route("/api/system/status")
+def system_status():
+    """Lightweight status for dashboard UI badge."""
+    from datetime import datetime
+
+    try:
+        conn = get_connection()
+        today = datetime.utcnow().strftime("%Y-%m-%d")
+        snap_count = conn.execute(
+            "SELECT COUNT(*) FROM daily_snapshots WHERE date = ?", (today,)
+        ).fetchone()[0]
+        conn.close()
+        return jsonify({
+            "data_fresh": snap_count > 0,
+            "snap_count_today": snap_count,
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+        })
+    except Exception as e:
+        return jsonify({"data_fresh": False, "error": str(e)})
 
 
 @health_bp.route("/health/detailed")
