@@ -1,5 +1,6 @@
 """A7 Intelligence — Flask Application Factory."""
 
+import logging
 import os
 
 from flask import Flask
@@ -128,6 +129,14 @@ def create_app():
     print(
         f"[A7] v{VERSION} started | env={env_label} | "
         f"scheduler={'enabled' if scheduler_enabled else 'disabled'}"
+    )
+
+    _startup_logger = logging.getLogger("a7.startup")
+    _startup_logger.info(
+        "[A7] startup | db=%s | scheduler=%s | workers_env=%s",
+        os.environ.get("A7_DB_PATH", "default"),
+        "enabled" if not os.environ.get("A7_DISABLE_SCHEDULER") else "disabled",
+        os.environ.get("WEB_CONCURRENCY", "1"),
     )
 
     # Template context processor

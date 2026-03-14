@@ -1,7 +1,11 @@
 """Snapshot Service — Stores and retrieves daily metrics snapshots."""
 
+import logging
 from datetime import datetime, timedelta
+
 from app.db.init_db import get_connection
+
+_logger = logging.getLogger("a7.snapshots")
 
 
 class SnapshotService:
@@ -31,6 +35,13 @@ class SnapshotService:
                  conversion_value, metrics.get("cpa", 0), roas),
             )
             conn.commit()
+            _logger.info(
+                "[snapshot] date=%s platform=%s account=%s spend=%.2f",
+                date,
+                platform,
+                account_id,
+                spend,
+            )
         finally:
             conn.close()
 
