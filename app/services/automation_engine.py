@@ -25,7 +25,7 @@ class AutomationEngine:
 
     # ── Action types ──
     VALID_ACTION_TYPES = {
-        "pause_campaign", "increase_budget", "decrease_budget",
+        "pause_campaign", "resume_campaign", "increase_budget", "decrease_budget",
         "refresh_creative", "rotate_creative",
     }
 
@@ -308,6 +308,8 @@ class AutomationEngine:
 
         if action_type == "pause_campaign":
             return self._execute_pause(action, platform)
+        elif action_type == "resume_campaign":
+            return self._execute_resume(action, platform)
         elif action_type in ("increase_budget", "decrease_budget"):
             return self._execute_budget_change(action, platform)
         elif action_type in ("refresh_creative", "rotate_creative"):
@@ -315,17 +317,46 @@ class AutomationEngine:
         else:
             return {"message": f"Unknown action type '{action_type}' — logged only"}
 
+    def _get_meta_client(self, account_id):
+        """Build a MetaAdsClient using credentials from AccountService."""
+        from app.services.account_service import AccountService
+        from meta_client import MetaAdsClient
+        acc = AccountService.get_by_id(account_id)
+        if acc and acc.get("access_token") and acc.get("external_account_id"):
+            return MetaAdsClient(
+                access_token=acc["access_token"],
+                account_id=acc["external_account_id"],
+            )
+        # Fall back to default config credentials
+        return MetaAdsClient()
+
     def _execute_pause(self, action, platform):
-        """Execute campaign pause via API."""
+        """Execute campaign pause via Meta API."""
         if platform == "meta":
-            try:
-                from app.services.metrics_service import MetricsService
-                svc = MetricsService()
-                svc.update_campaign_status(action.get("entity_id", ""), "PAUSED")
-                return {"message": f"Paused Meta campaign {action['entity_name']}"}
-            except Exception as e:
-                raise RuntimeError(f"Meta API pause failed: {e}")
+            campaign_id = action.get("entity_id", "")
+            if not campaign_id:
+                raise RuntimeError(
+                    f"Cannot pause campaign '{action.get('entity_name')}': entity_id is missing"
+                )
+            account_id = action.get("account_id", 1)
+            client = self._get_meta_client(account_id)
+            client.update_campaign_status(campaign_id, "PAUSED")
+            return {"message": f"Paused Meta campaign {action['entity_name']} ({campaign_id})"}
         return {"message": f"Pause logged for {platform} campaign {action['entity_name']} (manual action required)"}
+
+    def _execute_resume(self, action, platform):
+        """Execute campaign resume via Meta API."""
+        if platform == "meta":
+            campaign_id = action.get("entity_id", "")
+            if not campaign_id:
+                raise RuntimeError(
+                    f"Cannot resume campaign '{action.get('entity_name')}': entity_id is missing"
+                )
+            account_id = action.get("account_id", 1)
+            client = self._get_meta_client(account_id)
+            client.update_campaign_status(campaign_id, "ACTIVE")
+            return {"message": f"Resumed Meta campaign {action['entity_name']} ({campaign_id})"}
+        return {"message": f"Resume logged for {platform} campaign {action['entity_name']} (manual action required)"}
 
     def _execute_increase_budget(self, action: dict, account_id: int) -> dict:
         """Execute budget increase via Meta API (live) or return dry_run result."""
@@ -336,12 +367,12 @@ class AutomationEngine:
         if not campaign_id or not new_budget:
             return {"status": "skipped", "reason": "missing campaign_id or new_budget"}
 
-        if not _LIVE_MODE:
+        is_live = (action.get("execution_mode") == "live") or _LIVE_MODE
+        if not is_live:
             return {"status": "dry_run", "campaign_id": campaign_id, "new_budget": new_budget}
 
         try:
-            from meta_client import MetaAdsClient
-            client = MetaAdsClient()
+            client = self._get_meta_client(account_id)
             budget_cents = int(float(new_budget) * 100)
             result = client.update_campaign_budget(campaign_id, budget_cents)
             return {
@@ -362,12 +393,12 @@ class AutomationEngine:
         if not campaign_id or not new_budget:
             return {"status": "skipped", "reason": "missing campaign_id or new_budget"}
 
-        if not _LIVE_MODE:
+        is_live = (action.get("execution_mode") == "live") or _LIVE_MODE
+        if not is_live:
             return {"status": "dry_run", "campaign_id": campaign_id, "new_budget": new_budget}
 
         try:
-            from meta_client import MetaAdsClient
-            client = MetaAdsClient()
+            client = self._get_meta_client(account_id)
             budget_cents = int(float(new_budget) * 100)
             result = client.update_campaign_budget(campaign_id, budget_cents)
             return {
@@ -421,9 +452,13 @@ class AutomationEngine:
         if self.config["platform_allowlist"] and platform not in self.config["platform_allowlist"]:
             return {"allowed": False, "reason": f"Platform '{platform}' not in allowlist"}
 
-        # Rule 3: Budget change cap
+        # Rule 3: Budget change cap (hard limit: 50%; config limit from max_budget_change_pct)
         change_pct = abs(action.get("suggested_change_pct", 0))
         if action.get("action_type") in ("increase_budget", "decrease_budget"):
+            hard_cap = 50
+            if change_pct > hard_cap:
+                return {"allowed": False,
+                        "reason": f"Budget change {change_pct}% exceeds hard safety cap of {hard_cap}%"}
             if change_pct > self.config["max_budget_change_pct"]:
                 return {"allowed": False,
                         "reason": f"Budget change {change_pct}% exceeds max {self.config['max_budget_change_pct']}%"}
@@ -536,6 +571,7 @@ class AutomationEngine:
         "increase_budget": 20,
         "decrease_budget": -20,
         "pause_campaign": -100,
+        "resume_campaign": 0,
         "refresh_creative": 0,
         "rotate_creative": 0,
     }
