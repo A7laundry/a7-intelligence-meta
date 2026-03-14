@@ -26,15 +26,21 @@ class GoogleAdsApiClient:
     """Client for Google Ads API reporting — mirrors MetaAdsClient interface."""
 
     def __init__(self):
+        # Resolve login_customer_id: explicit env var preferred, falls back to customer_id
+        # for non-MCC accounts where both values are the same.
+        login_customer_id = (
+            GOOGLE_ADS_CONFIG.get("login_customer_id")
+            or GOOGLE_ADS_CONFIG.get("customer_id", "")
+        ).replace("-", "")
+
         config_dict = {
             "developer_token": GOOGLE_ADS_CONFIG["developer_token"],
             "client_id": GOOGLE_ADS_CONFIG["client_id"],
             "client_secret": GOOGLE_ADS_CONFIG["client_secret"],
             "refresh_token": GOOGLE_ADS_CONFIG["refresh_token"],
-            "use_proto_plus": True,
+            "use_proto_plus": False,
+            "login_customer_id": login_customer_id,
         }
-        if GOOGLE_ADS_CONFIG.get("login_customer_id"):
-            config_dict["login_customer_id"] = GOOGLE_ADS_CONFIG["login_customer_id"]
 
         self.client = GoogleAdsClient.load_from_dict(config_dict)
         self.customer_id = GOOGLE_ADS_CONFIG["customer_id"].replace("-", "")

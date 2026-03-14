@@ -84,6 +84,35 @@ def health_tokens():
     return jsonify(result), 200
 
 
+@health_bp.route("/health/google-ads")
+def health_google_ads():
+    """Google Ads connectivity check — initializes client and makes a lightweight API call."""
+    import sys
+    import os
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+    try:
+        from config_default import GOOGLE_ADS_CONFIG
+        customer_id = GOOGLE_ADS_CONFIG.get("customer_id", "")
+
+        from app.services.google_ads_client import GoogleAdsClientWrapper
+        wrapper = GoogleAdsClientWrapper()
+
+        if not wrapper.available:
+            return jsonify({"status": "error", "message": "Google Ads client not available — check credentials"}), 503
+
+        # Lightweight test call: list campaigns with LIMIT 1
+        campaigns = wrapper.client.list_campaigns()
+        return jsonify({
+            "status": "ok",
+            "customer_id": customer_id,
+            "campaigns_found": len(campaigns),
+        }), 200
+
+    except Exception as exc:
+        return jsonify({"status": "error", "message": str(exc)}), 503
+
+
 @health_bp.route("/health/detailed")
 def health_detailed():
     """Detailed health check with diagnostics."""

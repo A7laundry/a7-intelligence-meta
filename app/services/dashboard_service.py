@@ -69,7 +69,9 @@ class DashboardService:
                     GoogleAdsApiClient = None
                 if GoogleAdsApiClient is not None:
                     self.google_client = GoogleAdsApiClient()
-                    self.google_available = True
+                    # Use wrapper's own availability check — init may succeed even if
+                    # credentials are invalid; .available reflects the true state.
+                    self.google_available = self.google_client.available
         except Exception:
             pass
 

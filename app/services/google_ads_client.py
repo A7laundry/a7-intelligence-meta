@@ -29,7 +29,7 @@ class GoogleAdsClientWrapper:
     def _init_client(self):
         """Try to initialize Google Ads client; fail silently if not configured."""
         try:
-            from config import GOOGLE_ADS_CONFIG
+            from config_default import GOOGLE_ADS_CONFIG
             token = GOOGLE_ADS_CONFIG.get("developer_token", "")
             if not token or token in ("", "SEU_DEVELOPER_TOKEN"):
                 logger.info("Google Ads not configured — skipping")
