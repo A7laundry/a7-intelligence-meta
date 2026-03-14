@@ -36,11 +36,15 @@ def _safe_float(v, digits=2):
 
 def _get_live_data(account_id: int) -> dict:
     """
-    Fetch full 7-day data from DashboardService (live Meta API).
-    Returns KPIs + campaigns + daily_trend. Empty-safe on failure.
+    Fetch 7-day + today data from DashboardService (live Meta API).
+    Returns KPIs + today metrics + campaigns + daily_trend. Empty-safe on failure.
+
+    Note: Meta's last_7d preset has a 2-day data delay. today preset has no delay.
+    Both are fetched here so spend_today is always accurate even when DB is empty.
     """
     empty = {
         "spend_7d": 0, "conv_7d": 0, "clicks_7d": 0, "impressions_7d": 0,
+        "spend_today": 0, "conv_today": 0,
         "cpa_7d": None, "ctr_7d": None, "cpc_7d": None,
         "top_camps": [], "worst_camps": [], "trend": [],
         "camp_dist": {"active": 0, "paused": 0, "total": 0},
@@ -55,6 +59,17 @@ def _get_live_data(account_id: int) -> dict:
         conv  = int(total.get("conversions", 0) or 0)
         clk   = int(total.get("clicks", 0) or 0)
         imp   = int(total.get("impressions", 0) or 0)
+
+        # Fetch today's data separately — no 2-day delay like last_7d
+        spend_today = 0
+        conv_today  = 0
+        try:
+            today_data  = svc.get_dashboard_data("today", account_id=account_id)
+            today_total = today_data.get("summary", {}).get("total", {})
+            spend_today = float(today_total.get("spend", 0) or 0)
+            conv_today  = int(today_total.get("conversions", 0) or 0)
+        except Exception:
+            pass
 
         # Build top campaigns from live campaign list
         meta_camps = data.get("campaigns", {}).get("meta", []) or []
@@ -105,6 +120,8 @@ def _get_live_data(account_id: int) -> dict:
             "conv_7d":        conv,
             "clicks_7d":      clk,
             "impressions_7d": imp,
+            "spend_today":    round(spend_today, 2),
+            "conv_today":     conv_today,
             "cpa_7d":         _safe_float(spend / conv) if conv > 0 else None,
             "ctr_7d":         _safe_float(clk / imp * 100) if imp > 0 else None,
             "cpc_7d":         _safe_float(spend / clk) if clk > 0 else None,
@@ -431,6 +448,14 @@ def command_center():
         ).fetchone()
         spend_today = float(kpi_today["spend_today"] or 0)
         conv_today  = int(kpi_today["conv_today"] or 0)
+
+        # Live fallback for today — DB is empty after Railway deploys (ephemeral SQLite).
+        # _live_data was already fetched above and includes today from Meta's "today" preset
+        # which has no data-delay (unlike last_7d which has a 2-day delay).
+        if _live_data and spend_today == 0:
+            spend_today = _live_data.get("spend_today", 0) or 0
+            conv_today  = _live_data.get("conv_today", 0) or 0
+
         cpa_today   = _safe_float(spend_today / conv_today) if conv_today > 0 else None
 
         # ── Growth Score ──────────────────────────────────────────────────────
