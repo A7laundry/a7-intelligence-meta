@@ -89,13 +89,9 @@ class DashboardService:
             access_token = account.get("access_token")
             external_id = account.get("external_account_id")
 
-            if not access_token:
-                return self.meta_client  # no token, use default
-
-            # Create a client with this account's token
-            client = MetaAdsClient(access_token=access_token)
-
-            # Override the ad_account_id if the client exposes it
+            # Create client: use account token if available, else use default token
+            # Always override ad_account_id so the correct account is queried
+            client = MetaAdsClient(access_token=access_token) if access_token else MetaAdsClient()
             if external_id and hasattr(client, "ad_account_id"):
                 client.ad_account_id = external_id
 
