@@ -70,7 +70,14 @@ def _get_live_data(account_id: int) -> dict:
             for c in sorted_camps[:5]
         ]
         worst_camps = [
-            c for c in sorted_camps if (c.get("cpa") or 0) > 0
+            {
+                "name":   c.get("name", ""),
+                "spend":  round(float(c.get("spend", 0) or 0), 2),
+                "conv":   int(c.get("conversions", 0) or 0),
+                "cpa":    round(float(c.get("cpa", 0) or 0), 2),
+                "status": c.get("status", ""),
+            }
+            for c in sorted_camps if (c.get("cpa") or 0) > 0
         ]
         worst_camps = sorted(worst_camps, key=lambda c: float(c.get("cpa", 0) or 0), reverse=True)[:5]
 
