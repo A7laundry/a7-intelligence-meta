@@ -1,11 +1,34 @@
 """A7 Intelligence — Flask Application Factory."""
 
+import atexit
+import fcntl
 import os
 
 from flask import Flask
 
 from app.db.init_db import init_db, get_connection
 from app.version import VERSION
+
+
+def _is_scheduler_leader() -> bool:
+    """Return True only for the first worker that acquires the scheduler lock.
+
+    Uses a non-blocking exclusive flock on a well-known path so that only one
+    Gunicorn worker runs the background scheduler at a time.  The lock is held
+    for the lifetime of the process; if the leader dies, the next worker that
+    happens to call this function will pick it up.
+    """
+    if os.environ.get("A7_DISABLE_SCHEDULER") == "1":
+        return False
+    lock_path = "/tmp/a7_scheduler.lock"
+    try:
+        lock_fd = open(lock_path, "w")
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        # Keep fd open for the life of the process — lock released on exit.
+        atexit.register(lambda: (fcntl.flock(lock_fd, fcntl.LOCK_UN), lock_fd.close()))
+        return True
+    except (IOError, OSError):
+        return False
 
 
 def create_app():
@@ -115,10 +138,12 @@ def create_app():
     from app.middleware.auth import register_auth_middleware
     register_auth_middleware(app)
 
-    # Start background publishing scheduler (skip during testing or when disabled)
+    # Start background publishing scheduler (skip during testing or when disabled).
+    # _is_scheduler_leader() uses a non-blocking flock so only one Gunicorn
+    # worker acquires the lock — preventing triple writes to SQLite on Railway.
     scheduler_enabled = (
         not app.testing
-        and os.environ.get("A7_DISABLE_SCHEDULER") != "1"
+        and _is_scheduler_leader()
     )
     if scheduler_enabled:
         from app.services.scheduler_loop_service import start_publishing_scheduler
