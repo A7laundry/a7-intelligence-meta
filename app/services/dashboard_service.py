@@ -12,7 +12,7 @@ from app.services.account_service import AccountService
 from app.services.cache import dashboard_cache
 
 
-_google_warning_logged = False  # Only log once per process
+_warned_once: set = set()  # Track per-process warnings; avoids repeated log spam
 
 RANGES = {
     "today": {"meta_preset": "today", "google_range": "today", "days": 1},
@@ -60,13 +60,12 @@ class DashboardService:
                 try:
                     from app.services.google_ads_client import GoogleAdsApiClient
                 except ImportError:
-                    global _google_warning_logged
-                    if not _google_warning_logged:
+                    if "google_ads" not in _warned_once:
                         import logging as _logging
                         _logging.getLogger(__name__).warning(
                             "google_ads_client not available — Google Ads integration disabled"
                         )
-                        _google_warning_logged = True
+                        _warned_once.add("google_ads")
                     GoogleAdsApiClient = None
                 if GoogleAdsApiClient is not None:
                     self.google_client = GoogleAdsApiClient()
