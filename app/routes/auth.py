@@ -2,6 +2,7 @@
 
 import os
 import logging
+import jwt
 from flask import Blueprint, request, jsonify, session, redirect, url_for
 
 logger = logging.getLogger(__name__)
@@ -85,18 +86,54 @@ def me():
     }), 200
 
 
-def _decode_jwt(token: str):
-    """Decode a Supabase JWT without full verification (role check only).
+_SUPABASE_JWT_SECRET = os.environ.get("SUPABASE_JWT_SECRET", "")
 
-    Full signature verification requires fetching Supabase JWKS.
-    For production hardening, replace with full RS256 verification.
-    TODO: Implement RS256 verification via Supabase JWKS endpoint.
+
+def _decode_jwt(token: str):
+    """Verify and decode a Supabase JWT.
+
+    Supabase signs JWTs with HS256 using the project's JWT Secret
+    (found in Supabase project settings → API → JWT Secret).
+
+    Graceful mode: if SUPABASE_JWT_SECRET is not set, the token is decoded
+    without signature verification so existing deployments are not locked out.
+    Set SUPABASE_JWT_SECRET in Railway (or your environment) to enable full
+    verification.
     """
-    try:
-        import jwt
-        # Decode without verification to read claims
-        # In production, verify with Supabase public key
-        payload = jwt.decode(token, options={"verify_signature": False})
-        return payload
-    except Exception:
+    if not token:
         return None
+
+    secret = os.environ.get("SUPABASE_JWT_SECRET", _SUPABASE_JWT_SECRET)
+
+    if secret:
+        # Full HS256 verification — production path
+        try:
+            payload = jwt.decode(
+                token,
+                secret,
+                algorithms=["HS256"],
+                options={"verify_aud": False},  # Supabase sets aud=authenticated
+            )
+            return payload
+        except jwt.ExpiredSignatureError:
+            logger.debug("JWT expired")
+            return None
+        except jwt.InvalidTokenError as exc:
+            logger.debug("JWT invalid: %s", exc)
+            return None
+    else:
+        # Graceful fallback — no secret configured, skip signature check
+        # WARNING: tokens are NOT verified in this mode. Set SUPABASE_JWT_SECRET.
+        logger.warning(
+            "SUPABASE_JWT_SECRET not set — JWT signature verification is DISABLED. "
+            "Set this env var in Railway to enable secure token validation."
+        )
+        try:
+            payload = jwt.decode(
+                token,
+                options={"verify_signature": False},
+                algorithms=["HS256"],
+            )
+            return payload
+        except Exception:
+            return None
