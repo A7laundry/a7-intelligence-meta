@@ -7,7 +7,7 @@ import time
 from google.ads.googleads.client import GoogleAdsClient
 from google.ads.googleads.errors import GoogleAdsException
 from google.api_core.exceptions import ServiceUnavailable, InternalServerError, DeadlineExceeded
-from config import GOOGLE_ADS_CONFIG
+from config_default import GOOGLE_ADS_CONFIG
 
 
 # Map friendly range names to GAQL date range literals

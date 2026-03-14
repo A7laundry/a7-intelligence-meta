@@ -96,3 +96,7 @@ class GoogleAdsClientWrapper:
         except Exception as e:
             logger.warning("Google Ads fetch_daily_metrics failed: %s", e)
             return []
+
+
+# Alias so dashboard_service.py can import GoogleAdsApiClient from this module
+GoogleAdsApiClient = GoogleAdsClientWrapper
