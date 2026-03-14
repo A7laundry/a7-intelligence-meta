@@ -115,16 +115,20 @@ def _get_live_data(account_id: int) -> dict:
         active_cnt = sum(1 for c in meta_camps if c.get("status") == "ACTIVE")
         paused_cnt = sum(1 for c in meta_camps if c.get("status") == "PAUSED")
 
+        # Meta's last_7d has a 2-day delay — it excludes today and yesterday.
+        # Add today's live spend so the 7d total reflects current reality.
+        spend_7d_adjusted = round(spend + spend_today, 2)
+
         return {
-            "spend_7d":       round(spend, 2),
+            "spend_7d":       spend_7d_adjusted,
             "conv_7d":        conv,
             "clicks_7d":      clk,
             "impressions_7d": imp,
             "spend_today":    round(spend_today, 2),
             "conv_today":     conv_today,
-            "cpa_7d":         _safe_float(spend / conv) if conv > 0 else None,
+            "cpa_7d":         _safe_float(spend_7d_adjusted / conv) if conv > 0 else None,
             "ctr_7d":         _safe_float(clk / imp * 100) if imp > 0 else None,
-            "cpc_7d":         _safe_float(spend / clk) if clk > 0 else None,
+            "cpc_7d":         _safe_float(spend_7d_adjusted / clk) if clk > 0 else None,
             "top_camps":      top_camps,
             "worst_camps":    worst_camps,
             "trend":          trend_mapped,
@@ -436,7 +440,7 @@ def command_center():
             },
         }
 
-        # ── KPIs: today ───────────────────────────────────────────────────────
+        # ── KPIs: today — always live (Meta today preset has zero delay) ────────
         kpi_today = conn.execute(
             """
             SELECT COALESCE(SUM(spend),0) AS spend_today,
@@ -449,14 +453,31 @@ def command_center():
         spend_today = float(kpi_today["spend_today"] or 0)
         conv_today  = int(kpi_today["conv_today"] or 0)
 
-        # Live fallback for today — DB is empty after Railway deploys (ephemeral SQLite).
-        # _live_data was already fetched above and includes today from Meta's "today" preset
-        # which has no data-delay (unlike last_7d which has a 2-day delay).
-        if _live_data and spend_today == 0:
-            spend_today = _live_data.get("spend_today", 0) or 0
-            conv_today  = _live_data.get("conv_today", 0) or 0
+        # Always override with live API for today — DB lags until scheduler runs (can be hours).
+        # _live_data already has today's spend if it was fetched above (snap_days < 3).
+        # When snap_days >= 3, _live_data is None so we fetch today fresh here.
+        _today_src = _live_data if _live_data else None
+        if _today_src is None:
+            # snap_days >= 3 so _live_data wasn't fetched — fetch today live fresh
+            try:
+                from app.services.dashboard_service import DashboardService as _DS
+                _svc_td = _DS()
+                _td_raw = _svc_td.get_dashboard_data("today", account_id=account_id)
+                _td_tot = _td_raw.get("summary", {}).get("total", {})
+                _today_src = {
+                    "spend_today": float(_td_tot.get("spend", 0) or 0),
+                    "conv_today":  int(_td_tot.get("conversions", 0) or 0),
+                }
+            except Exception:
+                _today_src = {}
 
-        cpa_today   = _safe_float(spend_today / conv_today) if conv_today > 0 else None
+        live_spend_today = _today_src.get("spend_today", 0) or 0
+        live_conv_today  = _today_src.get("conv_today", 0) or 0
+        if live_spend_today > 0 or spend_today == 0:
+            spend_today = live_spend_today
+            conv_today  = live_conv_today
+
+        cpa_today = _safe_float(spend_today / conv_today) if conv_today > 0 else None
 
         # ── Growth Score ──────────────────────────────────────────────────────
         growth_score = None
