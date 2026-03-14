@@ -238,7 +238,7 @@ class DashboardService:
             "date_range": range_key,
             "demo": False,
             "account_id": account_id,
-            "partial": (meta_data is None) or (google_data is None),
+            "partial": (meta_data is None) or (self.google_available and google_data is None),
             "summary": {
                 "meta": meta_summary,
                 "google": google_summary,
